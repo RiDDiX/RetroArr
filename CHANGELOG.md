@@ -1,3 +1,8 @@
+## v1.0.77 (2026-03-19)
+
+### Changes
+- Fix GOG downloads parser: handle nested language-wrapped format (ba60aae)
+
 ## v1.0.76 (2026-03-19)
 
 ### Changes
