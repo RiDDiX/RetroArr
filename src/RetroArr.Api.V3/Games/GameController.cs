@@ -1498,13 +1498,27 @@ namespace RetroArr.Api.V3.Games
                     return BadRequest(new { success = false, message = "Failed to get download URL from GOG" });
                 }
 
+                // Resolve filename: use display name from frontend, but ensure it has a file extension
+                // GOG CDN URLs contain the real filename with extension (e.g. setup_dungeons_2_1.0.exe)
                 var fileName = request.FileName;
-                if (string.IsNullOrEmpty(fileName))
+                var cdnFileName = "";
+                try
                 {
                     var uri = new Uri(downloadUrl);
-                    fileName = Path.GetFileName(uri.LocalPath);
-                    if (string.IsNullOrEmpty(fileName))
-                        fileName = $"{game.Title}_gog_setup.exe";
+                    cdnFileName = Path.GetFileName(uri.LocalPath);
+                }
+                catch { /* ignore malformed URL */ }
+
+                if (string.IsNullOrEmpty(fileName))
+                {
+                    fileName = !string.IsNullOrEmpty(cdnFileName) ? cdnFileName : $"{game.Title}_gog_setup.exe";
+                }
+                else if (!Path.HasExtension(fileName) && !string.IsNullOrEmpty(cdnFileName) && Path.HasExtension(cdnFileName))
+                {
+                    // Display name has no extension — append extension from CDN URL
+                    var ext = Path.GetExtension(cdnFileName);
+                    fileName = fileName + ext;
+                    _logger.Info($"[GOG] Appended extension from CDN: {ext} -> {fileName}");
                 }
 
                 var filePath = Path.Combine(targetDir, fileName);
@@ -1522,6 +1536,17 @@ namespace RetroArr.Api.V3.Games
                         httpClient.Timeout = TimeSpan.FromHours(2);
                         using var response = await httpClient.GetAsync(downloadUrl, System.Net.Http.HttpCompletionOption.ResponseHeadersRead);
                         response.EnsureSuccessStatusCode();
+
+                        // Try to get real filename from Content-Disposition header
+                        var cdHeader = response.Content.Headers.ContentDisposition?.FileName?.Trim('"', ' ');
+                        if (!string.IsNullOrEmpty(cdHeader) && !Path.HasExtension(fileName) && Path.HasExtension(cdHeader))
+                        {
+                            var ext = Path.GetExtension(cdHeader);
+                            fileName = fileName + ext;
+                            var newFilePath = Path.Combine(targetDir, fileName);
+                            _logger.Info($"[GOG] Content-Disposition extension: {ext} -> {fileName}");
+                            filePath = newFilePath;
+                        }
 
                         var totalBytes = response.Content.Headers.ContentLength;
                         ct = tracker.Start(trackId, game.Title, fileName, filePath, totalBytes);
