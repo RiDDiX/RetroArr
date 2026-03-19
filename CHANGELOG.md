@@ -1,3 +1,8 @@
+## v1.0.74 (2026-03-19)
+
+### Changes
+- Fix scanner randomly stopping + missing platforms with loose files (bcad635)
+
 ## v1.0.73 (2026-03-19)
 
 ### Changes
