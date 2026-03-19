@@ -1,3 +1,8 @@
+## v1.0.76 (2026-03-19)
+
+### Changes
+- Fix UNIQUE constraint crash in MetadataReview ConfirmMatch (7fb4a90)
+
 ## v1.0.75 (2026-03-19)
 
 ### Changes
