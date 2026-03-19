@@ -1479,14 +1479,22 @@ namespace RetroArr.Api.V3.Games
                 const string GogClientId = "46899977096215655";
                 const string GogClientSecret = "9d85c43b1482497dbbce61f6e4aa173a433796eeae2ca8c5f6129f2dc4de46d9";
 
+                _logger.Info($"[GOG] DownloadGogToGameFolder: game={id}, manualUrl={request.ManualUrl}, targetDir={targetDir}");
+
                 var client = new GogClient(gogSettings.RefreshToken);
                 var refreshed = await client.RefreshTokenAsync(GogClientId, GogClientSecret);
                 if (!refreshed)
+                {
+                    _logger.Error("[GOG] DownloadGogToGameFolder: token refresh failed");
                     return BadRequest(new { success = false, message = "Failed to authenticate with GOG" });
+                }
 
                 var downloadUrl = await client.GetDownloadUrlAsync(request.ManualUrl);
                 if (string.IsNullOrEmpty(downloadUrl))
+                {
+                    _logger.Error($"[GOG] DownloadGogToGameFolder: GetDownloadUrlAsync returned null for {request.ManualUrl}");
                     return BadRequest(new { success = false, message = "Failed to get download URL from GOG" });
+                }
 
                 var fileName = request.FileName;
                 if (string.IsNullOrEmpty(fileName))
@@ -1498,7 +1506,7 @@ namespace RetroArr.Api.V3.Games
                 }
 
                 var filePath = Path.Combine(targetDir, fileName);
-                _logger.Info($"[GOG] Starting download to game folder: {fileName} -> {filePath}");
+                _logger.Info($"[GOG] Starting download to game folder: {fileName} -> {filePath} (url={downloadUrl.Substring(0, Math.Min(120, downloadUrl.Length))}...)");
 
                 _ = Task.Run(async () =>
                 {
@@ -1508,6 +1516,8 @@ namespace RetroArr.Api.V3.Games
                         httpClient.Timeout = TimeSpan.FromHours(2);
                         using var response = await httpClient.GetAsync(downloadUrl, System.Net.Http.HttpCompletionOption.ResponseHeadersRead);
                         response.EnsureSuccessStatusCode();
+                        var totalBytes = response.Content.Headers.ContentLength;
+                        _logger.Info($"[GOG] Download response OK, content-length={totalBytes}");
                         using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
                         await response.Content.CopyToAsync(fs);
                         _logger.Info($"[GOG] Download complete: {filePath}");
@@ -1515,6 +1525,7 @@ namespace RetroArr.Api.V3.Games
                     catch (Exception ex)
                     {
                         _logger.Error($"[GOG] Download to game folder failed: {ex.Message}");
+                        try { if (System.IO.File.Exists(filePath)) System.IO.File.Delete(filePath); } catch { }
                     }
                 });
 
@@ -1522,6 +1533,7 @@ namespace RetroArr.Api.V3.Games
             }
             catch (Exception ex)
             {
+                _logger.Error($"[GOG] DownloadGogToGameFolder exception: {ex.Message}");
                 return BadRequest(new { success = false, message = ex.Message });
             }
         }

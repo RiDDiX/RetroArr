@@ -294,24 +294,59 @@ namespace RetroArr.Core.MetadataSource.Gog
         public async Task<string?> GetDownloadUrlAsync(string manualUrl)
         {
             if (string.IsNullOrEmpty(_accessToken) || string.IsNullOrEmpty(manualUrl))
+            {
+                _logger.Error($"[GOG] GetDownloadUrl: missing accessToken={_accessToken != null} manualUrl={manualUrl}");
                 return null;
+            }
 
-            var fullUrl = manualUrl.StartsWith("http") ? manualUrl : $"https://www.gog.com{manualUrl}";
-            
+            var fullUrl = manualUrl.StartsWith("http") ? manualUrl : $"{GogEmbedUrl}{manualUrl}";
+            _logger.Info($"[GOG] Resolving download URL: {fullUrl}");
+
+            // Use a separate handler that does NOT follow redirects so we can capture CDN URLs
+            using var handler = new HttpClientHandler { AllowAutoRedirect = false };
+            using var noRedirectClient = new HttpClient(handler);
+            noRedirectClient.DefaultRequestHeaders.Add("User-Agent", "RetroArr/1.0");
+
             var request = new HttpRequestMessage(HttpMethod.Get, fullUrl);
             request.Headers.Add("Authorization", $"Bearer {_accessToken}");
 
-            var response = await _httpClient.SendAsync(request);
+            var response = await noRedirectClient.SendAsync(request);
+            _logger.Info($"[GOG] Download URL response: {(int)response.StatusCode} {response.StatusCode}");
+
+            // If GOG returns a redirect, the Location header IS the CDN download URL
+            if ((int)response.StatusCode >= 300 && (int)response.StatusCode < 400)
+            {
+                var location = response.Headers.Location?.ToString();
+                _logger.Info($"[GOG] Redirect to: {location?.Substring(0, Math.Min(120, location?.Length ?? 0))}...");
+                return location;
+            }
+
             if (!response.IsSuccessStatusCode)
             {
                 _logger.Error($"[GOG] Failed to get download URL: {response.StatusCode}");
                 return null;
             }
 
+            // 200 response — expect JSON with downlink
             var content = await response.Content.ReadAsStringAsync();
-            var result = JsonSerializer.Deserialize<GogDownloadUrl>(content, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            
-            return result?.Downlink;
+            _logger.Info($"[GOG] Download URL response body: {content.Substring(0, Math.Min(200, content.Length))}...");
+
+            try
+            {
+                var result = JsonSerializer.Deserialize<GogDownloadUrl>(content, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (!string.IsNullOrEmpty(result?.Downlink))
+                {
+                    _logger.Info($"[GOG] Resolved downlink: {result.Downlink.Substring(0, Math.Min(120, result.Downlink.Length))}...");
+                    return result.Downlink;
+                }
+            }
+            catch (JsonException ex)
+            {
+                _logger.Error($"[GOG] Failed to parse download URL response as JSON: {ex.Message}");
+            }
+
+            _logger.Error("[GOG] Could not resolve download URL from response");
+            return null;
         }
 
         private static void ExtractPlatformDownloads(JsonElement platformArray, string platformName, List<GogDownloadFile> downloads)

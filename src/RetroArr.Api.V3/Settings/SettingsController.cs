@@ -532,12 +532,13 @@ namespace RetroArr.Api.V3.Settings
                     _logger.Info($"[GOG] Created download directory: {downloadPath}");
                 }
 
-                // Get actual download URL
+                // Get actual download URL — always refresh the token first
+                const string GogClientId = "46899977096215655";
+                const string GogClientSecret = "9d85c43b1482497dbbce61f6e4aa173a433796eeae2ca8c5f6129f2dc4de46d9";
                 var client = new GogClient(gogSettings.RefreshToken);
-                if (!string.IsNullOrEmpty(gogSettings.AccessToken))
-                {
-                    client.SetAccessToken(gogSettings.AccessToken, 3600);
-                }
+                var refreshed = await client.RefreshTokenAsync(GogClientId, GogClientSecret);
+                if (!refreshed)
+                    return BadRequest(new { success = false, message = "Failed to authenticate with GOG. Please re-authenticate in Settings." });
 
                 var downloadUrl = await client.GetDownloadUrlAsync(request.ManualUrl);
                 if (string.IsNullOrEmpty(downloadUrl))
