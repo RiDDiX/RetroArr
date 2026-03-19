@@ -1,3 +1,10 @@
+## v1.0.70 (2026-03-19)
+
+### Changes
+- Fix ScreenScraper API: correct base URL, pass dev credentials to test endpoint, add error logging (a760128)
+- chore: bump version to v1.0.69 [skip ci] (e8aa7ad)
+- Initial commit (bec24f8)
+
 ## v1.0.69 (2026-03-19)
 
 ### Changes
