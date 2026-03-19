@@ -353,7 +353,7 @@ namespace RetroArr.Core.Games
             "shadercache", "compatdata", "depotcache", ".steam", ".local", ".cache", "temp", "tmp", "node_modules",
             "windows", "system32", "syswow64", "Microsoft.NET", "Framework", "Framework64", "Internet Explorer", "Accessories", "Windows NT", "INF", "WinSxS", "SysARM32", "Sysnative", "command",
             "retroarch", "autoconfig", "assets", "overlays", "database", "cursors", "cheats", "filters", "libretro", "thumbnails", "config", "remaps", "playlists", "cores", "screenshots",
-            "images", "videos", "media", "snaps", "marquees", "wheels", "boxart", "fanart",
+            "images", "videos", "snaps", "marquees", "wheels", "boxart", "fanart",
             "z:", "d:"
         };
 
@@ -495,7 +495,7 @@ namespace RetroArr.Core.Games
                 var platformSubfolders = DetectPlatformSubfolders(folderPath);
 
                 // If a specific platform was requested, filter to only that platform
-                if (!string.IsNullOrEmpty(overridePlatform) && platformSubfolders.Count > 0)
+                if (!string.IsNullOrEmpty(overridePlatform) && overridePlatform != "default" && platformSubfolders.Count > 0)
                 {
                     platformSubfolders = platformSubfolders
                         .Where(p => p.Platform.MatchesFolderName(overridePlatform))
@@ -1085,7 +1085,7 @@ namespace RetroArr.Core.Games
 
             if (currentDepth > maxDepth) return;
 
-            if (root.Name.StartsWith(".") || _folderBlacklist.Contains(root.Name) || IsMetadataSubfolder(root.Name)) return;
+            if (currentDepth > 0 && (root.Name.StartsWith(".") || _folderBlacklist.Contains(root.Name) || IsMetadataSubfolder(root.Name))) return;
             if (_supplementaryFolderNames.Contains(root.Name)) return;
 
             try
