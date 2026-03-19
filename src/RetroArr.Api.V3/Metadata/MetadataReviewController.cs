@@ -216,6 +216,51 @@ namespace RetroArr.Api.V3.Metadata
             game.MetadataReviewReason = null;
             game.MatchConfidence = request.Score;
 
+            // Guard: if the title changed, check for Title+PlatformId collision
+            var allGames = await _gameRepository.GetAllLightAsync();
+            var collision = allGames.FirstOrDefault(g =>
+                g.Id != gameId &&
+                g.Title.Equals(game.Title, StringComparison.OrdinalIgnoreCase) &&
+                g.PlatformId == game.PlatformId);
+
+            if (collision != null)
+            {
+                _logger.Info($"[MetadataReview] Merging game {gameId} into existing {collision.Id} ('{collision.Title}' on platform {collision.PlatformId})");
+
+                // Transfer path/executable from reviewed game to the existing entry
+                if (!string.IsNullOrEmpty(game.Path) && string.IsNullOrEmpty(collision.Path))
+                    collision.Path = game.Path;
+                if (!string.IsNullOrEmpty(game.ExecutablePath) && string.IsNullOrEmpty(collision.ExecutablePath))
+                    collision.ExecutablePath = game.ExecutablePath;
+
+                // Apply confirmed metadata to the surviving entry
+                collision.IgdbId = game.IgdbId;
+                collision.Overview = game.Overview;
+                collision.Storyline = game.Storyline;
+                collision.Developer = game.Developer;
+                collision.Publisher = game.Publisher;
+                collision.Rating = game.Rating;
+                collision.RatingCount = game.RatingCount;
+                collision.Year = game.Year;
+                collision.ReleaseDate = game.ReleaseDate;
+                collision.Genres = game.Genres;
+                collision.Images = game.Images;
+                collision.MetadataSource = game.MetadataSource;
+                collision.MetadataConfirmedByUser = true;
+                collision.MetadataConfirmedAt = DateTime.UtcNow;
+                collision.NeedsMetadataReview = false;
+                collision.MetadataReviewReason = null;
+                collision.MatchConfidence = request.Score;
+
+                await _gameRepository.UpdateAsync(collision.Id, collision);
+                await _gameRepository.DeleteAsync(gameId);
+
+                try { await _localMediaExport.ExportMediaForGameAsync(collision); }
+                catch (Exception ex) { _logger.Error($"[MetadataReview] Media export error: {ex.Message}"); }
+
+                return Ok(new { success = true, title = collision.Title, merged = true, survivorId = collision.Id });
+            }
+
             await _gameRepository.UpdateAsync(gameId, game);
 
             try { await _localMediaExport.ExportMediaForGameAsync(game); }
