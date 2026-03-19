@@ -243,9 +243,27 @@ namespace RetroArr.Core.MetadataSource
             _logger.Info($"[Metadata] Searching ScreenScraper for: {query} (systemId: {systemId})");
             var ssGames = await _screenScraperClient.SearchGamesByNameAsync(query, systemId);
             
-            foreach (var ssGame in ssGames)
+            // jeuRecherche only returns minimal data (name + cover).
+            // Fetch full details via jeuInfos for each result to get synopsis, developer, etc.
+            var enrichedGames = new List<ScreenScraper.ScreenScraperGame>();
+            foreach (var ssGame in ssGames.Take(5))
             {
-                _logger.Info($"[Metadata] Mapping ScreenScraper game: nom='{ssGame.Nom}', noms={ssGame.Names?.Count ?? 0}, id={ssGame.Id}");
+                if (!string.IsNullOrEmpty(ssGame.Id))
+                {
+                    _logger.Info($"[Metadata] Fetching full details for ScreenScraper game id={ssGame.Id}");
+                    var fullGame = await _screenScraperClient.GetGameByIdAsync(ssGame.Id);
+                    if (fullGame != null)
+                    {
+                        enrichedGames.Add(fullGame);
+                        continue;
+                    }
+                }
+                enrichedGames.Add(ssGame);
+            }
+
+            foreach (var ssGame in enrichedGames)
+            {
+                _logger.Info($"[Metadata] Mapping ScreenScraper game: nom='{ssGame.Nom}', noms={ssGame.Names?.Count ?? 0}, id={ssGame.Id}, synopsis={ssGame.Synopsis?.Count ?? 0}");
                 var game = MapScreenScraperGameToGame(ssGame, platformId, lang);
                 if (game != null)
                 {
