@@ -245,14 +245,20 @@ namespace RetroArr.Core.MetadataSource
             
             foreach (var ssGame in ssGames)
             {
+                _logger.Info($"[Metadata] Mapping ScreenScraper game: nom='{ssGame.Nom}', noms={ssGame.Names?.Count ?? 0}, id={ssGame.Id}");
                 var game = MapScreenScraperGameToGame(ssGame, platformId, lang);
                 if (game != null)
                 {
                     game.MetadataSource = "ScreenScraper";
                     results.Add(game);
                 }
+                else
+                {
+                    _logger.Info($"[Metadata] ScreenScraper mapping returned null for id={ssGame.Id}");
+                }
             }
 
+            _logger.Info($"[Metadata] ScreenScraper search returning {results.Count} mapped game(s)");
             return results;
         }
 

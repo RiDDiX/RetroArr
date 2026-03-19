@@ -15,6 +15,7 @@ namespace RetroArr.Api.V3.Metadata
     [Route("api/v3/game/lookup")]
     public class GameLookupController : ControllerBase
     {
+        private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(RetroArr.Core.Logging.AppLoggerService.ScannerMetadata);
         private readonly IGameMetadataServiceFactory _metadataServiceFactory;
         private readonly IGameRepository _gameRepository;
 
@@ -60,10 +61,12 @@ namespace RetroArr.Api.V3.Metadata
                     }
                 }
 
+                _logger.Info($"[Lookup] Returning {games.Count} game(s) for term='{term}', source={source ?? "igdb"}");
                 return Ok(games);
             }
             catch (Exception ex)
             {
+                _logger.Error($"[Lookup] Exception: {ex.Message}");
                 return StatusCode(500, new { error = ex.Message });
             }
         }
