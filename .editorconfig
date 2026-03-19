@@ -1,0 +1,85 @@
+# Editor config
+.editorconfig
+
+# VS Code settings
+.vscode/
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# User-specific files
+*.user
+*.userosscache
+*.sln.docstates
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]in/
+[Oo]bj/
+_output/
+_temp/
+_tests/
+
+# Visual Studio cache/options
+.vs/
+*.suo
+*.user
+*.cache
+*.ilk
+*.log
+*.tlog
+*.lastbuildstate
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Node modules and frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.yarn/
+.pnp.*
+dist/
+build/
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Test results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.trx
+*.coverage
+*.coveragexml
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+
+# IDE
+.idea/
+*.sln.iml
+.vscode/settings.json
+
+# Config (sensitive)
+config/*.json
+!config/config.example.json

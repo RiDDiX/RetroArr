@@ -1,0 +1,181 @@
+.emulator-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.9);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(10px);
+}
+
+.emulator-modal {
+    width: 95vw;
+    height: 90vh;
+    max-width: 1400px;
+    background: var(--ctp-base);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+.emulator-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    background: linear-gradient(135deg, var(--ctp-surface0), var(--ctp-base));
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.emulator-header h2 {
+    margin: 0;
+    font-size: 1.2rem;
+    color: var(--ctp-text);
+    font-weight: 600;
+}
+
+.emulator-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.emulator-platform-badge {
+    padding: 4px 12px;
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    border-radius: 20px;
+    font-size: 0.75rem;
+    color: var(--ctp-blue);
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.emulator-close-btn {
+    background: color-mix(in srgb, var(--error) 20%, transparent);
+    border: 1px solid color-mix(in srgb, var(--error) 40%, transparent);
+    color: var(--ctp-red);
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    font-size: 1.5rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.emulator-close-btn:hover {
+    background: color-mix(in srgb, var(--error) 40%, transparent);
+    transform: scale(1.1);
+}
+
+.emulator-content {
+    flex: 1;
+    position: relative;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#emulator-container {
+    width: 100%;
+    height: 100%;
+}
+
+.emulator-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    color: var(--ctp-text);
+}
+
+.emulator-spinner {
+    width: 50px;
+    height: 50px;
+    border: 4px solid color-mix(in srgb, var(--accent) 20%, transparent);
+    border-top-color: var(--ctp-blue);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.emulator-loading p {
+    font-size: 1rem;
+    opacity: 0.8;
+}
+
+.emulator-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    color: var(--ctp-red);
+    text-align: center;
+    padding: 40px;
+}
+
+.emulator-error p {
+    font-size: 1rem;
+    max-width: 400px;
+}
+
+.emulator-error button {
+    padding: 10px 24px;
+    background: color-mix(in srgb, var(--error) 20%, transparent);
+    border: 1px solid color-mix(in srgb, var(--error) 40%, transparent);
+    color: var(--ctp-red);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+}
+
+.emulator-error button:hover {
+    background: color-mix(in srgb, var(--error) 40%, transparent);
+}
+
+.emulator-footer {
+    padding: 10px 20px;
+    background: linear-gradient(135deg, var(--ctp-surface0), var(--ctp-base));
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    text-align: center;
+}
+
+.emulator-footer p {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--ctp-overlay0);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .emulator-modal {
+        width: 100vw;
+        height: 100vh;
+        border-radius: 0;
+    }
+
+    .emulator-header h2 {
+        font-size: 1rem;
+    }
+
+    .emulator-platform-badge {
+        display: none;
+    }
+}

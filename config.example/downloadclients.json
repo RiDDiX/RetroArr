@@ -1,0 +1,14 @@
+[
+  {
+    "Id": 1,
+    "Name": "qBittorrent",
+    "Implementation": "qBittorrent",
+    "Host": "http://localhost",
+    "Port": 8080,
+    "Username": "admin",
+    "Password": "password",
+    "Category": "RetroArr",
+    "Enable": true,
+    "Priority": 1
+  }
+]

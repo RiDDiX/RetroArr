@@ -1,0 +1,13 @@
+{
+  "name": "bad-plugin-fixture",
+  "version": "1.0.0",
+  "apiVersion": "1",
+  "description": "Intentionally broken plugin for testing fault isolation. Hangs and then crashes.",
+  "author": "RetroArr Team",
+  "type": "script",
+  "command": "python3",
+  "args": "main.py",
+  "permissions": [],
+  "enabled": true,
+  "timeoutSeconds": 3
+}

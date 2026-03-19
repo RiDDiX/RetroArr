@@ -1,0 +1,95 @@
+.scanner-status {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 9999;
+    padding: 12px 20px;
+    border-radius: 12px;
+    background: var(--surface-0);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    color: var(--ctp-text);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    max-width: 400px;
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(120%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.scanner-status.scanning {
+    border-left: 4px solid var(--ctp-blue);
+}
+
+.scanner-status.finished {
+    border-left: 4px solid var(--ctp-green);
+}
+
+.scanner-status-content {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.scanner-spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-top: 2px solid var(--ctp-blue);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.scanner-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.status-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--ctp-text);
+}
+
+.game-label {
+    font-size: 0.8rem;
+    color: var(--ctp-subtext1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 300px;
+}
+
+.count-label {
+    font-size: 0.75rem;
+    color: var(--ctp-overlay2);
+}
+
+.status-hint {
+    font-size: 0.7rem;
+    color: var(--ctp-overlay0);
+    font-style: italic;
+    margin-top: 4px;
+    display: block;
+}

@@ -1,0 +1,369 @@
+.problems-page {
+  padding: 2rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.problems-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  gap: 1rem;
+  color: var(--ctp-subtext0);
+}
+
+.problems-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.problems-title {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.problems-title h1 {
+  margin: 0;
+  font-size: 1.8rem;
+  color: var(--ctp-text);
+}
+
+.problems-icon {
+  font-size: 1.5rem;
+  color: var(--ctp-red);
+}
+
+.problems-count {
+  background-color: var(--ctp-red);
+  color: var(--ctp-crust);
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.problems-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.btn-refresh,
+.btn-remove-selected {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-refresh {
+  background-color: var(--ctp-surface0);
+  color: var(--ctp-text);
+}
+
+.btn-refresh:hover {
+  background-color: var(--ctp-surface1);
+}
+
+.btn-remove-selected {
+  background-color: var(--ctp-red);
+  color: var(--ctp-crust);
+}
+
+.btn-remove-selected:hover {
+  background-color: var(--ctp-maroon);
+}
+
+.problems-filters {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background-color: var(--ctp-mantle);
+  border-radius: 12px;
+  flex-wrap: wrap;
+}
+
+.filter-icon {
+  color: var(--ctp-overlay0);
+  margin-right: 0.5rem;
+}
+
+.filter-btn {
+  padding: 0.5rem 1rem;
+  background-color: var(--ctp-base);
+  border: 1px solid var(--ctp-surface0);
+  border-radius: 20px;
+  color: var(--ctp-subtext0);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.filter-btn:hover {
+  border-color: var(--accent-color, var(--ctp-blue));
+  color: var(--ctp-text);
+}
+
+.filter-btn.active {
+  background-color: var(--accent-color, var(--ctp-blue));
+  border-color: transparent;
+  color: var(--ctp-crust);
+}
+
+.problems-error {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  background-color: var(--error-bg);
+  border: 1px solid var(--ctp-red);
+  border-radius: 8px;
+  color: var(--ctp-red);
+  margin-bottom: 1rem;
+}
+
+.problems-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  gap: 1rem;
+  color: var(--ctp-subtext0);
+  text-align: center;
+}
+
+.problems-empty svg {
+  color: var(--ctp-green);
+}
+
+.problems-empty h2 {
+  color: var(--ctp-text);
+  margin: 0;
+}
+
+.problems-empty p {
+  margin: 0;
+  max-width: 400px;
+}
+
+.btn-back {
+  margin-top: 1rem;
+  padding: 0.75rem 1.5rem;
+  background: linear-gradient(135deg, var(--ctp-blue) 0%, var(--ctp-mauve) 100%);
+  color: var(--ctp-crust);
+  text-decoration: none;
+  border-radius: 8px;
+  font-weight: 500;
+  transition: transform 0.2s ease;
+}
+
+.btn-back:hover {
+  transform: translateY(-2px);
+}
+
+.problems-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.problems-list-header {
+  padding: 0.5rem 1rem;
+  color: var(--ctp-overlay0);
+  font-size: 0.9rem;
+}
+
+.select-all {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.select-all input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--ctp-blue);
+}
+
+.problem-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background-color: var(--ctp-mantle);
+  border: 1px solid var(--ctp-surface0);
+  border-radius: 12px;
+  transition: all 0.2s ease;
+}
+
+.problem-item:hover {
+  border-color: var(--ctp-surface1);
+  background-color: var(--ctp-base);
+}
+
+.problem-item.selected {
+  border-color: var(--ctp-blue);
+  background-color: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.problem-checkbox {
+  width: 18px;
+  height: 18px;
+  margin-top: 4px;
+  accent-color: var(--ctp-blue);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.problem-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.problem-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.problem-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--ctp-text);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.problem-title:hover {
+  color: var(--ctp-blue);
+}
+
+.problem-type-badge {
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ctp-crust);
+  text-transform: uppercase;
+}
+
+.problem-details {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+  color: var(--ctp-overlay0);
+}
+
+.problem-platform {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.problem-path {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.problem-extension {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--ctp-red);
+  font-weight: 500;
+}
+
+.problem-description {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--ctp-subtext0);
+}
+
+.problem-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.btn-resolve,
+.btn-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-resolve {
+  background-color: color-mix(in srgb, var(--success) 15%, transparent);
+  color: var(--ctp-green);
+}
+
+.btn-resolve:hover {
+  background-color: var(--ctp-green);
+  color: var(--ctp-crust);
+}
+
+.btn-remove {
+  background-color: color-mix(in srgb, var(--error) 15%, transparent);
+  color: var(--ctp-red);
+}
+
+.btn-remove:hover {
+  background-color: var(--ctp-red);
+  color: var(--ctp-crust);
+}
+
+@media (max-width: 768px) {
+  .problems-page {
+    padding: 1rem;
+  }
+
+  .problems-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .problem-item {
+    flex-direction: column;
+  }
+
+  .problem-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .problem-path {
+    max-width: 100%;
+  }
+}

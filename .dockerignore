@@ -1,0 +1,53 @@
+# Version Control
+.git
+.gitignore
+
+# IDE & System
+.vscode
+.DS_Store
+Thumbs.db
+
+# Build Artifacts (Local)
+**/bin/
+**/obj/
+_output/
+build_artifacts/
+_temp/
+
+# Dependencies (Installed inside container)
+node_modules/
+
+# Logs
+*.log
+scanner_log.txt
+
+# Configuration (Secrets - Mounted at runtime)
+config/
+# Note: We do NOT exclude src/config/ just in case it's needed for build, 
+# but root config/ contains live secrets and should never be in the image.
+
+# Documentation & Assets
+screenshots/
+docs/
+README.md
+CONTRIBUTING.md
+SECURITY.md
+DISCLAIMER.md
+RELEASE_NOTES.md
+LICENSE
+
+# Build scripts (not needed in Docker)
+build_*.sh
+create_mac_app.sh
+installer.nsi
+global.json
+
+# App store configs
+_casaos_submission/
+_synology/
+_unraid/
+_tmp/
+docker-compose*.yml
+
+# Tests (not needed in Docker image)
+src/RetroArr.Core.Test/

@@ -1,0 +1,114 @@
+.language-switcher {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    z-index: 9999;
+}
+
+.language-switcher-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    font-size: 0.8125rem;
+    font-weight: 500;
+}
+
+.language-switcher-btn:hover {
+    background: var(--surface-2);
+    border-color: var(--accent);
+}
+
+.lang-flag {
+    font-size: 1.1rem;
+    line-height: 1;
+}
+
+.lang-code {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+}
+
+.language-dropdown {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 0;
+    background: var(--surface-1);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    min-width: 160px;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    animation: slideUp 0.15s ease-out;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.language-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    font-size: 0.8125rem;
+    text-align: left;
+    width: 100%;
+}
+
+.language-option:hover {
+    background: var(--surface-2);
+    color: var(--text-primary);
+}
+
+.language-option.active {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    color: var(--accent);
+}
+
+.language-option .lang-flag {
+    font-size: 1.25rem;
+}
+
+.language-option .lang-name {
+    flex: 1;
+}
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+    .language-switcher {
+        bottom: 15px;
+        left: 15px;
+    }
+    
+    .language-switcher-btn {
+        padding: 6px 10px;
+    }
+    
+    .lang-code {
+        display: none;
+    }
+}

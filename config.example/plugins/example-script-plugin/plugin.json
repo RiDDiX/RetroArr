@@ -1,0 +1,13 @@
+{
+  "name": "example-script-plugin",
+  "version": "1.0.0",
+  "apiVersion": "1",
+  "description": "Example script plugin that auto-tags games by file extension.",
+  "author": "RetroArr Team",
+  "type": "script",
+  "command": "python3",
+  "args": "main.py",
+  "permissions": ["filesystem:read"],
+  "enabled": true,
+  "timeoutSeconds": 10
+}

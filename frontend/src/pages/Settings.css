@@ -1,0 +1,616 @@
+.settings-layout {
+  display: flex;
+  gap: 0;
+  min-height: calc(100vh - 60px);
+}
+
+.settings-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  background: var(--ctp-mantle);
+  border-right: 1px solid var(--ctp-surface0);
+  padding: 1.25rem 0;
+  overflow-y: auto;
+  position: sticky;
+  top: 60px;
+  height: calc(100vh - 60px);
+}
+
+.sidebar-group {
+  margin-bottom: 0.5rem;
+}
+
+.sidebar-group-label {
+  padding: 0.5rem 1.25rem 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--ctp-overlay0);
+}
+
+.sidebar-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.55rem 1.25rem;
+  border: none;
+  background: none;
+  color: var(--ctp-subtext0);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+  text-align: left;
+}
+
+.sidebar-tab:hover {
+  background-color: var(--ctp-surface0);
+  color: var(--ctp-text);
+}
+
+.sidebar-tab.active {
+  background-color: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  border-right: 3px solid var(--accent);
+}
+
+.sidebar-tab-icon {
+  width: 1rem;
+  text-align: center;
+  opacity: 0.7;
+}
+
+.sidebar-tab.active .sidebar-tab-icon {
+  opacity: 1;
+}
+
+.settings-content {
+  flex: 1;
+  min-width: 0;
+  max-width: 800px;
+  padding: 1.5rem 2rem;
+}
+
+.settings {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.settings h2 {
+  font-size: 2rem;
+  color: var(--ctp-text);
+  margin-bottom: 2rem;
+}
+
+@media (max-width: 768px) {
+  .settings-layout {
+    flex-direction: column;
+  }
+
+  .settings-sidebar {
+    width: 100%;
+    height: auto;
+    position: static;
+    display: flex;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--ctp-surface0);
+    padding: 0.5rem 0;
+  }
+
+  .sidebar-group {
+    display: flex;
+    margin-bottom: 0;
+  }
+
+  .sidebar-group-label {
+    display: none;
+  }
+
+  .sidebar-tab {
+    white-space: nowrap;
+    padding: 0.5rem 1rem;
+    border-right: none;
+  }
+
+  .sidebar-tab.active {
+    border-right: none;
+    border-bottom: 2px solid var(--accent);
+  }
+
+  .settings-content {
+    padding: 1rem;
+  }
+}
+
+.settings-section {
+  background-color: var(--ctp-mantle);
+  padding: 2rem;
+  border-radius: 8px;
+  margin-bottom: 2rem;
+  border: 1px solid var(--ctp-surface0);
+}
+
+.settings-section h3 {
+  font-size: 1.25rem;
+  color: var(--ctp-text);
+  margin: 0 0 0.5rem 0;
+}
+
+.settings-description {
+  color: var(--ctp-subtext0);
+  font-size: 0.875rem;
+  margin-bottom: 1.5rem;
+}
+
+.section-header-with-logo {
+  margin-bottom: 1rem;
+}
+
+.igdb-logo,
+.prowlarr-logo,
+.jackett-logo,
+.language-icon,
+.download-icon {
+  height: 40px;
+  width: auto;
+  object-fit: contain;
+}
+
+.igdb-logo {
+  filter: invert(1);
+}
+
+.prowlarr-logo,
+.download-icon {
+  filter: invert(1) brightness(2) grayscale(1);
+  border-radius: 50%;
+}
+
+.jackett-logo {
+  /* filter: none; - Removed invert since the image is already white */
+  border-radius: 8px;
+}
+
+.settings-description a {
+  color: var(--ctp-blue);
+  text-decoration: none;
+}
+
+.settings-description a:hover {
+  text-decoration: underline;
+}
+
+.form-group {
+  margin-bottom: 2rem;
+}
+
+.form-group label {
+  display: block;
+  color: var(--ctp-text);
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+}
+
+.form-group select {
+  width: 100%;
+  padding: 0.75rem;
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 1rem;
+  transition: all 0.2s ease;
+
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23FFFFFF%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E");
+  background-repeat: no-repeat;
+  background-position: right 1rem top 50%;
+  background-size: 0.65rem auto;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 0.75rem;
+  background-color: var(--ctp-crust);
+  color: var(--ctp-text);
+  border: 1px solid var(--ctp-surface0);
+  border-radius: 6px;
+  font-size: 0.875rem;
+  transition: border-color 0.2s;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: var(--ctp-blue);
+}
+
+.form-group input::placeholder {
+  color: var(--ctp-overlay0);
+}
+
+.form-group small {
+  display: block;
+  color: var(--ctp-overlay0);
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.form-group small a {
+  color: var(--ctp-blue);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.2s, text-decoration 0.2s;
+}
+
+.form-group small a:hover {
+  color: var(--ctp-yellow);
+  text-decoration: underline;
+}
+
+
+.btn-primary,
+.btn-secondary {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-primary {
+  background-color: var(--ctp-blue);
+  color: var(--ctp-crust);
+}
+
+.btn-primary:hover {
+  background-color: var(--ctp-blue);
+  transform: translateY(-1px);
+}
+
+.btn-secondary {
+  background-color: var(--ctp-surface0);
+  color: var(--ctp-text);
+}
+
+.btn-secondary:hover {
+  background-color: var(--ctp-surface1);
+  transform: translateY(-1px);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.button-group {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.test-result {
+  padding: 0.75rem;
+  border-radius: 6px;
+  margin: 1rem 0;
+  font-size: 0.875rem;
+}
+
+.test-result.success {
+  background-color: var(--success-bg);
+  color: var(--ctp-green);
+  border: 1px solid var(--ctp-green);
+}
+
+.test-result.error {
+  background-color: var(--error-bg);
+  color: var(--ctp-red);
+  border: 1px solid var(--ctp-red);
+}
+
+/* Download Clients List */
+.clients-list {
+  margin-bottom: 1.5rem;
+}
+
+.client-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: var(--ctp-crust);
+  padding: 1rem;
+  border-radius: 6px;
+  border: 1px solid var(--ctp-surface0);
+  margin-bottom: 0.75rem;
+  transition: all 0.2s;
+}
+
+.client-card:hover {
+  border-color: var(--ctp-surface1);
+}
+
+.client-card.disabled {
+  opacity: 0.5;
+}
+
+.client-info h4 {
+  color: var(--ctp-text);
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.client-info p {
+  color: var(--ctp-subtext0);
+  margin: 0.25rem 0 0 0;
+  font-size: 0.875rem;
+}
+
+.category-badge {
+  display: inline-block;
+  background-color: var(--ctp-surface0);
+  color: var(--ctp-blue);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.client-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.btn-edit,
+.btn-delete {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-edit {
+  background-color: var(--ctp-surface0);
+  color: var(--ctp-blue);
+}
+
+.btn-edit:hover {
+  background-color: var(--ctp-surface1);
+}
+
+.btn-delete {
+  background-color: var(--error-bg);
+  color: var(--ctp-red);
+}
+
+.btn-delete:hover {
+  background-color: color-mix(in srgb, var(--error) 20%, transparent);
+}
+
+/* Modal base styles now in components/ui/Modal.css */
+
+.modal form {
+  padding: 1.5rem;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 1rem;
+}
+
+.form-group select {
+  width: 100%;
+  padding: 0.75rem;
+  background-color: var(--ctp-crust);
+  color: var(--ctp-text);
+  border: 1px solid var(--ctp-surface0);
+  border-radius: 6px;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.form-group select:focus {
+  outline: none;
+  border-color: var(--ctp-blue);
+}
+
+.checkbox-group {
+  display: flex;
+  align-items: center;
+  margin-bottom: 2rem;
+}
+
+.checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  cursor: pointer;
+  color: var(--ctp-text);
+  font-size: 0.95rem;
+  user-select: none;
+  width: 100%;
+}
+
+.btn-square-action {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  place-content: center;
+  border: 2px solid var(--ctp-surface0);
+  border-radius: 4px;
+  background-color: var(--ctp-crust);
+  color: var(--ctp-red);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 18px;
+  line-height: 1;
+  box-sizing: border-box;
+}
+
+.btn-square-action:hover {
+  border-color: var(--ctp-red);
+  background-color: var(--error-bg);
+}
+
+.btn-square-action svg {
+  width: 18px;
+  height: 18px;
+}
+
+.checkbox-group input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  border: 2px solid var(--ctp-surface0);
+  border-radius: 4px;
+  background-color: var(--ctp-crust);
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s ease;
+  margin: 0;
+  display: grid;
+  place-content: center;
+  flex-shrink: 0;
+}
+
+.checkbox-group input[type="checkbox"]:checked {
+  background-color: var(--ctp-blue);
+  border-color: var(--ctp-blue);
+}
+
+.checkbox-group input[type="checkbox"]::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  transform: scale(0);
+  transition: 120ms transform ease-in-out;
+  box-shadow: inset 1em 1em var(--ctp-crust);
+  background-color: CanvasText;
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+}
+
+.checkbox-group input[type="checkbox"]:checked::before {
+  transform: scale(1);
+}
+
+.checkbox-group input[type="checkbox"]:checked::before {
+  transform: scale(1);
+}
+
+.checkbox-group input[type="checkbox"]:hover {
+  border-color: var(--ctp-surface1);
+}
+
+.checkbox-group input[type="checkbox"]:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  outline-offset: 2px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+  padding-top: 1rem;
+  border-top: 1px solid var(--ctp-surface0);
+  margin-top: 1rem;
+}
+
+.form-subsection {
+  margin-top: 2rem;
+  margin-bottom: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--ctp-surface0);
+}
+
+.form-subsection h3 {
+  color: var(--ctp-text) !important;
+  margin: 0 0 0.5rem 0 !important;
+  font-size: 1.1rem !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.5px !important;
+}
+
+.form-subsection .description {
+  color: var(--ctp-subtext0) !important;
+  font-size: 0.85rem !important;
+  margin: 0 0 1.5rem 0 !important;
+  line-height: 1.5 !important;
+}
+
+/* Alias btn-danger to btn-delete for consistency/standard names */
+.btn-danger {
+  background-color: var(--error-bg);
+  color: var(--ctp-red);
+  border: 1px solid color-mix(in srgb, var(--error) 20%, transparent);
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-danger:hover {
+  background-color: color-mix(in srgb, var(--error) 20%, transparent);
+  border-color: color-mix(in srgb, var(--error) 30%, transparent);
+}
+
+.btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Make checkboxes in cards larger as requested */
+.client-card .checkbox-group {
+  margin-bottom: 0;
+}
+
+/* Social Buttons in About Page */
+.social-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--accent-contrast) !important;
+  transition: transform 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.social-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.social-btn.github {
+  background-color: #24292e;
+}
+
+.social-btn.github:hover {
+  background-color: #2f363d;
+}
+
+.social-btn.sponsor {
+  background-color: #db61a2;
+}
+
+.social-btn.sponsor:hover {
+  background-color: var(--ctp-pink);
+}

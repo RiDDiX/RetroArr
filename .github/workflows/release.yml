@@ -1,0 +1,305 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  DOTNET_VERSION: '8.0.x'
+  NODE_VERSION: '22'
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache npm packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-
+
+      - name: Install frontend dependencies
+        run: npm ci --prefer-offline
+
+      - name: Lint (hard gate)
+        run: npm run lint
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('src/**/*.csproj') }}
+          restore-keys: nuget-
+
+      - name: Build backend
+        working-directory: src
+        run: dotnet build RetroArr.sln -c Release
+
+      - name: Run tests
+        working-directory: src
+        run: dotnet test RetroArr.Core.Test/RetroArr.Core.Test.csproj -c Release --no-build --verbosity normal
+
+      - name: Upload frontend build
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: _output/UI/
+          retention-days: 1
+
+  build-platform:
+    needs: quality-gate
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - rid: win-x64
+            name: Windows-x64
+            archive: zip
+          - rid: linux-x64
+            name: Linux-x64
+            archive: tar.gz
+          - rid: osx-x64
+            name: macOS-Intel
+            archive: tar.gz
+          - rid: osx-arm64
+            name: macOS-Silicon
+            archive: tar.gz
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Get version
+        id: version
+        run: |
+          if [ -n "${{ github.ref_name }}" ] && [[ "${{ github.ref_name }}" == v* ]]; then
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+          else
+            VERSION=$(node -p "require('./package.json').version")
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('src/**/*.csproj') }}
+          restore-keys: nuget-
+
+      - name: Download frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-build
+          path: _output/UI/
+
+      - name: Inject ScreenScraper dev credentials
+        run: |
+          FILE="src/RetroArr.Core/MetadataSource/ScreenScraper/ScreenScraperClient.cs"
+          if [ -n "${{ secrets.SCREENSCRAPER_DEVID }}" ]; then
+            sed -i 's/%%SCREENSCRAPER_DEVID%%/${{ secrets.SCREENSCRAPER_DEVID }}/g' "$FILE"
+          fi
+          if [ -n "${{ secrets.SCREENSCRAPER_DEVPASSWORD }}" ]; then
+            sed -i 's/%%SCREENSCRAPER_DEVPASSWORD%%/${{ secrets.SCREENSCRAPER_DEVPASSWORD }}/g' "$FILE"
+          fi
+
+      - name: Publish ${{ matrix.name }}
+        working-directory: src
+        run: |
+          dotnet publish RetroArr.Host/RetroArr.Host.csproj \
+            -c Release \
+            -r ${{ matrix.rid }} \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:PublishTrimmed=false \
+            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:Version=${{ steps.version.outputs.VERSION }} \
+            -o ../publish/${{ matrix.rid }}
+
+      - name: Copy frontend to publish
+        run: |
+          mkdir -p publish/${{ matrix.rid }}/_output/UI
+          cp -r _output/UI/* publish/${{ matrix.rid }}/_output/UI/
+
+      - name: Create archive
+        run: |
+          cd publish/${{ matrix.rid }}
+          if [ "${{ matrix.rid }}" != "win-x64" ]; then
+            chmod +x RetroArr.Host
+          fi
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            zip -r ../../RetroArr-${{ steps.version.outputs.VERSION }}-${{ matrix.name }}.zip .
+          else
+            tar -czvf ../../RetroArr-${{ steps.version.outputs.VERSION }}-${{ matrix.name }}.tar.gz .
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RetroArr-${{ matrix.name }}
+          path: RetroArr-${{ steps.version.outputs.VERSION }}-${{ matrix.name }}.*
+
+  build-installer:
+    needs: build-platform
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Get version
+        id: version
+        run: |
+          if [ -n "${{ github.ref_name }}" ] && [[ "${{ github.ref_name }}" == v* ]]; then
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+          else
+            VERSION=$(node -p "require('./package.json').version")
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          echo "MAJOR=${MAJOR:-0}" >> $GITHUB_OUTPUT
+          echo "MINOR=${MINOR:-0}" >> $GITHUB_OUTPUT
+          echo "PATCH=${PATCH:-0}" >> $GITHUB_OUTPUT
+
+      - name: Download Windows x64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: RetroArr-Windows-x64
+          path: dl/
+
+      - name: Extract build for NSIS
+        run: |
+          mkdir -p build_artifacts/win-x64
+          unzip dl/RetroArr-*.zip -d build_artifacts/win-x64/
+
+      - name: Install NSIS
+        run: sudo apt-get update && sudo apt-get install -y nsis
+
+      - name: Build Windows installer
+        run: |
+          makensis \
+            -DVERSIONmajor=${{ steps.version.outputs.MAJOR }} \
+            -DVERSIONminor=${{ steps.version.outputs.MINOR }} \
+            -DVERSIONbuild=${{ steps.version.outputs.PATCH }} \
+            -DOUTFILE="RetroArr-${{ steps.version.outputs.VERSION }}-Windows-Setup-x64.exe" \
+            installer.nsi
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RetroArr-Windows-Setup
+          path: RetroArr-${{ steps.version.outputs.VERSION }}-Windows-Setup-x64.exe
+
+  release:
+    needs: [build-platform, build-installer]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Get version
+        id: version
+        run: |
+          if [ -n "${{ github.ref_name }}" ] && [[ "${{ github.ref_name }}" == v* ]]; then
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+          else
+            VERSION=$(node -p "require('./package.json').version")
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Move artifacts to release folder
+        run: |
+          mkdir -p release
+          find artifacts -type f -name "RetroArr-*" -exec mv {} release/ \;
+          ls -la release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.VERSION }}
+          name: RetroArr v${{ steps.version.outputs.VERSION }}
+          body: "Release v${{ steps.version.outputs.VERSION }}"
+          draft: false
+          prerelease: false
+          files: release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prune stale GHA caches (keep under 5 GB)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CAP_MB=5120
+          echo "Fetching all GHA caches..."
+          CACHES=$(gh api "/repos/${{ github.repository }}/actions/caches" --paginate --jq '.actions_caches[] | {id,key,size_in_bytes,last_accessed_at}' 2>/dev/null | jq -s '.' || echo "[]")
+          COUNT=$(echo "$CACHES" | jq 'length')
+          TOTAL=$(echo "$CACHES" | jq '[.[].size_in_bytes] | add // 0')
+          TOTAL_MB=$((TOTAL / 1024 / 1024))
+          echo "Total caches: $COUNT — ${TOTAL_MB} MB"
+          
+          if [ "$TOTAL_MB" -gt "$CAP_MB" ]; then
+            echo "Exceeds ${CAP_MB} MB cap. Pruning LRU entries..."
+            SORTED=$(echo "$CACHES" | jq -r 'sort_by(.last_accessed_at) | .[] | "\(.id) \(.size_in_bytes) \(.key)"')
+            RUNNING=$TOTAL
+            echo "$SORTED" | while IFS=' ' read -r cid csize ckey; do
+              RUNNING_MB=$((RUNNING / 1024 / 1024))
+              [ "$RUNNING_MB" -le "$CAP_MB" ] && break
+              echo "Deleting ($((csize/1024/1024)) MB): $ckey"
+              gh api --method DELETE "/repos/${{ github.repository }}/actions/caches/$cid" 2>/dev/null || true
+              RUNNING=$((RUNNING - csize))
+            done
+            NEW_TOTAL=$(gh api "/repos/${{ github.repository }}/actions/caches" --jq '.total_count' 2>/dev/null || echo "?")
+            echo "Caches remaining: $NEW_TOTAL"
+          else
+            echo "Cache within ${CAP_MB} MB cap. No action needed."
+          fi

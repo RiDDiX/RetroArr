@@ -1,0 +1,18 @@
+# RetroArr - Synology Container Manager Template
+# Import this file via Container Manager > Project > Create > Import
+services:
+  retroarr:
+    image: ghcr.io/riddix/retroarr:latest
+    container_name: retroarr
+    ports:
+      - "2727:2727"
+    volumes:
+      - /volume1/docker/retroarr/config:/app/config
+      - /volume1/games:/media
+      - /volume1/downloads:/downloads
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - ASPNETCORE_URLS=http://+:2727
+      - DOTNET_RUNNING_IN_CONTAINER=true
+    restart: unless-stopped

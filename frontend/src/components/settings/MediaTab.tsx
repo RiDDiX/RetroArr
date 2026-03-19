@@ -1,0 +1,346 @@
+import React, { useState, useEffect } from 'react';
+import apiClient, { getErrorMessage, isAxiosError } from '../../api/client';
+import FolderExplorerModal from '../FolderExplorerModal';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faFolderOpen, faSync } from '@fortawesome/free-solid-svg-icons';
+
+interface MediaTabProps {
+  language: string;
+  t: (key: string) => string;
+}
+
+const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
+  const [folderPath, setFolderPath] = useState('');
+  const [downloadPath, setDownloadPath] = useState('');
+  const [destinationPath, setDestinationPath] = useState('');
+  const [destinationPathPattern, setDestinationPathPattern] = useState('{Platform}/{Title}');
+  const [useDestinationPattern, setUseDestinationPattern] = useState(true);
+  const [folderNamingMode, setFolderNamingMode] = useState('native');
+  const [winePrefixPath, setWinePrefixPath] = useState('');
+  const [scanning, setScanning] = useState(false);
+  const [showFolderExplorer, setShowFolderExplorer] = useState(false);
+  const [activeFolderField, setActiveFolderField] = useState<'media' | 'download' | 'destination' | 'wine'>('media');
+
+  const [postDownloadSettings, setPostDownloadSettings] = useState({
+    enableAutoMove: true,
+    enableAutoExtract: true,
+    enableDeepClean: true,
+    monitorIntervalSeconds: 60,
+    unwantedExtensions: ['.txt', '.nfo', '.url']
+  });
+
+  useEffect(() => {
+    loadSettings();
+
+    const handleFolderSelected = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      setFolderPath(customEvent.detail);
+    };
+
+    const handleSettingsUpdated = () => {
+      loadSettings();
+    };
+
+    window.addEventListener('FOLDER_SELECTED_EVENT', handleFolderSelected);
+    window.addEventListener('SETTINGS_UPDATED_EVENT', handleSettingsUpdated);
+
+    return () => {
+      window.removeEventListener('FOLDER_SELECTED_EVENT', handleFolderSelected);
+      window.removeEventListener('SETTINGS_UPDATED_EVENT', handleSettingsUpdated);
+    };
+  }, []);
+
+  // Monitor Scan Status
+  useEffect(() => {
+    let intervalId: ReturnType<typeof setInterval> | undefined;
+    if (scanning) {
+      intervalId = setInterval(async () => {
+        try {
+          const response = await apiClient.get('/media/scan/status');
+          if (!response.data.isScanning) setScanning(false);
+        } catch {
+          setScanning(false);
+        }
+      }, 1000);
+    }
+    return () => { if (intervalId) clearInterval(intervalId); };
+  }, [scanning]);
+
+  const loadSettings = async () => {
+    try {
+      const [mediaRes, postDownloadRes] = await Promise.all([
+        apiClient.get('/media'),
+        apiClient.get('/postdownload'),
+      ]);
+      setFolderPath(mediaRes.data.folderPath);
+      setDownloadPath(mediaRes.data.downloadPath || '');
+      setDestinationPath(mediaRes.data.destinationPath || '');
+      setDestinationPathPattern(mediaRes.data.destinationPathPattern || '{Platform}/{Title}');
+      setUseDestinationPattern(mediaRes.data.useDestinationPattern !== false);
+      setFolderNamingMode(mediaRes.data.folderNamingMode || 'native');
+      setWinePrefixPath(mediaRes.data.winePrefixPath || '');
+      setPostDownloadSettings(postDownloadRes.data);
+    } catch (error) {
+      console.error('Error loading media settings:', error);
+    }
+  };
+
+  const saveMediaConfig = async (overrides?: { folderPath?: string; downloadPath?: string; destinationPath?: string; destinationPathPattern?: string; useDestinationPattern?: boolean; folderNamingMode?: string; winePrefixPath?: string }) => {
+    try {
+      await apiClient.post('/media', {
+        FolderPath: overrides?.folderPath ?? folderPath,
+        DownloadPath: overrides?.downloadPath ?? downloadPath,
+        DestinationPath: overrides?.destinationPath ?? destinationPath,
+        DestinationPathPattern: overrides?.destinationPathPattern ?? destinationPathPattern,
+        UseDestinationPattern: overrides?.useDestinationPattern ?? useDestinationPattern,
+        FolderNamingMode: overrides?.folderNamingMode ?? folderNamingMode,
+        WinePrefixPath: overrides?.winePrefixPath ?? winePrefixPath,
+        Platform: 'default'
+      });
+    } catch (error: unknown) {
+      alert(`${t('error')} ${t('mediaSettingsSaved')}: ${getErrorMessage(error)}`);
+    }
+  };
+
+  const handleSaveMediaSettings = (e: React.FormEvent) => {
+    e.preventDefault();
+    saveMediaConfig();
+  };
+
+  const handleScanNow = async (specificPath?: string) => {
+    setScanning(true);
+    try {
+      await apiClient.post('/media/scan', { folderPath: specificPath || folderPath, platform: 'default' });
+    } catch (error: unknown) {
+      setScanning(false);
+      if (isAxiosError(error) && error.response?.status === 400) {
+        alert(t('igdbRequired'));
+      } else {
+        alert(`${t('error')} ${t('scanNow')}: ${getErrorMessage(error)}`);
+      }
+    }
+  };
+
+  const startFolderPolling = () => {
+    setScanning(true);
+    let attempts = 0;
+    const initialPath = folderPath;
+    const pollInterval = setInterval(async () => {
+      attempts++;
+      try {
+        const response = await apiClient.get(`/media?t=${Date.now()}`);
+        const currentPath = response.data.folderPath;
+        const currentDownloadPath = response.data.downloadPath;
+        const currentDestinationPath = response.data.destinationPath;
+        if (currentPath !== initialPath || currentDownloadPath !== downloadPath || currentDestinationPath !== destinationPath) {
+          setFolderPath(currentPath);
+          setDownloadPath(currentDownloadPath || '');
+          setDestinationPath(currentDestinationPath || '');
+          clearInterval(pollInterval);
+          setScanning(false);
+        }
+      } catch (e) {
+        console.error("Polling error", e);
+      }
+      if (attempts > 60) { clearInterval(pollInterval); setScanning(false); }
+    }, 500);
+  };
+
+  const handleSavePostDownload = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await apiClient.post('/postdownload', postDownloadSettings);
+      alert(t('postDownloadSettingsSaved'));
+    } catch (error: unknown) {
+      alert(`${t('error')}: ${getErrorMessage(error)}`);
+    }
+  };
+
+  return (
+    <>
+      <div className="settings-section" id="media">
+        <div className="section-header-with-logo">
+          <h3>{t('mediaFolderTitle')}</h3>
+        </div>
+        <p className="settings-description">{t('mediaFolderDesc')}</p>
+        <form onSubmit={handleSaveMediaSettings}>
+          <div className="form-group">
+            <label htmlFor="folder-path">{t('mediaFolderPath')}</label>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <input id="folder-path" type="text" value={folderPath} onChange={(e) => setFolderPath(e.target.value)} onBlur={() => saveMediaConfig({ folderPath })} placeholder="/home/user/games" style={{ flex: 1 }} />
+              <button type="button" className="btn-secondary" onClick={() => handleScanNow()} disabled={scanning || !folderPath} title={t('scanNow')}>
+                <FontAwesomeIcon icon={faSync} spin={scanning} />
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => {
+                // @ts-expect-error Photino native bridge
+                if (window.external && window.external.sendMessage) {
+                  startFolderPolling();
+                  // @ts-expect-error Photino native bridge
+                  window.external.sendMessage('SELECT_FOLDER');
+                } else {
+                  setActiveFolderField('media');
+                  setShowFolderExplorer(true);
+                }
+              }} title={t('selectFolder')}>
+                <FontAwesomeIcon icon={faFolderOpen} />
+              </button>
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="download-path">{t('downloadPath')}</label>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <input id="download-path" type="text" value={downloadPath} onChange={(e) => setDownloadPath(e.target.value)} onBlur={() => saveMediaConfig({ downloadPath })} placeholder="/Volumes/Downloads" style={{ flex: 1 }} />
+              <button type="button" className="btn-secondary" onClick={() => {
+                // @ts-expect-error Photino native bridge
+                if (window.external && window.external.sendMessage) {
+                  startFolderPolling();
+                  // @ts-expect-error Photino native bridge
+                  window.external.sendMessage('SELECT_FOLDER:DOWNLOAD');
+                } else {
+                  setActiveFolderField('download');
+                  setShowFolderExplorer(true);
+                }
+              }}>
+                <FontAwesomeIcon icon={faFolderOpen} />
+              </button>
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="destination-path">{t('destinationPath')}</label>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <input id="destination-path" type="text" value={destinationPath} onChange={(e) => setDestinationPath(e.target.value)} onBlur={() => saveMediaConfig({ destinationPath })} placeholder="/Volumes/Media/Games" style={{ flex: 1 }} />
+              <button type="button" className="btn-secondary" onClick={() => {
+                // @ts-expect-error Photino native bridge
+                if (window.external && window.external.sendMessage) {
+                  startFolderPolling();
+                  // @ts-expect-error Photino native bridge
+                  window.external.sendMessage('SELECT_FOLDER:DESTINATION');
+                } else {
+                  setActiveFolderField('destination');
+                  setShowFolderExplorer(true);
+                }
+              }}>
+                <FontAwesomeIcon icon={faFolderOpen} />
+              </button>
+            </div>
+          </div>
+
+          <div className="form-group" style={{ marginTop: '15px', padding: '15px', background: 'var(--surface-1)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+              <input type="checkbox" id="use-destination-pattern" checked={useDestinationPattern} onChange={(e) => { setUseDestinationPattern(e.target.checked); saveMediaConfig({ useDestinationPattern: e.target.checked }); }} style={{ width: 'auto' }} />
+              <label htmlFor="use-destination-pattern" style={{ margin: 0, fontWeight: 600 }}>
+                {t('useDestinationPattern') || 'Use Path Pattern for Downloads'}
+              </label>
+            </div>
+            <p style={{ fontSize: '0.85em', color: 'var(--ctp-subtext0)', marginBottom: '10px' }}>
+              {t('destinationPatternDesc') || 'Automatically organize downloads by platform. Available variables: {Platform}, {Title}, {Year}'}
+            </p>
+            <label htmlFor="destination-pattern">{t('destinationPattern') || 'Path Pattern'}</label>
+            <input id="destination-pattern" type="text" value={destinationPathPattern} onChange={(e) => setDestinationPathPattern(e.target.value)} onBlur={() => saveMediaConfig({ destinationPathPattern })} placeholder="{Platform}/{Title}" disabled={!useDestinationPattern} style={{ opacity: useDestinationPattern ? 1 : 0.5 }} />
+            <small style={{ display: 'block', marginTop: '5px', color: 'var(--ctp-overlay0)' }}>
+              {t('destinationPatternExample') || 'Example: {Platform}/{Title} → switch/Zelda Tears of the Kingdom'}
+            </small>
+          </div>
+
+          <div className="form-group" style={{ marginTop: '15px', padding: '15px', background: 'var(--surface-1)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+            <label htmlFor="folder-naming-mode" style={{ fontWeight: 600 }}>
+              {t('folderNamingMode') || 'Folder Naming Mode'}
+            </label>
+            <p style={{ fontSize: '0.85em', color: 'var(--ctp-subtext0)', marginBottom: '10px' }}>
+              {t('folderNamingModeDesc') || 'Controls platform folder names for compatibility with retro gaming frontends. Native uses RetroArr defaults. RetroBat and Batocera modes rename platform folders to match their expected conventions.'}
+            </p>
+            <select
+              id="folder-naming-mode"
+              value={folderNamingMode}
+              onChange={(e) => { setFolderNamingMode(e.target.value); saveMediaConfig({ folderNamingMode: e.target.value }); }}
+              style={{ width: '100%', padding: '8px', borderRadius: '6px', background: 'var(--surface-0)', color: 'var(--text)', border: '1px solid var(--border)' }}
+            >
+              <option value="native">{t('folderNamingNative') || 'Native (RetroArr)'}</option>
+              <option value="retrobat">{t('folderNamingRetroBat') || 'RetroBat Compatible'}</option>
+              <option value="batocera">{t('folderNamingBatocera') || 'Batocera Compatible'}</option>
+            </select>
+          </div>
+
+          <div className="form-group" style={{ marginTop: '20px', borderTop: '1px solid #444', paddingTop: '15px' }}>
+            <div className="section-header-with-logo">
+              <h4>{t('wineIntegration')}</h4>
+            </div>
+            <p className="settings-description-sm" style={{ fontSize: '0.85em', color: 'var(--ctp-subtext0)' }}>{t('winePrefixPathDesc')}</p>
+            <label htmlFor="wine-path">{t('winePrefixPath')}</label>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <input id="wine-path" type="text" value={winePrefixPath} onChange={(e) => setWinePrefixPath(e.target.value)} onBlur={() => saveMediaConfig({ winePrefixPath })} placeholder="/Users/name/Library/Containers/com.isaacmarovitz.Whisky/Bottles/..." style={{ flex: 1 }} />
+              <button type="button" className="btn-secondary" onClick={() => handleScanNow(winePrefixPath)} disabled={scanning || !winePrefixPath} title={t('scanNow')}>
+                <FontAwesomeIcon icon={faSync} spin={scanning} />
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => { setActiveFolderField('wine'); setShowFolderExplorer(true); }} title={t('selectFolder')}>
+                <FontAwesomeIcon icon={faFolderOpen} />
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <div className="settings-section" id="post-download">
+        <div className="section-header-with-logo">
+          <h3>{t('postDownloadTitle')}</h3>
+        </div>
+        <p className="settings-description">{t('postDownloadDesc')}</p>
+        <form onSubmit={handleSavePostDownload}>
+          <div className="form-group checkbox-group">
+            <label htmlFor="enable-auto-move">
+              <input type="checkbox" id="enable-auto-move" checked={postDownloadSettings.enableAutoMove} onChange={(e) => setPostDownloadSettings({ ...postDownloadSettings, enableAutoMove: e.target.checked })} />
+              {t('enableAutoMove')}
+            </label>
+          </div>
+          <div className="form-group checkbox-group">
+            <label htmlFor="enable-auto-extract">
+              <input type="checkbox" id="enable-auto-extract" checked={postDownloadSettings.enableAutoExtract} onChange={(e) => setPostDownloadSettings({ ...postDownloadSettings, enableAutoExtract: e.target.checked })} />
+              {t('enableAutoExtract')}
+            </label>
+          </div>
+          <div className="form-group checkbox-group">
+            <label htmlFor="enable-deep-clean">
+              <input type="checkbox" id="enable-deep-clean" checked={postDownloadSettings.enableDeepClean} onChange={(e) => setPostDownloadSettings({ ...postDownloadSettings, enableDeepClean: e.target.checked })} />
+              {t('enableDeepClean')}
+            </label>
+          </div>
+          <div className="form-group">
+            <label htmlFor="monitor-interval">{t('monitorInterval')}</label>
+            <input type="number" id="monitor-interval" value={postDownloadSettings.monitorIntervalSeconds} onChange={(e) => setPostDownloadSettings({ ...postDownloadSettings, monitorIntervalSeconds: parseInt(e.target.value) || 60 })} />
+          </div>
+          <div className="form-group">
+            <label htmlFor="unwanted-extensions">{t('unwantedExtensions')}</label>
+            <input type="text" id="unwanted-extensions" value={postDownloadSettings.unwantedExtensions?.join(', ') || ''} onChange={(e) => setPostDownloadSettings({ ...postDownloadSettings, unwantedExtensions: e.target.value.split(',').map(s => s.trim()) })} placeholder=".txt, .nfo, .url" />
+          </div>
+          <div className="button-group">
+            <button type="submit" className="btn-primary">{t('savePostDownload')}</button>
+          </div>
+        </form>
+      </div>
+
+      {showFolderExplorer && (
+        <FolderExplorerModal
+          initialPath={
+            activeFolderField === 'media' ? folderPath :
+            activeFolderField === 'download' ? downloadPath :
+            activeFolderField === 'destination' ? destinationPath :
+            winePrefixPath
+          }
+          onSelect={(path) => {
+            if (activeFolderField === 'media') { setFolderPath(path); saveMediaConfig({ folderPath: path }); }
+            else if (activeFolderField === 'download') { setDownloadPath(path); saveMediaConfig({ downloadPath: path }); }
+            else if (activeFolderField === 'destination') { setDestinationPath(path); saveMediaConfig({ destinationPath: path }); }
+            else if (activeFolderField === 'wine') { setWinePrefixPath(path); saveMediaConfig({ winePrefixPath: path }); }
+            setShowFolderExplorer(false);
+          }}
+          onClose={() => setShowFolderExplorer(false)}
+          language={language}
+        />
+      )}
+    </>
+  );
+};
+
+export default MediaTab;

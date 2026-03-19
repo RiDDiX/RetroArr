@@ -1,0 +1,37 @@
+services:
+  retroarr:
+    build: .
+    container_name: retroarr
+    ports:
+      - "2727:2727"
+    volumes:
+      - ./config:/app/config       # Logs are stored in ./config/logs/ by default
+      - ./games:/media
+      - ./downloads:/downloads
+      - ./savestates:/app/savestates
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:2727
+      - RetroArr_SAVESTATES_PATH=/app/savestates
+    restart: unless-stopped
+    networks:
+      - arr-network
+  # Optional: Include Prowlarr if not running separately
+  # prowlarr:
+  #   image: lscr.io/linuxserver/prowlarr:latest
+  #   container_name: prowlarr
+  #   environment:
+  #     - PUID=1000
+  #     - PGID=1000
+  #     - TZ=Europe/Madrid
+  #   volumes:
+  #     - ./prowlarr-config:/config
+  #   ports:
+  #     - "9696:9696"
+  #   restart: unless-stopped
+  #   networks:
+  #     - arr-network
+
+networks:
+  arr-network:
+    driver: bridge

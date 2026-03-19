@@ -1,0 +1,194 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  /* RetroArr defaults (overridden at runtime by ThemeContext) */
+  --ctp-base: #0d1117;
+  --ctp-mantle: #0a0e14;
+  --ctp-crust: #070a0f;
+  --ctp-surface0: #161b22;
+  --ctp-surface1: #1c2333;
+  --ctp-surface2: #2d3548;
+  --ctp-overlay0: #484f5e;
+  --ctp-overlay1: #5a6270;
+  --ctp-overlay2: #6e7681;
+  --ctp-text: #e6edf3;
+  --ctp-subtext0: #8b949e;
+  --ctp-subtext1: #b1bac4;
+  --ctp-blue: #58a6ff;
+  --ctp-lavender: #d2a8ff;
+  --ctp-sapphire: #33b3de;
+  --ctp-sky: #56d4dd;
+  --ctp-teal: #39d2c0;
+  --ctp-green: #3fb950;
+  --ctp-yellow: #d29922;
+  --ctp-peach: #f0883e;
+  --ctp-maroon: #f47067;
+  --ctp-red: #f85149;
+  --ctp-mauve: #bc8cff;
+  --ctp-pink: #f778ba;
+  --ctp-flamingo: #ff9baa;
+  --ctp-rosewater: #ffc2c7;
+  --ctp-primary: #f0883e;
+  --ctp-primary-hover: #f7b955;
+
+  /* Semantic aliases (mapped from theme colors) */
+  --background: var(--ctp-base);
+  --background-secondary: var(--ctp-mantle);
+  --surface-0: var(--ctp-crust);
+  --surface-1: var(--ctp-surface0);
+  --surface-2: var(--ctp-surface1);
+  --surface-3: var(--ctp-surface2);
+  --border: var(--ctp-surface0);
+  --border-light: var(--ctp-surface1);
+  --text-primary: var(--ctp-text);
+  --text-secondary: var(--ctp-subtext0);
+  --text-muted: var(--ctp-subtext1);
+  --accent: var(--ctp-primary);
+  --accent-hover: var(--ctp-primary-hover);
+  --accent-glow: rgba(240, 136, 62, 0.4);
+  --success: var(--ctp-green);
+  --success-bg: rgba(63, 185, 80, 0.1);
+  --warning: var(--ctp-yellow);
+  --warning-bg: rgba(210, 153, 34, 0.1);
+  --error: var(--ctp-red);
+  --error-bg: rgba(248, 81, 73, 0.1);
+  --info: var(--ctp-blue);
+  --info-bg: rgba(88, 166, 255, 0.1);
+
+  /* Gradients */
+  --gradient-primary: linear-gradient(135deg, var(--ctp-peach) 0%, var(--ctp-yellow) 100%);
+  --gradient-surface: linear-gradient(180deg, var(--surface-1) 0%, var(--surface-0) 100%);
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.6);
+  --shadow-glow: 0 0 40px var(--accent-glow);
+
+  /* Border radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  /* Transitions */
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.25s ease;
+  --transition-slow: 0.4s ease;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--background);
+  color: var(--text-primary);
+  line-height: 1.6;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  transition: background-color var(--transition-normal), color var(--transition-normal);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--surface-0);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--surface-2);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--surface-3);
+}
+
+/* Selection */
+::selection {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.app {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--background);
+}
+
+.main-content {
+  flex: 1;
+  padding: 2rem 3rem;
+  max-width: 1800px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* Global button styles */
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* Focus styles */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Link styles */
+a {
+  color: var(--accent);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+a:hover {
+  color: var(--accent-hover);
+}
+
+@media (max-width: 1200px) {
+  .main-content {
+    padding: 1.5rem 2rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .main-content {
+    padding: 1rem;
+  }
+}
+
+/* Page loading spinner for React.lazy code splitting */
+.page-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40vh;
+}
+
+.loading-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border-light);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

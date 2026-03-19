@@ -1,0 +1,17 @@
+services:
+  RetroArr:
+    image: ghcr.io/riddix/retroarr:latest
+    container_name: RetroArr
+    ports:
+      - "2727:2727"
+    volumes:
+      - ./config:/app/config
+      - /your/games/path:/media
+      - ./savestates:/app/savestates
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - DOTNET_RUNNING_IN_CONTAINER=true
+      - RetroArr_SAVESTATES_PATH=/app/savestates
+      - PUID=1000
+      - PGID=1000
+    restart: unless-stopped

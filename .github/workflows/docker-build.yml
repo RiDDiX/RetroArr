@@ -1,0 +1,224 @@
+name: Build and Push Docker Image
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  REGISTRY: ghcr.io
+  IMAGE_NAME: riddix/retroarr
+  DOTNET_VERSION: '8.0.x'
+  NODE_VERSION: '22'
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Install frontend dependencies
+        run: npm ci --prefer-offline
+
+      - name: Lint (hard gate)
+        run: npm run lint
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('src/**/*.csproj') }}
+          restore-keys: nuget-
+
+      - name: Restore NuGet packages
+        working-directory: src
+        run: dotnet restore RetroArr.sln
+
+      - name: Build backend
+        working-directory: src
+        run: dotnet build RetroArr.sln -c Release --no-restore
+
+      - name: Run tests
+        working-directory: src
+        run: dotnet test RetroArr.Core.Test/RetroArr.Core.Test.csproj --no-build -c Release --verbosity normal
+
+  build:
+    needs: quality-gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Get current version and bump
+        id: version
+        run: |
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          echo "Current version: $CURRENT_VERSION"
+          
+          IFS='.' read -ra VERSION_PARTS <<< "$CURRENT_VERSION"
+          MAJOR="${VERSION_PARTS[0]}"
+          MINOR="${VERSION_PARTS[1]}"
+          PATCH="${VERSION_PARTS[2]}"
+          
+          PATCH=$((PATCH + 1))
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          
+          echo "New version: $NEW_VERSION"
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json'));p.version='$NEW_VERSION';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+
+      - name: Generate changelog
+        run: |
+          NEW_VERSION="${{ steps.version.outputs.new_version }}"
+          DATE=$(date +"%Y-%m-%d")
+          
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          
+          if [ -z "$LAST_TAG" ]; then
+            COMMITS=$(git log --pretty=format:"- %s (%h)" --no-merges -n 50)
+          else
+            COMMITS=$(git log ${LAST_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
+          fi
+          
+          echo "## v${NEW_VERSION} (${DATE})" > /tmp/new_changelog.md
+          echo "" >> /tmp/new_changelog.md
+          echo "### Changes" >> /tmp/new_changelog.md
+          echo "$COMMITS" >> /tmp/new_changelog.md
+          echo "" >> /tmp/new_changelog.md
+          
+          if [ -f "CHANGELOG.md" ]; then
+            cat /tmp/new_changelog.md CHANGELOG.md > /tmp/full_changelog.md
+            mv /tmp/full_changelog.md CHANGELOG.md
+          else
+            echo "# Changelog" > CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            cat /tmp/new_changelog.md >> CHANGELOG.md
+          fi
+          
+          echo "Updated CHANGELOG.md"
+          cat /tmp/new_changelog.md
+
+      - name: Commit version bump
+        run: |
+          git config --local user.email "actions@github.com"
+          git config --local user.name "GitHub Actions"
+          git add package.json CHANGELOG.md
+          NEW_VERSION="${{ steps.version.outputs.new_version }}"
+          git commit -m "chore: bump version to v${NEW_VERSION} [skip ci]" || echo "No changes to commit"
+          git push origin HEAD:${{ github.ref_name }} || echo "Push failed, continuing..."
+
+      - name: Create Git tag
+        run: |
+          NEW_VERSION="${{ steps.version.outputs.new_version }}"
+          git tag -a "v${NEW_VERSION}" -m "Release v${NEW_VERSION}" || echo "Tag exists"
+          git push origin "v${NEW_VERSION}" || echo "Tag push failed"
+        continue-on-error: true
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: image=moby/buildkit:latest
+
+      - name: Compute cache scope (weekly rotation)
+        id: cache_scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "week=$(date +%G%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            SCREENSCRAPER_DEVID=${{ secrets.SCREENSCRAPER_DEVID }}
+            SCREENSCRAPER_DEVPASSWORD=${{ secrets.SCREENSCRAPER_DEVPASSWORD }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.new_version }}
+          cache-from: type=gha,scope=retroarr-${{ runner.os }}-${{ steps.cache_scope.outputs.week }}
+          cache-to: type=gha,mode=min,scope=retroarr-${{ runner.os }}-${{ steps.cache_scope.outputs.week }}
+
+      - name: Build Summary
+        run: |
+          echo "## Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** v${{ steps.version.outputs.new_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Images:**" >> $GITHUB_STEP_SUMMARY
+          echo "- ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "- ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.new_version }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Prune stale GHA caches (keep under 5 GB)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CAP_MB=5120
+          echo "Fetching all GHA caches..."
+          CACHES=$(gh api "/repos/${{ github.repository }}/actions/caches" --paginate --jq '.actions_caches[] | {id,key,size_in_bytes,last_accessed_at}' 2>/dev/null | jq -s '.' || echo "[]")
+          COUNT=$(echo "$CACHES" | jq 'length')
+          TOTAL=$(echo "$CACHES" | jq '[.[].size_in_bytes] | add // 0')
+          TOTAL_MB=$((TOTAL / 1024 / 1024))
+          echo "Total caches: $COUNT — ${TOTAL_MB} MB"
+          
+          if [ "$TOTAL_MB" -gt "$CAP_MB" ]; then
+            echo "Exceeds ${CAP_MB} MB cap. Pruning LRU entries..."
+            SORTED=$(echo "$CACHES" | jq -r 'sort_by(.last_accessed_at) | .[] | "\(.id) \(.size_in_bytes) \(.key)"')
+            RUNNING=$TOTAL
+            echo "$SORTED" | while IFS=' ' read -r cid csize ckey; do
+              RUNNING_MB=$((RUNNING / 1024 / 1024))
+              [ "$RUNNING_MB" -le "$CAP_MB" ] && break
+              echo "Deleting ($((csize/1024/1024)) MB): $ckey"
+              gh api --method DELETE "/repos/${{ github.repository }}/actions/caches/$cid" 2>/dev/null || true
+              RUNNING=$((RUNNING - csize))
+            done
+            NEW_TOTAL=$(gh api "/repos/${{ github.repository }}/actions/caches" --jq '.total_count' 2>/dev/null || echo "?")
+            echo "Caches remaining: $NEW_TOTAL"
+          else
+            echo "Cache within ${CAP_MB} MB cap. No action needed."
+          fi

@@ -1,0 +1,701 @@
+.resort-page {
+  padding: 2rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.resort-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  gap: 1rem;
+  color: var(--ctp-subtext0);
+}
+
+.resort-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.resort-title {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.resort-title h1 {
+  margin: 0;
+  font-size: 1.8rem;
+  color: var(--ctp-text);
+}
+
+.resort-icon {
+  font-size: 1.5rem;
+  color: var(--ctp-mauve);
+}
+
+.resort-count {
+  background-color: var(--ctp-mauve);
+  color: var(--ctp-crust);
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.resort-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.resort-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.resort-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-scan {
+  background-color: var(--ctp-blue);
+  color: var(--ctp-crust);
+}
+
+.btn-scan:hover:not(:disabled) {
+  background-color: var(--ctp-sapphire);
+}
+
+.btn-preview {
+  background-color: var(--ctp-surface0);
+  color: var(--ctp-text);
+}
+
+.btn-preview:hover:not(:disabled) {
+  background-color: var(--ctp-surface1);
+}
+
+.btn-apply {
+  background-color: var(--ctp-green);
+  color: var(--ctp-crust);
+}
+
+.btn-apply:hover:not(:disabled) {
+  background-color: var(--ctp-teal);
+}
+
+.btn-apply-all {
+  background-color: var(--ctp-mauve);
+  color: var(--ctp-crust);
+}
+
+.btn-apply-all:hover:not(:disabled) {
+  background-color: var(--ctp-pink);
+}
+
+/* Filters */
+.resort-filters {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background-color: var(--ctp-mantle);
+  border-radius: 12px;
+  flex-wrap: wrap;
+}
+
+.resort-filters .filter-icon {
+  color: var(--ctp-overlay0);
+  margin-right: 0.5rem;
+}
+
+.resort-filter-btn {
+  padding: 0.5rem 1rem;
+  background-color: var(--ctp-base);
+  border: 1px solid var(--ctp-surface0);
+  border-radius: 20px;
+  color: var(--ctp-subtext0);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.resort-filter-btn:hover {
+  border-color: var(--ctp-mauve);
+  color: var(--ctp-text);
+}
+
+.resort-filter-btn.active {
+  background-color: var(--ctp-mauve);
+  border-color: transparent;
+  color: var(--ctp-crust);
+}
+
+.resort-platform-select {
+  padding: 0.5rem 0.75rem;
+  background-color: var(--ctp-base);
+  border: 1px solid var(--ctp-surface0);
+  border-radius: 8px;
+  color: var(--ctp-text);
+  font-size: 0.85rem;
+  cursor: pointer;
+  outline: none;
+}
+
+.resort-platform-select:focus {
+  border-color: var(--ctp-mauve);
+}
+
+/* Error */
+.resort-error {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  background-color: var(--error-bg);
+  border: 1px solid var(--ctp-red);
+  border-radius: 8px;
+  color: var(--ctp-red);
+  margin-bottom: 1rem;
+}
+
+/* Empty state */
+.resort-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  gap: 1rem;
+  color: var(--ctp-subtext0);
+  text-align: center;
+}
+
+.resort-empty svg {
+  color: var(--ctp-green);
+}
+
+.resort-empty h2 {
+  color: var(--ctp-text);
+  margin: 0;
+}
+
+.resort-empty p {
+  margin: 0;
+  max-width: 500px;
+}
+
+/* Issue list */
+.resort-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.resort-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  color: var(--ctp-overlay0);
+  font-size: 0.9rem;
+}
+
+.resort-select-all {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.resort-select-all input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--ctp-mauve);
+}
+
+.resort-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background-color: var(--ctp-mantle);
+  border: 1px solid var(--ctp-surface0);
+  border-radius: 12px;
+  transition: all 0.2s ease;
+}
+
+.resort-item:hover {
+  border-color: var(--ctp-surface1);
+  background-color: var(--ctp-base);
+}
+
+.resort-item.selected {
+  border-color: var(--ctp-mauve);
+  background-color: rgba(203, 166, 247, 0.05);
+}
+
+.resort-checkbox {
+  width: 18px;
+  height: 18px;
+  margin-top: 4px;
+  accent-color: var(--ctp-mauve);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.resort-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.resort-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.resort-game-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--ctp-text);
+}
+
+.resort-type-badge {
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ctp-crust);
+  text-transform: uppercase;
+}
+
+.resort-details {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+  color: var(--ctp-overlay0);
+}
+
+.resort-platform {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.resort-description {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  color: var(--ctp-subtext0);
+}
+
+.resort-path-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  background-color: var(--ctp-crust);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  overflow-x: auto;
+}
+
+.resort-path-current {
+  color: var(--ctp-red);
+}
+
+.resort-path-current::before {
+  content: '- ';
+  font-weight: bold;
+}
+
+.resort-path-expected {
+  color: var(--ctp-green);
+}
+
+.resort-path-expected::before {
+  content: '+ ';
+  font-weight: bold;
+}
+
+.resort-path-arrow {
+  color: var(--ctp-overlay0);
+  font-size: 0.75rem;
+  padding-left: 1rem;
+}
+
+/* Progress bar */
+.resort-progress {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background-color: var(--ctp-mantle);
+  border-radius: 12px;
+}
+
+.resort-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--ctp-text);
+}
+
+.resort-progress-bar {
+  width: 100%;
+  height: 8px;
+  background-color: var(--ctp-surface0);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.resort-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--ctp-green) 0%, var(--ctp-teal) 100%);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.resort-progress-current {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--ctp-subtext0);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* Results log */
+.resort-results {
+  margin-top: 1.5rem;
+}
+
+.resort-results h3 {
+  margin: 0 0 0.75rem;
+  color: var(--ctp-text);
+  font-size: 1.1rem;
+}
+
+.resort-results-summary {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.resort-stat {
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.resort-stat.applied {
+  background-color: color-mix(in srgb, var(--success) 15%, transparent);
+  color: var(--ctp-green);
+}
+
+.resort-stat.failed {
+  background-color: color-mix(in srgb, var(--error) 15%, transparent);
+  color: var(--ctp-red);
+}
+
+.resort-stat.skipped {
+  background-color: color-mix(in srgb, var(--warning) 15%, transparent);
+  color: var(--ctp-yellow);
+}
+
+.resort-op-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.resort-op-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background-color: var(--ctp-crust);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.resort-op-status {
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+}
+
+.resort-op-status.applied {
+  color: var(--ctp-green);
+}
+
+.resort-op-status.failed {
+  color: var(--ctp-red);
+}
+
+.resort-op-status.skipped {
+  color: var(--ctp-yellow);
+}
+
+.resort-op-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ctp-subtext0);
+}
+
+.resort-op-error {
+  color: var(--ctp-red);
+  font-size: 0.75rem;
+}
+
+/* Confirmation dialog */
+.resort-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.resort-confirm-dialog {
+  background-color: var(--ctp-base);
+  border: 1px solid var(--ctp-surface0);
+  border-radius: 16px;
+  padding: 1.5rem;
+  max-width: 500px;
+  width: 90%;
+}
+
+.resort-confirm-dialog h3 {
+  margin: 0 0 0.75rem;
+  color: var(--ctp-text);
+}
+
+.resort-confirm-dialog p {
+  margin: 0 0 1rem;
+  color: var(--ctp-subtext0);
+  font-size: 0.9rem;
+}
+
+.resort-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.btn-cancel {
+  background-color: var(--ctp-surface0);
+  color: var(--ctp-text);
+}
+
+.btn-cancel:hover {
+  background-color: var(--ctp-surface1);
+}
+
+.btn-confirm {
+  background-color: var(--ctp-green);
+  color: var(--ctp-crust);
+}
+
+.btn-confirm:hover {
+  background-color: var(--ctp-teal);
+}
+
+.btn-fix-platforms {
+  background-color: var(--ctp-mauve);
+  color: var(--ctp-crust);
+}
+
+.btn-fix-platforms:hover {
+  background-color: var(--ctp-pink);
+}
+
+/* Search bar */
+.resort-search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background-color: var(--ctp-surface0);
+  border-radius: 12px;
+  margin-bottom: 0.5rem;
+}
+
+.resort-search-icon {
+  color: var(--ctp-subtext0);
+  flex-shrink: 0;
+}
+
+.resort-search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--ctp-text);
+  font-size: 0.9rem;
+  padding: 0.25rem 0;
+}
+
+.resort-search-input::placeholder {
+  color: var(--ctp-overlay0);
+}
+
+.resort-search-clear {
+  background: none;
+  border: none;
+  color: var(--ctp-subtext0);
+  cursor: pointer;
+  font-size: 1.1rem;
+  padding: 0 0.25rem;
+  line-height: 1;
+}
+
+.resort-search-clear:hover {
+  color: var(--ctp-text);
+}
+
+/* Folder tag */
+.resort-folder-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.5rem;
+  background-color: var(--ctp-surface1);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  color: var(--ctp-subtext1);
+}
+
+/* Reassign button & panel */
+.resort-btn-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: none;
+  border: 1px solid var(--ctp-surface1);
+  border-radius: 4px;
+  color: var(--ctp-blue);
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.4rem;
+  transition: all 0.15s;
+}
+
+.resort-btn-inline:hover {
+  background-color: var(--ctp-surface0);
+  border-color: var(--ctp-blue);
+}
+
+.resort-reassign {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  margin-top: 0.25rem;
+  border-top: 1px solid var(--ctp-surface0);
+}
+
+.resort-reassign-select {
+  flex: 1;
+  background-color: var(--ctp-surface0);
+  color: var(--ctp-text);
+  border: 1px solid var(--ctp-surface1);
+  border-radius: 6px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.8rem;
+  max-width: 350px;
+}
+
+.btn-confirm-sm {
+  background-color: var(--ctp-green);
+  color: var(--ctp-crust);
+  font-size: 0.75rem;
+  padding: 0.3rem 0.6rem;
+}
+
+.btn-confirm-sm:hover {
+  background-color: var(--ctp-teal);
+}
+
+.btn-confirm-sm:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-cancel-sm {
+  background-color: var(--ctp-surface0);
+  color: var(--ctp-text);
+  font-size: 0.75rem;
+  padding: 0.3rem 0.6rem;
+}
+
+.btn-cancel-sm:hover {
+  background-color: var(--ctp-surface1);
+}
+
+/* Success message */
+.resort-success {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background-color: color-mix(in srgb, var(--ctp-green) 15%, var(--ctp-base));
+  border: 1px solid var(--ctp-green);
+  border-radius: 8px;
+  color: var(--ctp-green);
+  font-size: 0.85rem;
+  margin-bottom: 0.5rem;
+}
+
+@media (max-width: 768px) {
+  .resort-page {
+    padding: 1rem;
+  }
+
+  .resort-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .resort-item {
+    flex-direction: column;
+  }
+
+  .resort-actions {
+    width: 100%;
+  }
+
+  .resort-actions .resort-btn {
+    flex: 1;
+    justify-content: center;
+  }
+}

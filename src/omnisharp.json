@@ -1,0 +1,10 @@
+{
+  "FormattingOptions": {
+    "UseTabs": false,
+    "TabSize": 4,
+    "IndentSize": 4
+  },
+  "RoslynExtensionsOptions": {
+    "EnableAnalyzersSupport": true
+  }
+}

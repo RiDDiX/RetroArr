@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RetroArr — Self-Hosted Game Library Manager</title>
+  <meta name="description" content="RetroArr is a self-hosted game library manager for retro and modern games. Organize, enrich, and manage your game collection with automatic metadata from IGDB and ScreenScraper.">
+  <meta name="theme-color" content="#0d1117">
+  <meta property="og:title" content="RetroArr — Self-Hosted Game Library Manager">
+  <meta property="og:description" content="Organize, enrich, and manage your game collection with automatic metadata.">
+  <meta property="og:image" content="https://retroarr.app/screenshots/dashboard.png">
+  <meta property="og:url" content="https://retroarr.app">
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="container nav-container">
+      <a href="#" class="nav-brand">
+        <img src="logo.png" alt="RetroArr" class="nav-logo">
+        <span>RetroArr</span>
+      </a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#screenshots">Screenshots</a>
+        <a href="#install">Install</a>
+        <a href="https://github.com/RiDDiX/RetroArr" class="btn btn-outline btn-sm" target="_blank" rel="noopener">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          GitHub
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="hero-glow"></div>
+    <div class="container hero-content">
+      <img src="logo.png" alt="RetroArr Logo" class="hero-logo">
+      <h1>Your Game Collection,<br><span class="gradient-text">Beautifully Organized</span></h1>
+      <p class="hero-subtitle">RetroArr is a self-hosted game library manager that automatically enriches your collection with metadata, cover art, and more — for retro classics and modern titles alike.</p>
+      <div class="hero-buttons">
+        <a href="#install" class="btn btn-primary btn-lg">Get Started</a>
+        <a href="#screenshots" class="btn btn-ghost btn-lg">See it in Action</a>
+      </div>
+      <div class="hero-badges">
+        <span class="badge">Open Source</span>
+        <span class="badge">Self-Hosted</span>
+        <span class="badge">Docker Ready</span>
+        <span class="badge">100+ Platforms</span>
+      </div>
+    </div>
+    <div class="hero-screenshot-wrapper">
+      <div class="container">
+        <img src="screenshots/dashboard.png" alt="RetroArr Dashboard" class="hero-screenshot">
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section id="features" class="features">
+    <div class="container">
+      <h2 class="section-title">Everything You Need</h2>
+      <p class="section-subtitle">A complete toolkit for managing your game library</p>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <div class="feature-icon">🎮</div>
+          <h3>100+ Platforms</h3>
+          <p>From Atari 2600 to PlayStation 5, Nintendo Switch, PC, and everything in between. Full retro and modern platform support.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🔍</div>
+          <h3>Auto Metadata</h3>
+          <p>Automatically fetch cover art, descriptions, ratings, and more from IGDB and ScreenScraper.fr with intelligent matching.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">📊</div>
+          <h3>Statistics</h3>
+          <p>Genre distribution, platform breakdown, rating analysis, and detailed insights into your collection at a glance.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">📁</div>
+          <h3>Library Resort</h3>
+          <p>Automatically organize and rename your game files with customizable naming patterns and folder structures.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🐳</div>
+          <h3>Docker Native</h3>
+          <p>Deploy in seconds with Docker. Multi-architecture support for x86_64 and ARM64. One command to get started.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🌍</div>
+          <h3>Multi-Language</h3>
+          <p>Full localization support — English, German, French, Spanish, Italian, Portuguese, and Japanese out of the box.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🔗</div>
+          <h3>Integrations</h3>
+          <p>Connect with Prowlarr, Steam, GOG, IGDB, and ScreenScraper. Automated download management and import.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🏷️</div>
+          <h3>Tags & Collections</h3>
+          <p>Organize games with custom tags, smart collections, favorites, and personal ratings and reviews.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🕹️</div>
+          <h3>Play in Browser</h3>
+          <p>Built-in retro emulator powered by EmulatorJS — play supported platforms directly from the web UI with save state support.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Screenshots -->
+  <section id="screenshots" class="screenshots">
+    <div class="container">
+      <h2 class="section-title">See RetroArr in Action</h2>
+      <p class="section-subtitle">A modern, responsive web interface built for game collectors</p>
+      <div class="screenshot-grid">
+        <div class="screenshot-item featured">
+          <img src="screenshots/library.png" alt="Game Library" loading="lazy">
+          <div class="screenshot-label">Library — Browse your entire collection with cover art, filters, and multiple view modes</div>
+        </div>
+        <div class="screenshot-item featured">
+          <img src="screenshots/dashboard.png" alt="Dashboard" loading="lazy">
+          <div class="screenshot-label">Dashboard — Overview with recently added games, random picks, and genre stats</div>
+        </div>
+        <div class="screenshot-item">
+          <img src="screenshots/game-details.png" alt="Game Details" loading="lazy">
+          <div class="screenshot-label">Game Details — Full metadata, ratings, notes, tags, and file management</div>
+        </div>
+        <div class="screenshot-item">
+          <img src="screenshots/statistics.png" alt="Statistics" loading="lazy">
+          <div class="screenshot-label">Statistics — Genre distribution, platform breakdown, and rating analysis</div>
+        </div>
+        <div class="screenshot-item">
+          <img src="screenshots/settings-general.png" alt="Settings" loading="lazy">
+          <div class="screenshot-label">Settings — Configure media paths, metadata sources, and connections</div>
+        </div>
+        <div class="screenshot-item">
+          <img src="screenshots/status.png" alt="System Status" loading="lazy">
+          <div class="screenshot-label">Status — Monitor system health, active tasks, and service connections</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Install -->
+  <section id="install" class="install">
+    <div class="container">
+      <h2 class="section-title">Get Started in Seconds</h2>
+      <p class="section-subtitle">Choose your preferred installation method</p>
+
+      <div class="install-grid">
+        <div class="install-card">
+          <h3>🐳 Docker Compose <span class="rec-badge">Recommended</span></h3>
+          <pre><code>services:
+  retroarr:
+    image: ghcr.io/riddix/retroarr:latest
+    container_name: retroarr
+    ports:
+      - "2727:2727"
+    volumes:
+      - ./config:/app/config
+      - /path/to/games:/media
+      - /path/to/downloads:/downloads
+      - ./savestates:/app/savestates
+    restart: unless-stopped</code></pre>
+          <p class="install-hint">Save as <code>docker-compose.yml</code> and run <code>docker compose up -d</code></p>
+        </div>
+
+        <div class="install-card">
+          <h3>🖥️ Docker CLI</h3>
+          <pre><code>docker run -d \
+  --name retroarr \
+  -p 2727:2727 \
+  -v ./config:/app/config \
+  -v /path/to/games:/media \
+  -v /path/to/downloads:/downloads \
+  -v ./savestates:/app/savestates \
+  ghcr.io/riddix/retroarr:latest</code></pre>
+          <p class="install-hint">Access the web UI at <code>http://localhost:2727</code></p>
+        </div>
+
+        <div class="install-card">
+          <h3>📦 Standalone Binary</h3>
+          <p>Download the latest release for your platform:</p>
+          <div class="download-buttons">
+            <a href="https://github.com/RiDDiX/RetroArr/releases/latest" class="btn btn-outline btn-sm">Windows x64</a>
+            <a href="https://github.com/RiDDiX/RetroArr/releases/latest" class="btn btn-outline btn-sm">Linux x64</a>
+            <a href="https://github.com/RiDDiX/RetroArr/releases/latest" class="btn btn-outline btn-sm">macOS Intel</a>
+            <a href="https://github.com/RiDDiX/RetroArr/releases/latest" class="btn btn-outline btn-sm">macOS Silicon</a>
+          </div>
+          <p class="install-hint">Extract and run the executable. Configuration is stored in <code>./config/</code></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Supported Platforms -->
+  <section class="platforms">
+    <div class="container">
+      <h2 class="section-title">100+ Supported Platforms</h2>
+      <div class="platform-tags">
+        <span>Atari 2600</span><span>Atari 7800</span><span>Atari Lynx</span><span>Atari Jaguar</span>
+        <span>NES</span><span>SNES</span><span>Nintendo 64</span><span>GameCube</span><span>Wii</span><span>Wii U</span><span>Switch</span>
+        <span>Game Boy</span><span>Game Boy Advance</span><span>Nintendo DS</span><span>3DS</span>
+        <span>PlayStation 1</span><span>PlayStation 2</span><span>PlayStation 3</span><span>PS Vita</span><span>PSP</span><span>PS4</span><span>PS5</span>
+        <span>Sega Master System</span><span>Mega Drive</span><span>Saturn</span><span>Dreamcast</span><span>Game Gear</span>
+        <span>Xbox</span><span>Xbox 360</span>
+        <span>Neo Geo</span><span>Neo Geo Pocket</span>
+        <span>TurboGrafx-16</span><span>PC Engine</span>
+        <span>CPS-1</span><span>CPS-2</span><span>CPS-3</span><span>FinalBurn Neo</span><span>MAME</span>
+        <span>Commodore 64</span><span>Amiga</span><span>MSX</span><span>ZX Spectrum</span>
+        <span>MS-DOS</span><span>PC (Windows)</span><span>ScummVM</span>
+        <span>WonderSwan</span><span>Vectrex</span><span>3DO</span><span>Intellivision</span><span>ColecoVision</span>
+        <span class="more">and many more...</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container footer-content">
+      <div class="footer-brand">
+        <img src="logo.png" alt="RetroArr" class="footer-logo">
+        <span>RetroArr</span>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/RiDDiX/RetroArr" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/RiDDiX/RetroArr/releases" target="_blank" rel="noopener">Releases</a>
+        <a href="https://github.com/RiDDiX/RetroArr/issues" target="_blank" rel="noopener">Issues</a>
+        <a href="https://github.com/RiDDiX/RetroArr/wiki" target="_blank" rel="noopener">Wiki</a>
+      </div>
+      <p class="footer-copy">&copy; 2026 RetroArr. Open Source under MIT License.</p>
+    </div>
+  </footer>
+
+  <!-- Lightbox -->
+  <div class="lightbox" id="lightbox" onclick="this.classList.remove('active')">
+    <img id="lightbox-img" src="" alt="">
+  </div>
+
+  <script>
+    document.querySelectorAll('.screenshot-item img').forEach(img => {
+      img.style.cursor = 'zoom-in';
+      img.addEventListener('click', () => {
+        document.getElementById('lightbox-img').src = img.src;
+        document.getElementById('lightbox').classList.add('active');
+      });
+    });
+
+    // Smooth scroll
+    document.querySelectorAll('a[href^="#"]').forEach(a => {
+      a.addEventListener('click', e => {
+        e.preventDefault();
+        const target = document.querySelector(a.getAttribute('href'));
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+
+    // Navbar background on scroll
+    window.addEventListener('scroll', () => {
+      document.querySelector('.navbar').classList.toggle('scrolled', window.scrollY > 40);
+    });
+  </script>
+</body>
+</html>

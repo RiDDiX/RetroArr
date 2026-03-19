@@ -1,0 +1,591 @@
+.metadata-review-page {
+  padding: 2rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.review-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.review-header h1 {
+  margin: 0;
+  font-size: 1.8rem;
+  color: var(--ctp-text);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.review-header h1 svg {
+  color: var(--ctp-peach);
+}
+
+.review-count {
+  background-color: var(--ctp-peach);
+  color: var(--ctp-crust);
+  padding: 0.2rem 0.7rem;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.review-filters {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--ctp-overlay0);
+}
+
+.filter-group select {
+  padding: 0.5rem 1rem;
+  background-color: var(--ctp-surface0);
+  border: 1px solid var(--ctp-surface1);
+  border-radius: 8px;
+  color: var(--ctp-text);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.review-error {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  background-color: var(--error-bg);
+  border: 1px solid var(--ctp-red);
+  border-radius: 8px;
+  color: var(--ctp-red);
+  margin-bottom: 1rem;
+}
+
+.review-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  gap: 1rem;
+  color: var(--ctp-subtext0);
+}
+
+.review-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  gap: 1rem;
+  color: var(--ctp-subtext0);
+  text-align: center;
+}
+
+.review-empty svg {
+  color: var(--ctp-green);
+}
+
+/* ==================== Review Table ==================== */
+
+.review-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.review-table-header {
+  display: grid;
+  grid-template-columns: 2fr 1fr 0.7fr 1fr 1fr;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  color: var(--ctp-overlay0);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.review-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 0.7fr 1fr 1fr;
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  background-color: var(--ctp-mantle);
+  border: 1px solid var(--ctp-surface0);
+  border-radius: 12px;
+  transition: all 0.2s ease;
+}
+
+.review-row:hover {
+  border-color: var(--ctp-surface1);
+  background-color: var(--ctp-base);
+}
+
+.review-game-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.review-cover-thumb {
+  width: 40px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.review-cover-placeholder {
+  width: 40px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--ctp-surface0);
+  border-radius: 4px;
+  color: var(--ctp-overlay0);
+  flex-shrink: 0;
+}
+
+.review-alt-title {
+  font-size: 0.8rem;
+  color: var(--ctp-overlay0);
+  font-style: italic;
+}
+
+.col-platform {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--ctp-subtext0);
+}
+
+.confidence-badge {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.reason-tag {
+  padding: 0.2rem 0.6rem;
+  background-color: var(--ctp-surface0);
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: var(--ctp-subtext0);
+}
+
+.col-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.btn-review,
+.btn-skip,
+.btn-dismiss {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.8rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-review {
+  background-color: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--ctp-blue);
+}
+
+.btn-review:hover {
+  background-color: var(--ctp-blue);
+  color: var(--ctp-crust);
+}
+
+.btn-skip {
+  background-color: var(--ctp-surface0);
+  color: var(--ctp-subtext0);
+  padding: 0.5rem;
+  width: 34px;
+  height: 34px;
+  justify-content: center;
+}
+
+.btn-skip:hover {
+  background-color: var(--ctp-surface1);
+  color: var(--ctp-text);
+}
+
+.btn-dismiss {
+  background-color: var(--error-bg);
+  color: var(--ctp-red);
+  padding: 0.5rem;
+  width: 34px;
+  height: 34px;
+  justify-content: center;
+}
+
+.btn-dismiss:hover {
+  background-color: var(--ctp-red);
+  color: var(--ctp-crust);
+}
+
+/* ==================== Review Modal ==================== */
+
+.review-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.review-modal {
+  background-color: var(--ctp-base);
+  border: 1px solid var(--ctp-surface1);
+  border-radius: 16px;
+  width: 90%;
+  max-width: 700px;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.review-modal-header {
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--ctp-surface0);
+  position: relative;
+}
+
+.review-modal-header h2 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.3rem;
+  color: var(--ctp-text);
+  padding-right: 2rem;
+}
+
+.review-modal-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--ctp-subtext0);
+}
+
+.modal-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: var(--ctp-overlay0);
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.modal-close:hover {
+  color: var(--ctp-text);
+  background-color: var(--ctp-surface0);
+}
+
+.review-search-bar {
+  display: flex;
+  gap: 0.5rem;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--ctp-surface0);
+}
+
+.review-search-bar input {
+  flex: 1;
+  padding: 0.6rem 1rem;
+  background-color: var(--ctp-mantle);
+  border: 1px solid var(--ctp-surface1);
+  border-radius: 8px;
+  color: var(--ctp-text);
+  font-size: 0.9rem;
+}
+
+.review-search-bar input::placeholder {
+  color: var(--ctp-overlay0);
+}
+
+.review-search-bar input:focus {
+  outline: none;
+  border-color: var(--ctp-blue);
+}
+
+.review-search-bar button {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 1rem;
+  background-color: var(--ctp-blue);
+  color: var(--ctp-crust);
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.review-search-bar button:hover:not(:disabled) {
+  background-color: var(--ctp-sapphire);
+}
+
+.review-search-bar button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ==================== Candidates ==================== */
+
+.review-candidates {
+  padding: 1rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.candidates-loading,
+.candidates-empty {
+  padding: 2rem;
+  text-align: center;
+  color: var(--ctp-subtext0);
+}
+
+.candidate-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background-color: var(--ctp-mantle);
+  border: 1px solid var(--ctp-surface0);
+  border-radius: 10px;
+  transition: all 0.2s ease;
+}
+
+.candidate-card:hover {
+  border-color: var(--ctp-surface1);
+}
+
+.candidate-card.best-match {
+  border-color: var(--ctp-green);
+  background-color: color-mix(in srgb, var(--success) 5%, transparent);
+}
+
+.candidate-cover {
+  flex-shrink: 0;
+}
+
+.candidate-cover img {
+  width: 48px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.candidate-cover-placeholder {
+  width: 48px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--ctp-surface0);
+  border-radius: 4px;
+  color: var(--ctp-overlay0);
+}
+
+.candidate-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.candidate-title {
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--ctp-text);
+  margin-bottom: 0.25rem;
+}
+
+.candidate-alt-names {
+  font-size: 0.8rem;
+  color: var(--ctp-overlay1);
+  font-style: italic;
+  margin-bottom: 0.25rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.candidate-meta {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--ctp-overlay0);
+}
+
+.candidate-meta span {
+  white-space: nowrap;
+}
+
+.candidate-year {
+  font-weight: 500;
+}
+
+.candidate-id {
+  opacity: 0.6;
+}
+
+.candidate-score {
+  flex-shrink: 0;
+  padding: 0 0.5rem;
+}
+
+.score-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.candidate-actions {
+  flex-shrink: 0;
+}
+
+.btn-confirm {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  background-color: color-mix(in srgb, var(--success) 15%, transparent);
+  color: var(--ctp-green);
+  border: none;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-confirm:hover:not(:disabled) {
+  background-color: var(--ctp-green);
+  color: var(--ctp-crust);
+}
+
+.btn-confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ==================== Modal Footer ==================== */
+
+.review-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--ctp-surface0);
+}
+
+.btn-skip-modal,
+.btn-dismiss-modal {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 1rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-skip-modal {
+  background-color: var(--ctp-surface0);
+  color: var(--ctp-subtext0);
+}
+
+.btn-skip-modal:hover {
+  background-color: var(--ctp-surface1);
+  color: var(--ctp-text);
+}
+
+.btn-dismiss-modal {
+  background-color: var(--error-bg);
+  color: var(--ctp-red);
+}
+
+.btn-dismiss-modal:hover {
+  background-color: var(--ctp-red);
+  color: var(--ctp-crust);
+}
+
+/* ==================== Responsive ==================== */
+
+@media (max-width: 900px) {
+  .review-table-header {
+    display: none;
+  }
+
+  .review-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .col-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .review-modal {
+    width: 95%;
+    max-height: 90vh;
+  }
+}
+
+@media (max-width: 600px) {
+  .metadata-review-page {
+    padding: 1rem;
+  }
+
+  .review-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .candidate-card {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .candidate-meta {
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+}

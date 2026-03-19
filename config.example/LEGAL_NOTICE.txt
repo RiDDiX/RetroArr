@@ -1,0 +1,12 @@
+IMPORTANT: LEGAL NOTICE & CONFIGURATION RESPONSIBILITY
+
+By configuring and using RetroArr, you acknowledge that you have read and agreed to the terms in the DISCLAIMER.md file located in the root of this repository.
+
+1.  **Download Clients & Indexers:**
+    The configuration of download clients (qBittorrent, Transmission, etc.) and indexers (Prowlarr, Jackett) is entirely at the user's discretion. RetroArr is a neutral tool that interfaces with these services via standard APIs. You are responsible for ensuring that your use of these services complies with your local laws and copyright regulations.
+
+2.  **API Keys:**
+    Do not share your API keys (IGDB, Steam, Prowlarr) publicly. The example files provided here are templates. Ensure your actual configuration files are kept secure and are NOT committed to any public repository.
+
+3.  **Usage:**
+    This software is intended for managing legally acquired backups and digital libraries.

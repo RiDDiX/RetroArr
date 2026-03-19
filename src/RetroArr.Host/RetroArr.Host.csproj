@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Version>0.4.7</Version>
+    <ApplicationIcon Condition="Exists('../../frontend/src/assets/app_logo.ico')">../../frontend/src/assets/app_logo.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RetroArr.Core\RetroArr.Core.csproj" />
+    <ProjectReference Include="..\RetroArr.Api.V3\RetroArr.Api.V3.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="NLog.Extensions.Logging" Version="5.3.8" />
+    <PackageReference Include="Photino.NET" Version="4.0.16" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
+  </ItemGroup>
+</Project>

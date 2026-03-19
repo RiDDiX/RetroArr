@@ -1,0 +1,232 @@
+.review-import-page {
+  padding: 30px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.review-import-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.review-import-header h2 {
+  margin: 0;
+  color: var(--ctp-text);
+  font-size: 22px;
+}
+
+.review-import-header .refresh-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: var(--ctp-surface1);
+  color: var(--ctp-text);
+  border: 1px solid var(--ctp-surface2);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.15s;
+}
+
+.review-import-header .refresh-btn:hover {
+  background: var(--ctp-surface2);
+}
+
+.review-import-loading,
+.review-import-empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--ctp-overlay0);
+}
+
+.review-import-empty p {
+  margin: 4px 0;
+}
+
+.review-import-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.review-item {
+  background: var(--ctp-surface0);
+  border: 1px solid var(--ctp-surface1);
+  border-radius: 10px;
+  padding: 16px 20px;
+  transition: border-color 0.15s;
+}
+
+.review-item:hover {
+  border-color: var(--ctp-overlay0);
+}
+
+.review-item-header {
+  margin-bottom: 12px;
+}
+
+.review-item-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.review-item-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ctp-text);
+}
+
+.review-item-reason {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--ctp-yellow);
+  color: var(--ctp-base);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.review-item-meta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--ctp-subtext0);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.review-item-path {
+  font-family: monospace;
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-item-detail {
+  color: var(--ctp-overlay0);
+  font-style: italic;
+}
+
+.review-item-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.review-item-actions button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: opacity 0.15s;
+}
+
+.review-item-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.review-item-actions .btn-edit {
+  background: var(--ctp-blue);
+  color: var(--ctp-base);
+}
+
+.review-item-actions .btn-finalize {
+  background: var(--ctp-green);
+  color: var(--ctp-base);
+}
+
+.review-item-actions .btn-ignore {
+  background: var(--ctp-surface2);
+  color: var(--ctp-text);
+}
+
+.review-item-actions .btn-dismiss {
+  background: var(--ctp-red);
+  color: #fff;
+}
+
+.review-item-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--ctp-base);
+  border-radius: 8px;
+}
+
+.review-item-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.review-item-edit-row label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ctp-subtext0);
+  min-width: 70px;
+}
+
+.review-item-edit-row select,
+.review-item-edit-row input {
+  flex: 1;
+  padding: 6px 10px;
+  background: var(--ctp-surface0);
+  color: var(--ctp-text);
+  border: 1px solid var(--ctp-surface2);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.review-item-edit-row select:focus,
+.review-item-edit-row input:focus {
+  outline: none;
+  border-color: var(--ctp-blue);
+}
+
+.review-item-edit-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.review-item-edit-actions button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.review-item-edit-actions .btn-save {
+  background: var(--ctp-green);
+  color: var(--ctp-base);
+}
+
+.review-item-edit-actions .btn-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.review-item-edit-actions .btn-cancel {
+  background: var(--ctp-surface2);
+  color: var(--ctp-text);
+}

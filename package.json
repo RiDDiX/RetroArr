@@ -1,0 +1,55 @@
+{
+  "name": "retroarr",
+  "version": "1.0.68",
+  "description": "RetroArr - A PVR for Video Games",
+  "scripts": {
+    "build": "webpack --config ./frontend/build/webpack.config.js",
+    "prebuild": "npm run clean",
+    "clean": "rimraf ./_output/UI && rimraf --glob \"**/*.js.map\"",
+    "start": "webpack --watch --config ./frontend/build/webpack.config.js",
+    "watch": "webpack --watch --config ./frontend/build/webpack.config.js",
+    "lint": "eslint frontend/",
+    "lint-fix": "npm run lint -- --fix"
+  },
+  "author": "Team RetroArr",
+  "license": "MIT",
+  "main": "index.ts",
+  "browserslist": [
+    "defaults"
+  ],
+  "dependencies": {
+    "@fortawesome/fontawesome-svg-core": "^6.7.2",
+    "@fortawesome/free-solid-svg-icons": "^6.7.2",
+    "@fortawesome/react-fontawesome": "^3.1.1",
+    "@tanstack/react-query": "^5.74.3",
+    "@types/node": "^20.16.11",
+    "@types/react": "^18.3.21",
+    "@types/react-dom": "^18.3.1",
+    "axios": "^1.7.9",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.27.0",
+    "@types/react-router-dom": "^5.3.3",
+    "copy-webpack-plugin": "^12.0.2",
+    "css-loader": "^6.11.0",
+    "eslint": "^9.27.0",
+    "eslint-plugin-react": "^7.37.5",
+    "globals": "^16.1.0",
+    "html-webpack-plugin": "^5.6.3",
+    "playwright": "^1.58.2",
+    "rimraf": "^6.0.1",
+    "style-loader": "^3.3.4",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.32.1",
+    "webpack": "^5.97.1",
+    "webpack-cli": "^5.1.4",
+    "webpack-dev-server": "^5.2.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

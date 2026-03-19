@@ -1,0 +1,13 @@
+{
+  "name": "example-metadata-plugin",
+  "version": "1.0.0",
+  "apiVersion": "1",
+  "description": "Example metadata plugin that returns supplemental game info from a local JSON file.",
+  "author": "RetroArr Team",
+  "type": "metadata",
+  "command": "python3",
+  "args": "main.py",
+  "permissions": ["filesystem:read"],
+  "enabled": true,
+  "timeoutSeconds": 10
+}
