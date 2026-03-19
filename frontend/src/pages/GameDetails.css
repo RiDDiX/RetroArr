@@ -113,6 +113,36 @@
   font-size: 0.95rem;
 }
 
+.game-details-info .overview a {
+  color: var(--ctp-blue);
+  text-decoration: none;
+}
+
+.game-details-info .overview a:hover {
+  text-decoration: underline;
+}
+
+.game-details-info .overview img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin: 8px 0;
+}
+
+.game-details-info .overview p {
+  margin: 0 0 8px 0;
+}
+
+.game-details-info .overview ul,
+.game-details-info .overview ol {
+  padding-left: 20px;
+  margin: 8px 0;
+}
+
+.game-details-info .overview br + br {
+  display: none;
+}
+
 /* Game Actions Menu */
 .game-actions-menu {
   display: flex;

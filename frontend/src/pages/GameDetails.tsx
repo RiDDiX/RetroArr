@@ -115,6 +115,21 @@ interface GogDownloadResult extends Partial<TorrentResult> {
   isOwned?: boolean;
 }
 
+function sanitizeHtml(html: string): string {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  // Remove dangerous elements
+  doc.querySelectorAll('script,iframe,object,embed,form,input,textarea,button,meta,link,style').forEach(el => el.remove());
+  // Remove event handler attributes from all elements
+  doc.querySelectorAll('*').forEach(el => {
+    for (const attr of Array.from(el.attributes)) {
+      if (attr.name.startsWith('on') || (attr.name === 'href' && attr.value.trimStart().startsWith('javascript'))) {
+        el.removeAttribute(attr.name);
+      }
+    }
+  });
+  return doc.body.innerHTML;
+}
+
 const GameDetails: React.FC = () => {
   useTranslation(); // Subscribe to language changes
   const { id } = useParams<{ id: string }>();
@@ -1356,7 +1371,7 @@ const GameDetails: React.FC = () => {
             </div>
           )}
           {game.overview && (
-            <p className="overview">{game.overview}</p>
+            <div className="overview" dangerouslySetInnerHTML={{ __html: sanitizeHtml(game.overview) }} />
           )}
 
           {/* User Review Section */}
