@@ -206,7 +206,6 @@ namespace RetroArr.Core.MetadataSource.Gog
 
             var downloads = new List<GogDownloadFile>();
             
-            // Handle cases where Downloads might be null, a string, or an unexpected type
             if (details?.Downloads == null)
             {
                 _logger.Info($"[GOG] No downloads property found for {gogId}");
@@ -216,98 +215,72 @@ namespace RetroArr.Core.MetadataSource.Gog
             var downloadsKind = details.Downloads.Value.ValueKind;
             _logger.Info($"[GOG] Downloads property type: {downloadsKind}");
             
-            // If Downloads is a string (empty or otherwise), skip parsing
             if (downloadsKind == JsonValueKind.String || downloadsKind == JsonValueKind.Null || downloadsKind == JsonValueKind.Undefined)
             {
                 _logger.Info($"[GOG] Downloads is not an object/array (type: {downloadsKind}), returning empty list");
                 return downloads;
             }
             
-            if (downloadsKind == JsonValueKind.Object)
+            try
             {
-                // GOG API returns: { "downloads": { "windows": [...], "mac": [...], "linux": [...] } }
-                // or sometimes as an array of arrays
-                try
+                if (downloadsKind == JsonValueKind.Object)
                 {
+                    // Format A: { "downloads": { "windows": [...], "mac": [...], "linux": [...] } }
                     foreach (var platform in details.Downloads.Value.EnumerateObject())
                     {
-                        var platformName = platform.Name;
-                        var platformValue = platform.Value;
-                        
-                        // Skip if platform value is not an array (could be string or other type)
-                        if (platformValue.ValueKind != JsonValueKind.Array)
-                        {
-                            _logger.Info($"[GOG] Skipping platform '{platformName}' - value is {platformValue.ValueKind}, not Array");
-                            continue;
-                        }
-                        
-                        foreach (var item in platformValue.EnumerateArray())
-                        {
-                            // Skip non-object items
-                            if (item.ValueKind != JsonValueKind.Object)
-                            {
-                                continue;
-                            }
-                            
-                            var download = new GogDownloadFile
-                            {
-                                Platform = platformName,
-                                Name = item.TryGetProperty("name", out var nameEl) ? nameEl.GetString() ?? "Unknown" : "Unknown",
-                                Size = item.TryGetProperty("size", out var sizeEl) ? sizeEl.GetString() : null,
-                                ManualUrl = item.TryGetProperty("manualUrl", out var urlEl) ? urlEl.GetString() : null
-                            };
-                            downloads.Add(download);
-                        }
+                        if (platform.Value.ValueKind == JsonValueKind.Array)
+                            ExtractPlatformDownloads(platform.Value, platform.Name, downloads);
                     }
                 }
-                catch (InvalidOperationException ex)
+                else if (downloadsKind == JsonValueKind.Array)
                 {
-                    _logger.Error($"[GOG] Error parsing downloads object: {ex.Message}");
-                }
-            }
-            else if (details?.Downloads != null && details.Downloads.Value.ValueKind == JsonValueKind.Array)
-            {
-                // Alternative format: downloads is an array directly
-                try
-                {
+                    // Format B: [ ["English", { "windows": [...], ... }], ... ]
                     foreach (var item in details.Downloads.Value.EnumerateArray())
                     {
-                        // Check if this is an array of arrays (per-platform grouping)
-                        if (item.ValueKind == JsonValueKind.Array)
+                        if (item.ValueKind == JsonValueKind.Object)
                         {
-                            foreach (var subItem in item.EnumerateArray())
+                            // Could be a direct download or a platform container
+                            if (IsDownloadObject(item))
                             {
-                                // Skip non-object items
-                                if (subItem.ValueKind != JsonValueKind.Object) continue;
-                                
-                                var download = new GogDownloadFile
+                                downloads.Add(ParseDownloadObject(item, "windows"));
+                            }
+                            else
+                            {
+                                // Platform container: {"windows": [...], "mac": [...]}
+                                foreach (var platform in item.EnumerateObject())
                                 {
-                                    Platform = "windows",
-                                    Name = subItem.TryGetProperty("name", out var nameEl) ? nameEl.GetString() ?? "Unknown" : "Unknown",
-                                    Size = subItem.TryGetProperty("size", out var sizeEl) ? sizeEl.GetString() : null,
-                                    ManualUrl = subItem.TryGetProperty("manualUrl", out var urlEl) ? urlEl.GetString() : null
-                                };
-                                downloads.Add(download);
+                                    if (platform.Value.ValueKind == JsonValueKind.Array)
+                                        ExtractPlatformDownloads(platform.Value, platform.Name, downloads);
+                                }
                             }
                         }
-                        else if (item.ValueKind == JsonValueKind.Object)
+                        else if (item.ValueKind == JsonValueKind.Array)
                         {
-                            var download = new GogDownloadFile
+                            // Language-wrapped: ["English", {"windows": [...]}] or ["English", {download}]
+                            foreach (var subItem in item.EnumerateArray())
                             {
-                                Platform = item.TryGetProperty("os", out var osEl) ? osEl.GetString() ?? "windows" : "windows",
-                                Name = item.TryGetProperty("name", out var nameEl) ? nameEl.GetString() ?? "Unknown" : "Unknown",
-                                Size = item.TryGetProperty("size", out var sizeEl) ? sizeEl.GetString() : null,
-                                ManualUrl = item.TryGetProperty("manualUrl", out var urlEl) ? urlEl.GetString() : null
-                            };
-                            downloads.Add(download);
+                                if (subItem.ValueKind != JsonValueKind.Object) continue;
+                                
+                                if (IsDownloadObject(subItem))
+                                {
+                                    downloads.Add(ParseDownloadObject(subItem, "windows"));
+                                }
+                                else
+                                {
+                                    foreach (var platform in subItem.EnumerateObject())
+                                    {
+                                        if (platform.Value.ValueKind == JsonValueKind.Array)
+                                            ExtractPlatformDownloads(platform.Value, platform.Name, downloads);
+                                    }
+                                }
+                            }
                         }
-                        // Skip string/null/other items silently
                     }
                 }
-                catch (InvalidOperationException ex)
-                {
-                    _logger.Error($"[GOG] Error parsing downloads array: {ex.Message}");
-                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"[GOG] Error parsing downloads: {ex.Message}");
             }
             
             _logger.Info($"[GOG] Found {downloads.Count} downloads for {gogId}");
@@ -339,6 +312,57 @@ namespace RetroArr.Core.MetadataSource.Gog
             var result = JsonSerializer.Deserialize<GogDownloadUrl>(content, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
             
             return result?.Downlink;
+        }
+
+        private static void ExtractPlatformDownloads(JsonElement platformArray, string platformName, List<GogDownloadFile> downloads)
+        {
+            foreach (var item in platformArray.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.Object)
+                {
+                    downloads.Add(ParseDownloadObject(item, platformName));
+                }
+                else if (item.ValueKind == JsonValueKind.Array)
+                {
+                    // Language-wrapped: ["English", {manualUrl, name, size}]
+                    foreach (var subItem in item.EnumerateArray())
+                    {
+                        if (subItem.ValueKind == JsonValueKind.Object)
+                            downloads.Add(ParseDownloadObject(subItem, platformName));
+                    }
+                }
+            }
+        }
+
+        private static bool IsDownloadObject(JsonElement obj)
+        {
+            return obj.TryGetProperty("manualUrl", out _) || obj.TryGetProperty("manual_url", out _);
+        }
+
+        private static GogDownloadFile ParseDownloadObject(JsonElement obj, string platform)
+        {
+            // Handle both camelCase (manualUrl) and snake_case (manual_url)
+            string? manualUrl = null;
+            if (obj.TryGetProperty("manualUrl", out var urlEl))
+                manualUrl = urlEl.GetString();
+            else if (obj.TryGetProperty("manual_url", out urlEl))
+                manualUrl = urlEl.GetString();
+
+            string name = "Unknown";
+            if (obj.TryGetProperty("name", out var nameEl) && nameEl.ValueKind == JsonValueKind.String)
+                name = nameEl.GetString() ?? "Unknown";
+
+            string? size = null;
+            if (obj.TryGetProperty("size", out var sizeEl) && sizeEl.ValueKind == JsonValueKind.String)
+                size = sizeEl.GetString();
+
+            return new GogDownloadFile
+            {
+                Platform = platform,
+                Name = name,
+                Size = size,
+                ManualUrl = manualUrl
+            };
         }
     }
 
