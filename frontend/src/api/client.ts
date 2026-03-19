@@ -108,6 +108,21 @@ export interface GameUpdateFile {
   type: string;
 }
 
+export interface LocalMediaItem {
+  type: string;
+  fileName: string;
+  fullPath: string;
+  url: string;
+  size?: number;
+}
+
+export interface LocalMediaResponse {
+  images: LocalMediaItem[];
+  videos: LocalMediaItem[];
+  platformDir?: string;
+  romBaseName?: string;
+}
+
 export interface Platform {
   id: number;
   name: string;

@@ -1255,6 +1255,194 @@ namespace RetroArr.Api.V3.Games
         }
 
         /// <summary>
+        /// Discover local media files (images + videos) for a game.
+        /// Follows RetroBat/Batocera convention: {platform}/images/ and {platform}/videos/
+        /// Files are matched by ROM filename without extension.
+        /// </summary>
+        [HttpGet("{id}/local-media")]
+        public async Task<ActionResult> GetLocalMedia(int id)
+        {
+            var game = await _repository.GetByIdAsync(id);
+            if (game == null) return NotFound();
+
+            var images = new List<object>();
+            var videos = new List<object>();
+
+            // Determine platform directory from game path
+            string? platformDir = null;
+            string? romBaseName = null;
+
+            // Single-file ROM: game.Path points to the ROM file
+            if (!string.IsNullOrEmpty(game.Path) && System.IO.File.Exists(game.Path))
+            {
+                platformDir = Path.GetDirectoryName(game.Path);
+                romBaseName = Path.GetFileNameWithoutExtension(game.Path);
+            }
+            // Folder-based game: game.Path is the game folder, parent is platform dir
+            else if (!string.IsNullOrEmpty(game.Path) && Directory.Exists(game.Path))
+            {
+                platformDir = Path.GetDirectoryName(game.Path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                romBaseName = Path.GetFileName(game.Path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            }
+
+            if (string.IsNullOrEmpty(platformDir) || string.IsNullOrEmpty(romBaseName))
+                return Ok(new { images, videos });
+
+            // Scan images/ subdirectory
+            var imagesDir = Path.Combine(platformDir, "images");
+            if (Directory.Exists(imagesDir))
+            {
+                var imageExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif" };
+                try
+                {
+                    foreach (var file in Directory.GetFiles(imagesDir))
+                    {
+                        var fileName = Path.GetFileNameWithoutExtension(file);
+                        var ext = Path.GetExtension(file);
+                        if (!imageExtensions.Contains(ext)) continue;
+
+                        // Match: filename starts with ROM base name
+                        if (!fileName.StartsWith(romBaseName, StringComparison.OrdinalIgnoreCase)) continue;
+
+                        // Determine image type from suffix
+                        var suffix = fileName.Substring(romBaseName.Length);
+                        var imageType = suffix.ToLowerInvariant() switch
+                        {
+                            "-thumb" => "cover",
+                            "-image" => "screenshot",
+                            "-boxback" => "boxback",
+                            "-marquee" => "marquee",
+                            "-wheel" => "wheel",
+                            "-fanart" => "fanart",
+                            "-bezel" => "bezel",
+                            "-mix" => "mix",
+                            "" => "cover",
+                            _ => suffix.TrimStart('-')
+                        };
+
+                        images.Add(new
+                        {
+                            type = imageType,
+                            fileName = Path.GetFileName(file),
+                            fullPath = file,
+                            url = $"/api/v3/game/{id}/local-media/file?path={Uri.EscapeDataString(Path.GetFileName(file))}&folder=images"
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error($"[LocalMedia] Error scanning images dir: {ex.Message}");
+                }
+            }
+
+            // Scan videos/ subdirectory
+            var videosDir = Path.Combine(platformDir, "videos");
+            if (Directory.Exists(videosDir))
+            {
+                var videoExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".mp4", ".mkv", ".avi", ".webm", ".mov" };
+                try
+                {
+                    foreach (var file in Directory.GetFiles(videosDir))
+                    {
+                        var fileName = Path.GetFileNameWithoutExtension(file);
+                        var ext = Path.GetExtension(file);
+                        if (!videoExtensions.Contains(ext)) continue;
+
+                        if (!fileName.StartsWith(romBaseName, StringComparison.OrdinalIgnoreCase)) continue;
+
+                        var suffix = fileName.Substring(romBaseName.Length);
+                        var videoType = suffix.ToLowerInvariant() switch
+                        {
+                            "-video" => "gameplay",
+                            "" => "gameplay",
+                            _ => suffix.TrimStart('-')
+                        };
+
+                        videos.Add(new
+                        {
+                            type = videoType,
+                            fileName = Path.GetFileName(file),
+                            fullPath = file,
+                            size = new FileInfo(file).Length,
+                            url = $"/api/v3/game/{id}/local-media/file?path={Uri.EscapeDataString(Path.GetFileName(file))}&folder=videos"
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error($"[LocalMedia] Error scanning videos dir: {ex.Message}");
+                }
+            }
+
+            return Ok(new { images, videos, platformDir, romBaseName });
+        }
+
+        /// <summary>
+        /// Serve a local media file (image or video) from the platform's images/ or videos/ directory.
+        /// Supports HTTP range requests for video streaming.
+        /// </summary>
+        [HttpGet("{id}/local-media/file")]
+        public async Task<ActionResult> ServeLocalMediaFile(int id, [FromQuery] string path, [FromQuery] string folder = "images")
+        {
+            if (string.IsNullOrEmpty(path))
+                return BadRequest("path parameter is required");
+
+            var game = await _repository.GetByIdAsync(id);
+            if (game == null) return NotFound();
+
+            // Determine platform directory
+            string? platformDir = null;
+            if (!string.IsNullOrEmpty(game.Path) && System.IO.File.Exists(game.Path))
+                platformDir = Path.GetDirectoryName(game.Path);
+            else if (!string.IsNullOrEmpty(game.Path) && Directory.Exists(game.Path))
+                platformDir = Path.GetDirectoryName(game.Path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+
+            if (string.IsNullOrEmpty(platformDir))
+                return NotFound("Cannot determine platform directory");
+
+            // Only allow images/ or videos/ subdirectories
+            if (folder != "images" && folder != "videos")
+                return BadRequest("folder must be 'images' or 'videos'");
+
+            var mediaDir = Path.Combine(platformDir, folder);
+            var fullPath = Path.GetFullPath(Path.Combine(mediaDir, path));
+
+            // Security: ensure path stays within the media directory
+            if (!fullPath.StartsWith(Path.GetFullPath(mediaDir), StringComparison.OrdinalIgnoreCase))
+                return BadRequest("Invalid file path");
+
+            if (!System.IO.File.Exists(fullPath))
+                return NotFound("File not found");
+
+            var ext = Path.GetExtension(fullPath).ToLowerInvariant();
+            var contentType = ext switch
+            {
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".png" => "image/png",
+                ".webp" => "image/webp",
+                ".gif" => "image/gif",
+                ".bmp" => "image/bmp",
+                ".mp4" => "video/mp4",
+                ".mkv" => "video/x-matroska",
+                ".avi" => "video/x-msvideo",
+                ".webm" => "video/webm",
+                ".mov" => "video/quicktime",
+                _ => "application/octet-stream"
+            };
+
+            var fileInfo = new FileInfo(fullPath);
+
+            // Support range requests for video streaming
+            if (contentType.StartsWith("video/"))
+            {
+                return PhysicalFile(fullPath, contentType, enableRangeProcessing: true);
+            }
+
+            var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            return File(stream, contentType);
+        }
+
+        /// <summary>
         /// Download a GOG file directly into the game's folder
         /// </summary>
         [HttpPost("{id}/gog-download")]
