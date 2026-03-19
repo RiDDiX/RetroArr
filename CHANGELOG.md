@@ -1,3 +1,8 @@
+## v1.0.72 (2026-03-19)
+
+### Changes
+- Add scraper choice dialog for metadata rescan + dual-source candidates in metadata review (21a04d6)
+
 ## v1.0.71 (2026-03-19)
 
 ### Changes
