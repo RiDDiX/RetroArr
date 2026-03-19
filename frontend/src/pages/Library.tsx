@@ -87,6 +87,8 @@ const Library: React.FC = () => {
   const [platformScanning, setPlatformScanning] = useState(false);
   const [metadataRescanning, setMetadataRescanning] = useState(false);
   const [rescanStatus, setRescanStatus] = useState<MetadataRescanStatus | null>(null);
+  const [showScraperChoice, setShowScraperChoice] = useState<{ platformId: number; missingOnly: boolean } | null>(null);
+  const [selectedScraper, setSelectedScraper] = useState<'igdb' | 'screenscraper'>('igdb');
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -371,13 +373,12 @@ const Library: React.FC = () => {
   }, [platformScanning]);
 
   // Per-platform metadata rescan handler
-  const handleMetadataRescan = useCallback(async (platformId: number, missingOnly: boolean) => {
+  const handleMetadataRescan = useCallback(async (platformId: number, missingOnly: boolean, preferredSource: string = 'igdb') => {
     if (metadataRescanning) return;
     setMetadataRescanning(true);
     setRescanStatus(null);
     try {
-      await mediaApi.startMetadataRescan({ platformId, missingOnly });
-      // Poll status
+      await mediaApi.startMetadataRescan({ platformId, missingOnly, preferredSource });
       const poll = setInterval(async () => {
         try {
           const res = await mediaApi.getMetadataRescanStatus();
@@ -397,6 +398,17 @@ const Library: React.FC = () => {
       setMetadataRescanning(false);
     }
   }, [metadataRescanning]);
+
+  const openScraperChoice = (platformId: number, missingOnly: boolean) => {
+    setSelectedScraper('igdb');
+    setShowScraperChoice({ platformId, missingOnly });
+  };
+
+  const startRescanWithChoice = () => {
+    if (!showScraperChoice) return;
+    handleMetadataRescan(showScraperChoice.platformId, showScraperChoice.missingOnly, selectedScraper);
+    setShowScraperChoice(null);
+  };
 
   const selectedPlatformData = useMemo(() => {
     if (!selectedPlatform) return null;
@@ -554,7 +566,7 @@ const Library: React.FC = () => {
               </button>
               <button
                 className="platform-action-btn rescan-btn"
-                onClick={() => handleMetadataRescan(selectedPlatformData.id, true)}
+                onClick={() => openScraperChoice(selectedPlatformData.id, true)}
                 disabled={metadataRescanning}
                 title={t('rescanMetadataMissing') || 'Re-fetch metadata for games missing info'}
               >
@@ -563,7 +575,7 @@ const Library: React.FC = () => {
               </button>
               <button
                 className="platform-action-btn rescan-btn force"
-                onClick={() => handleMetadataRescan(selectedPlatformData.id, false)}
+                onClick={() => openScraperChoice(selectedPlatformData.id, false)}
                 disabled={metadataRescanning}
                 title={t('rescanMetadataForce') || 'Force re-fetch all metadata for this platform'}
               >
@@ -1050,6 +1062,51 @@ const Library: React.FC = () => {
           </>
         )}
       </Modal>
+
+      {/* Scraper Choice Dialog */}
+      {showScraperChoice && (
+        <div className="correction-modal-mask" onClick={() => setShowScraperChoice(null)}>
+          <div className="correction-modal" style={{ width: 420, maxHeight: '50vh' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>{t('selectScraper') || 'Select Metadata Source'}</h3>
+              <button className="close-btn" onClick={() => setShowScraperChoice(null)}>&times;</button>
+            </div>
+            <div className="modal-content" style={{ minHeight: 'auto', padding: '20px' }}>
+              <p style={{ color: 'var(--ctp-subtext0)', marginBottom: 16, fontSize: '0.9em' }}>
+                {showScraperChoice.missingOnly
+                  ? (t('rescanMissingHint') || 'Re-fetch metadata for games missing info.')
+                  : (t('rescanForceHint') || 'Force re-fetch all metadata for this platform.')}
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 8, background: selectedScraper === 'igdb' ? 'var(--ctp-surface1)' : 'var(--ctp-surface0)', border: selectedScraper === 'igdb' ? '2px solid var(--accent)' : '2px solid transparent', cursor: 'pointer' }}>
+                  <input type="radio" name="scraper" checked={selectedScraper === 'igdb'} onChange={() => setSelectedScraper('igdb')} />
+                  <div>
+                    <strong style={{ color: 'var(--ctp-text)' }}>IGDB</strong>
+                    <div style={{ fontSize: '0.85em', color: 'var(--ctp-subtext0)' }}>
+                      {t('igdbPrimaryHint') || 'Best for PC, modern consoles. ScreenScraper as fallback.'}
+                    </div>
+                  </div>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 8, background: selectedScraper === 'screenscraper' ? 'var(--ctp-surface1)' : 'var(--ctp-surface0)', border: selectedScraper === 'screenscraper' ? '2px solid var(--accent)' : '2px solid transparent', cursor: 'pointer' }}>
+                  <input type="radio" name="scraper" checked={selectedScraper === 'screenscraper'} onChange={() => setSelectedScraper('screenscraper')} />
+                  <div>
+                    <strong style={{ color: 'var(--ctp-text)' }}>ScreenScraper</strong>
+                    <div style={{ fontSize: '0.85em', color: 'var(--ctp-subtext0)' }}>
+                      {t('screenScraperPrimaryHint') || 'Best for retro consoles, ROMs. IGDB as fallback.'}
+                    </div>
+                  </div>
+                </label>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn-secondary" onClick={() => setShowScraperChoice(null)}>{t('cancel') || 'Cancel'}</button>
+              <button className="btn-primary" onClick={startRescanWithChoice}>
+                <FontAwesomeIcon icon={faDatabase} /> {t('startRescan') || 'Start Rescan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </div>{/* end .library-main */}
     </div>
   );

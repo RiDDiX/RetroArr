@@ -124,6 +124,9 @@ namespace RetroArr.Api.V3.Settings
 
             [System.Text.Json.Serialization.JsonPropertyName("missingOnly")]
             public bool MissingOnly { get; set; } = true;
+
+            [System.Text.Json.Serialization.JsonPropertyName("preferredSource")]
+            public string PreferredSource { get; set; } = "igdb";
         }
 
         [HttpPost("metadata/rescan")]
@@ -172,6 +175,7 @@ namespace RetroArr.Api.V3.Settings
 
                     var metadataService = _metadataServiceFactory.CreateService();
                     var titleCleaner = new TitleCleanerService();
+                    var useScreenScraperFirst = (request?.PreferredSource ?? "igdb").Equals("screenscraper", StringComparison.OrdinalIgnoreCase);
 
                     foreach (var game in gamesList)
                     {
@@ -190,28 +194,38 @@ namespace RetroArr.Api.V3.Settings
                             var variants = titleCleaner.GenerateSearchVariants(cleanTitle);
                             if (variants.Count == 0) variants.Add(cleanTitle);
 
-                            var searchResults = await metadataService.SearchGamesAsync(variants.First(), platformKey);
-                            if (searchResults.Count > 0)
+                            bool updated = false;
+
+                            if (useScreenScraperFirst)
                             {
-                                var best = searchResults.First();
-                                if (best.IgdbId > 0)
+                                // ScreenScraper primary, IGDB fallback
+                                var ssResults = await metadataService.SearchScreenScraperAsync(variants.First(), platformKey);
+                                if (ssResults.Count > 0)
                                 {
-                                    var fullMeta = await metadataService.GetGameMetadataAsync(best.IgdbId.Value);
-                                    if (fullMeta != null)
+                                    var best = ssResults.First();
+                                    ApplyMetadataToGame(game, best, "ScreenScraper");
+                                    await _gameRepository.UpdateAsync(game.Id, game);
+                                    _metadataRescanUpdated++;
+                                    updated = true;
+                                }
+
+                                if (!updated)
+                                {
+                                    updated = await TryIgdbRescan(game, metadataService, variants, platformKey);
+                                }
+                            }
+                            else
+                            {
+                                // IGDB primary, ScreenScraper fallback
+                                updated = await TryIgdbRescan(game, metadataService, variants, platformKey);
+
+                                if (!updated)
+                                {
+                                    var ssResults = await metadataService.SearchScreenScraperAsync(variants.First(), platformKey);
+                                    if (ssResults.Count > 0)
                                     {
-                                        game.IgdbId = fullMeta.IgdbId;
-                                        game.Title = fullMeta.Title;
-                                        game.Overview = fullMeta.Overview;
-                                        game.Storyline = fullMeta.Storyline;
-                                        game.Developer = fullMeta.Developer;
-                                        game.Publisher = fullMeta.Publisher;
-                                        game.Rating = fullMeta.Rating;
-                                        game.RatingCount = fullMeta.RatingCount;
-                                        game.Year = fullMeta.Year;
-                                        game.ReleaseDate = fullMeta.ReleaseDate;
-                                        game.Genres = fullMeta.Genres;
-                                        game.Images = fullMeta.Images;
-                                        game.NeedsMetadataReview = false;
+                                        var best = ssResults.First();
+                                        ApplyMetadataToGame(game, best, "ScreenScraper");
                                         await _gameRepository.UpdateAsync(game.Id, game);
                                         _metadataRescanUpdated++;
                                     }
@@ -252,6 +266,62 @@ namespace RetroArr.Api.V3.Settings
                 updated = _metadataRescanUpdated,
                 currentGame = _metadataRescanCurrentGame
             });
+        }
+
+        private async Task<bool> TryIgdbRescan(Game game, GameMetadataService metadataService, List<string> variants, string? platformKey)
+        {
+            var searchResults = await metadataService.SearchGamesAsync(variants.First(), platformKey);
+            if (searchResults.Count > 0)
+            {
+                var best = searchResults.First();
+                if (best.IgdbId > 0)
+                {
+                    var fullMeta = await metadataService.GetGameMetadataAsync(best.IgdbId.Value);
+                    if (fullMeta != null)
+                    {
+                        game.IgdbId = fullMeta.IgdbId;
+                        game.Title = fullMeta.Title;
+                        game.Overview = fullMeta.Overview;
+                        game.Storyline = fullMeta.Storyline;
+                        game.Developer = fullMeta.Developer;
+                        game.Publisher = fullMeta.Publisher;
+                        game.Rating = fullMeta.Rating;
+                        game.RatingCount = fullMeta.RatingCount;
+                        game.Year = fullMeta.Year;
+                        game.ReleaseDate = fullMeta.ReleaseDate;
+                        game.Genres = fullMeta.Genres;
+                        game.Images = fullMeta.Images;
+                        game.NeedsMetadataReview = false;
+                        game.MetadataSource = "IGDB";
+                        await _gameRepository.UpdateAsync(game.Id, game);
+                        _metadataRescanUpdated++;
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        private static void ApplyMetadataToGame(Game game, Game source, string metadataSource)
+        {
+            if (!string.IsNullOrEmpty(source.Title)) game.Title = source.Title;
+            if (!string.IsNullOrEmpty(source.Overview)) game.Overview = source.Overview;
+            if (source.Year > 0) game.Year = source.Year;
+            if (!string.IsNullOrEmpty(source.Developer)) game.Developer = source.Developer;
+            if (!string.IsNullOrEmpty(source.Publisher)) game.Publisher = source.Publisher;
+            if (source.Rating.HasValue) game.Rating = source.Rating;
+            if (source.Genres != null && source.Genres.Count > 0) game.Genres = source.Genres;
+            if (source.Images != null)
+            {
+                if (!string.IsNullOrEmpty(source.Images.CoverUrl)) game.Images.CoverUrl = source.Images.CoverUrl;
+                if (!string.IsNullOrEmpty(source.Images.CoverLargeUrl)) game.Images.CoverLargeUrl = source.Images.CoverLargeUrl;
+                if (!string.IsNullOrEmpty(source.Images.BackgroundUrl)) game.Images.BackgroundUrl = source.Images.BackgroundUrl;
+                if (!string.IsNullOrEmpty(source.Images.BannerUrl)) game.Images.BannerUrl = source.Images.BannerUrl;
+                if (source.Images.Screenshots != null && source.Images.Screenshots.Count > 0)
+                    game.Images.Screenshots = source.Images.Screenshots;
+            }
+            game.NeedsMetadataReview = false;
+            game.MetadataSource = metadataSource;
         }
     }
 }

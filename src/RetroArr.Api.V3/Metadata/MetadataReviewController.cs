@@ -111,11 +111,45 @@ namespace RetroArr.Api.V3.Metadata
                     CoverUrl = r.Cover != null && !string.IsNullOrEmpty(r.Cover.ImageId)
                         ? IgdbClient.GetImageUrl(r.Cover.ImageId, ImageSize.CoverBig)
                         : null,
-                    Score = metadataService.ScoreCandidate(r, variants, expectedPlatformId)
+                    Score = metadataService.ScoreCandidate(r, variants, expectedPlatformId),
+                    Source = "IGDB"
                 })
                 .OrderByDescending(c => c.Score)
                 .Take(10)
                 .ToList();
+
+            // Also search ScreenScraper for additional candidates
+            try
+            {
+                var ssResults = await metadataService.SearchScreenScraperAsync(variants.First(), platformKey);
+                foreach (var ssGame in ssResults.Take(5))
+                {
+                    candidates.Add(new MatchCandidate
+                    {
+                        IgdbId = 0,
+                        Title = ssGame.Title,
+                        AlternativeNames = new List<string>(),
+                        Platforms = ssGame.Platform != null ? new List<string> { ssGame.Platform.Name } : new List<string>(),
+                        Year = ssGame.Year > 0 ? ssGame.Year : null,
+                        CoverUrl = ssGame.Images?.CoverUrl,
+                        CoverLargeUrl = ssGame.Images?.CoverLargeUrl,
+                        BackgroundUrl = ssGame.Images?.BackgroundUrl,
+                        BannerUrl = ssGame.Images?.BannerUrl,
+                        Overview = ssGame.Overview,
+                        Developer = ssGame.Developer,
+                        Publisher = ssGame.Publisher,
+                        Genres = ssGame.Genres?.Count > 0 ? ssGame.Genres : null,
+                        Rating = ssGame.Rating,
+                        Score = 0.5,
+                        Source = "ScreenScraper"
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                // ScreenScraper failure should not block IGDB results
+                System.Diagnostics.Debug.WriteLine($"ScreenScraper search in review failed: {ex.Message}");
+            }
 
             return Ok(candidates);
         }
@@ -129,27 +163,48 @@ namespace RetroArr.Api.V3.Metadata
             var game = await _gameRepository.GetByIdAsync(gameId);
             if (game == null) return NotFound();
 
-            var metadataService = _metadataServiceFactory.CreateService();
-            var fullMetadata = await metadataService.GetGameMetadataAsync(request.IgdbId);
-
-            if (fullMetadata != null)
+            if (request.Source == "ScreenScraper" && request.ScreenScraperData != null)
             {
-                game.IgdbId = fullMetadata.IgdbId;
-                game.Title = fullMetadata.Title;
-                game.Overview = fullMetadata.Overview;
-                game.Storyline = fullMetadata.Storyline;
-                game.Developer = fullMetadata.Developer;
-                game.Publisher = fullMetadata.Publisher;
-                game.Rating = fullMetadata.Rating;
-                game.RatingCount = fullMetadata.RatingCount;
-                game.Year = fullMetadata.Year;
-                game.ReleaseDate = fullMetadata.ReleaseDate;
-                game.Genres = fullMetadata.Genres;
-                game.Images = fullMetadata.Images;
+                var ss = request.ScreenScraperData;
+                if (!string.IsNullOrEmpty(ss.Title)) game.Title = ss.Title;
+                if (!string.IsNullOrEmpty(ss.Overview)) game.Overview = ss.Overview;
+                if (ss.Year > 0) game.Year = ss.Year;
+                if (!string.IsNullOrEmpty(ss.Developer)) game.Developer = ss.Developer;
+                if (!string.IsNullOrEmpty(ss.Publisher)) game.Publisher = ss.Publisher;
+                if (ss.Rating.HasValue) game.Rating = ss.Rating;
+                if (ss.Genres != null && ss.Genres.Count > 0) game.Genres = ss.Genres;
+                if (!string.IsNullOrEmpty(ss.CoverUrl)) game.Images.CoverUrl = ss.CoverUrl;
+                if (!string.IsNullOrEmpty(ss.CoverLargeUrl)) game.Images.CoverLargeUrl = ss.CoverLargeUrl;
+                if (!string.IsNullOrEmpty(ss.BackgroundUrl)) game.Images.BackgroundUrl = ss.BackgroundUrl;
+                if (!string.IsNullOrEmpty(ss.BannerUrl)) game.Images.BannerUrl = ss.BannerUrl;
+                if (ss.Screenshots != null && ss.Screenshots.Count > 0) game.Images.Screenshots = ss.Screenshots;
+                game.MetadataSource = "ScreenScraper";
             }
             else
             {
-                game.IgdbId = request.IgdbId;
+                var metadataService = _metadataServiceFactory.CreateService();
+                var fullMetadata = await metadataService.GetGameMetadataAsync(request.IgdbId);
+
+                if (fullMetadata != null)
+                {
+                    game.IgdbId = fullMetadata.IgdbId;
+                    game.Title = fullMetadata.Title;
+                    game.Overview = fullMetadata.Overview;
+                    game.Storyline = fullMetadata.Storyline;
+                    game.Developer = fullMetadata.Developer;
+                    game.Publisher = fullMetadata.Publisher;
+                    game.Rating = fullMetadata.Rating;
+                    game.RatingCount = fullMetadata.RatingCount;
+                    game.Year = fullMetadata.Year;
+                    game.ReleaseDate = fullMetadata.ReleaseDate;
+                    game.Genres = fullMetadata.Genres;
+                    game.Images = fullMetadata.Images;
+                }
+                else
+                {
+                    game.IgdbId = request.IgdbId;
+                }
+                game.MetadataSource = "IGDB";
             }
 
             game.MetadataConfirmedByUser = true;
@@ -228,11 +283,38 @@ namespace RetroArr.Api.V3.Metadata
         public int? Year { get; set; }
         public string? CoverUrl { get; set; }
         public double Score { get; set; }
+        public string Source { get; set; } = "IGDB";
+        public string? Overview { get; set; }
+        public string? Developer { get; set; }
+        public string? Publisher { get; set; }
+        public List<string>? Genres { get; set; }
+        public double? Rating { get; set; }
+        public string? CoverLargeUrl { get; set; }
+        public string? BackgroundUrl { get; set; }
+        public string? BannerUrl { get; set; }
     }
 
     public class ConfirmMatchRequest
     {
         public int IgdbId { get; set; }
         public double? Score { get; set; }
+        public string Source { get; set; } = "IGDB";
+        public ScreenScraperMetadata? ScreenScraperData { get; set; }
+    }
+
+    public class ScreenScraperMetadata
+    {
+        public string Title { get; set; } = string.Empty;
+        public string? Overview { get; set; }
+        public int Year { get; set; }
+        public string? Developer { get; set; }
+        public string? Publisher { get; set; }
+        public List<string>? Genres { get; set; }
+        public double? Rating { get; set; }
+        public string? CoverUrl { get; set; }
+        public string? CoverLargeUrl { get; set; }
+        public string? BackgroundUrl { get; set; }
+        public string? BannerUrl { get; set; }
+        public List<string>? Screenshots { get; set; }
     }
 }
