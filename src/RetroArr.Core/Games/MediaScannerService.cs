@@ -353,6 +353,7 @@ namespace RetroArr.Core.Games
             "shadercache", "compatdata", "depotcache", ".steam", ".local", ".cache", "temp", "tmp", "node_modules",
             "windows", "system32", "syswow64", "Microsoft.NET", "Framework", "Framework64", "Internet Explorer", "Accessories", "Windows NT", "INF", "WinSxS", "SysARM32", "Sysnative", "command",
             "retroarch", "autoconfig", "assets", "overlays", "database", "cursors", "cheats", "filters", "libretro", "thumbnails", "config", "remaps", "playlists", "cores", "screenshots",
+            "images", "videos", "media", "snaps", "marquees", "wheels", "boxart", "fanart",
             "z:", "d:"
         };
 
@@ -534,7 +535,15 @@ namespace RetroArr.Core.Games
                             
                             if (platformRule.IsFolderMode)
                             {
-                                gamesAdded += await ScanFolderModeAsync(platformFolder, platformRule, existingGames, platform.FolderName, metadataService, _scanCts.Token);
+                                var folderAdded = await ScanFolderModeAsync(platformFolder, platformRule, existingGames, platform.FolderName, metadataService, _scanCts.Token);
+                                gamesAdded += folderAdded;
+
+                                // Fallback: If folder mode found nothing, try file mode to catch loose files (e.g. .iso directly in platform folder)
+                                if (folderAdded == 0 && !_scanCts.Token.IsCancellationRequested)
+                                {
+                                    Log($"[AutoPlatform] FolderMode found 0 for '{platform.Name}'. Trying FileMode fallback...");
+                                    gamesAdded += await ScanFileModeAsync(platformFolder, platformRule, existingGames, platform.FolderName, metadataService, _scanCts.Token);
+                                }
                             }
                             else
                             {
@@ -624,6 +633,12 @@ namespace RetroArr.Core.Games
             var pcPlatforms = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 { "pc", "pc_windows", "windows", "macos", "macintosh", "linux", "dos", "dosbox" };
 
+            // Resolve platform ID once outside the loop
+            int scanPlatformId = 0;
+            var scanPlatDef = PlatformDefinitions.AllPlatforms.FirstOrDefault(
+                p => p.MatchesFolderName(platformKey));
+            if (scanPlatDef != null) scanPlatformId = scanPlatDef.Id;
+
             foreach (var dir in directories)
             {
                 ct.ThrowIfCancellationRequested();
@@ -634,26 +649,21 @@ namespace RetroArr.Core.Games
                     Log($"[Scanner] Skipping supplementary folder (will scan later): {folderName}");
                     continue;
                 }
-                
-                // Advanced Scanner Logic V2: Find the best executable in the folder structure
-                var (bestExePath, isInstaller) = FindBestExecutable(dir, rule.Extensions, isExternal: false);
-                
-                // For console folder-mode platforms the folder IS the game — no executable required.
-                // PC platforms still need an executable to avoid picking up random folders.
-                if (string.IsNullOrEmpty(bestExePath) && pcPlatforms.Contains(platformKey))
-                    continue;
 
+                try
                 {
+                    // Advanced Scanner Logic V2: Find the best executable in the folder structure
+                    var (bestExePath, isInstaller) = FindBestExecutable(dir, rule.Extensions, isExternal: false);
+                    
+                    // For console folder-mode platforms the folder IS the game — no executable required.
+                    // PC platforms still need an executable to avoid picking up random folders.
+                    if (string.IsNullOrEmpty(bestExePath) && pcPlatforms.Contains(platformKey))
+                        continue;
+
                     // Strip container extensions (.ps3, .ps4) before title cleaning
                     var (baseFolderName, _) = TitleCleanerService.StripContainerExtension(folderName);
                     var (region, langs, revision) = TitleCleanerService.ExtractFilenameMetadata(baseFolderName);
                     var (cleanName, serial) = _titleCleaner.CleanGameTitle(baseFolderName);
-
-                    // Resolve platform ID for this scan
-                    int scanPlatformId = 0;
-                    var scanPlatDef = PlatformDefinitions.AllPlatforms.FirstOrDefault(
-                        p => p.MatchesFolderName(platformKey));
-                    if (scanPlatDef != null) scanPlatformId = scanPlatDef.Id;
                     
                     // Check if game exists for THIS platform (allow same title on different platforms)
                     if (!existingGames.Any(g => g.Title.Equals(cleanName, StringComparison.OrdinalIgnoreCase) &&
@@ -683,6 +693,11 @@ namespace RetroArr.Core.Games
                             Log($"Game already exists in DB (resynced files): {cleanName}");
                         }
                     }
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    Log($"[Scanner] Error processing folder '{folderName}': {ex.Message}. Continuing.", LogLevel.Warning);
                 }
             }
 
