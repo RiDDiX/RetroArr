@@ -1,3 +1,9 @@
+## v1.0.79 (2026-03-19)
+
+### Changes
+- Render game description as HTML instead of raw text (823167f)
+- Show GOG downloads in Downloads page with progress tracking (9e1e82c)
+
 ## v1.0.78 (2026-03-19)
 
 ### Changes
