@@ -301,19 +301,16 @@ namespace RetroArr.Api.V3.Games
             if (!string.IsNullOrEmpty(gameUpdate.Title)) existingGame.Title = gameUpdate.Title;
             if (!string.IsNullOrEmpty(gameUpdate.InstallPath)) existingGame.InstallPath = gameUpdate.InstallPath;
             if (!string.IsNullOrEmpty(gameUpdate.ExecutablePath)) existingGame.ExecutablePath = gameUpdate.ExecutablePath;
-            // Add other fields as necessary if the frontend sends them
 
-            // If IGDB ID changed, fetch fresh metadata
+            // If IGDB ID changed, fetch fresh metadata from IGDB
             if (igdbIdChanged)
             {
                 try
                 {
                     var metadataService = _metadataServiceFactory.CreateService();
-                    // Fetch in English (or default) to store in DB. Localization happens on GetById.
                     var freshMetadata = await metadataService.GetGameMetadataAsync(existingGame.IgdbId.Value, "en");
                     
                     if (freshMetadata != null) {
-                       // Update core metadata
                        existingGame.Title = freshMetadata.Title; 
                        existingGame.Overview = freshMetadata.Overview;
                        existingGame.Storyline = freshMetadata.Storyline;
@@ -322,7 +319,6 @@ namespace RetroArr.Api.V3.Games
                        existingGame.Rating = freshMetadata.Rating;
                        existingGame.Genres = freshMetadata.Genres;
                        
-                       // IMAGES are critical!
                        if (freshMetadata.Images != null) {
                            existingGame.Images = freshMetadata.Images;
                        }
@@ -330,9 +326,30 @@ namespace RetroArr.Api.V3.Games
                 }
                 catch (System.Exception ex)
                 {
-                    // Log error but proceed with saving the ID change at least?
                     _logger.Error($"Error refreshing metadata: {ex.Message}");
                 }
+            }
+            else if (!string.IsNullOrEmpty(gameUpdate.MetadataSource) && gameUpdate.MetadataSource == "ScreenScraper")
+            {
+                if (!string.IsNullOrEmpty(gameUpdate.Overview)) existingGame.Overview = gameUpdate.Overview;
+                if (gameUpdate.Year > 0) existingGame.Year = gameUpdate.Year;
+                if (!string.IsNullOrEmpty(gameUpdate.Developer)) existingGame.Developer = gameUpdate.Developer;
+                if (!string.IsNullOrEmpty(gameUpdate.Publisher)) existingGame.Publisher = gameUpdate.Publisher;
+                if (gameUpdate.Rating.HasValue) existingGame.Rating = gameUpdate.Rating;
+                if (gameUpdate.Genres != null && gameUpdate.Genres.Count > 0) existingGame.Genres = gameUpdate.Genres;
+                if (gameUpdate.Images != null)
+                {
+                    if (!string.IsNullOrEmpty(gameUpdate.Images.CoverUrl)) existingGame.Images.CoverUrl = gameUpdate.Images.CoverUrl;
+                    if (!string.IsNullOrEmpty(gameUpdate.Images.CoverLargeUrl)) existingGame.Images.CoverLargeUrl = gameUpdate.Images.CoverLargeUrl;
+                    if (!string.IsNullOrEmpty(gameUpdate.Images.BackgroundUrl)) existingGame.Images.BackgroundUrl = gameUpdate.Images.BackgroundUrl;
+                    if (!string.IsNullOrEmpty(gameUpdate.Images.BannerUrl)) existingGame.Images.BannerUrl = gameUpdate.Images.BannerUrl;
+                    if (gameUpdate.Images.Screenshots != null && gameUpdate.Images.Screenshots.Count > 0)
+                        existingGame.Images.Screenshots = gameUpdate.Images.Screenshots;
+                }
+                existingGame.MetadataConfirmedByUser = true;
+                existingGame.MetadataConfirmedAt = System.DateTime.UtcNow;
+                existingGame.NeedsMetadataReview = false;
+                _logger.Info($"[Game] Applied ScreenScraper metadata for game {id}: {existingGame.Title}");
             }
 
             var updated = await _repository.UpdateAsync(id, existingGame);

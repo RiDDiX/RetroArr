@@ -19,7 +19,12 @@ interface MetadataResult {
     igdbId?: number;
     title: string;
     year?: number;
-    images?: { coverUrl?: string };
+    overview?: string;
+    developer?: string;
+    publisher?: string;
+    genres?: string[];
+    rating?: number;
+    images?: { coverUrl?: string; coverLargeUrl?: string; backgroundUrl?: string; bannerUrl?: string; screenshots?: string[] };
     metadataSource?: string;
 }
 
@@ -71,8 +76,20 @@ const GameCorrectionModal: React.FC<GameCorrectionModalProps> = ({ game, onClose
     const handleSave = () => {
         const updates: Record<string, unknown> = {};
         if (selectedMetadata) {
-            updates.igdbId = selectedMetadata.igdbId;
-            updates.title = selectedMetadata.title; // Optional: Update title immediately
+            if (selectedMetadata.metadataSource === 'ScreenScraper') {
+                updates.title = selectedMetadata.title;
+                updates.metadataSource = 'ScreenScraper';
+                if (selectedMetadata.year) updates.year = selectedMetadata.year;
+                if (selectedMetadata.overview) updates.overview = selectedMetadata.overview;
+                if (selectedMetadata.developer) updates.developer = selectedMetadata.developer;
+                if (selectedMetadata.publisher) updates.publisher = selectedMetadata.publisher;
+                if (selectedMetadata.genres?.length) updates.genres = selectedMetadata.genres;
+                if (selectedMetadata.rating) updates.rating = selectedMetadata.rating;
+                if (selectedMetadata.images) updates.images = selectedMetadata.images;
+            } else {
+                updates.igdbId = selectedMetadata.igdbId;
+                updates.title = selectedMetadata.title;
+            }
         }
         if (installPath !== game.installPath) {
             updates.installPath = installPath;
