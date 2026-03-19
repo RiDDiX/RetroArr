@@ -91,6 +91,20 @@ interface UnmappedLocalFile {
   lastModified: string;
 }
 
+interface GogDownloadStatus {
+  id: string;
+  gameTitle: string;
+  fileName: string;
+  filePath: string;
+  totalBytes: number;
+  bytesDownloaded: number;
+  progressPercent: number;
+  state: string;
+  errorMessage: string | null;
+  startedAt: string;
+  completedAt: string | null;
+}
+
 type TabKey = 'activity' | 'history' | 'failed' | 'unmapped' | 'unmapped-files' | 'blacklist';
 
 function formatBytes(bytes: number): string {
@@ -140,6 +154,9 @@ const Status: React.FC = () => {
   // Activity state
   const [downloads, setDownloads] = useState<DownloadStatus[]>([]);
   const [editingPlatform, setEditingPlatform] = useState<string | null>(null);
+
+  // GOG download state
+  const [gogDownloads, setGogDownloads] = useState<GogDownloadStatus[]>([]);
 
   // History state
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -213,6 +230,20 @@ const Status: React.FC = () => {
     };
     fetchQueue();
     const iv = setInterval(fetchQueue, 3000);
+    return () => clearInterval(iv);
+  }, [activeTab]);
+
+  // GOG downloads polling
+  useEffect(() => {
+    if (activeTab !== 'activity') return;
+    const fetchGog = () => {
+      fetch('/api/v3/settings/gog/download-status')
+        .then(r => r.json())
+        .then(data => { if (Array.isArray(data)) setGogDownloads(data); })
+        .catch(() => {});
+    };
+    fetchGog();
+    const iv = setInterval(fetchGog, 2000);
     return () => clearInterval(iv);
   }, [activeTab]);
 
@@ -314,6 +345,10 @@ const Status: React.FC = () => {
 
   const handleImport = async (clientId: number, downloadId: string) => {
     await fetch(`${API_BASE}/queue/${clientId}/${encodeURIComponent(downloadId)}/import`, { method: 'POST' });
+  };
+
+  const handleGogCancel = async (trackId: string) => {
+    await fetch(`/api/v3/settings/gog/download-status/${trackId}`, { method: 'DELETE' });
   };
 
   const handleMapPlatform = async (downloadName: string, platformFolder: string) => {
@@ -457,9 +492,86 @@ const Status: React.FC = () => {
       {/* ===== ACTIVITY TAB ===== */}
       {activeTab === 'activity' && (
         <div className="downloads-table-container">
-          {downloads.length === 0 ? (
+          {/* GOG Downloads Section */}
+          {gogDownloads.length > 0 && (
+            <>
+              <div style={{ padding: '12px 16px', background: 'var(--ctp-surface0)', borderRadius: '8px 8px 0 0', borderBottom: '1px solid var(--ctp-surface1)', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: 0 }}>
+                <span style={{ fontSize: '1.1em' }}>🟣</span>
+                <strong style={{ color: 'var(--ctp-text)' }}>GOG Downloads</strong>
+                <span style={{ color: 'var(--ctp-subtext0)', fontSize: '0.85em' }}>({gogDownloads.length})</span>
+              </div>
+              <table className="downloads-table" style={{ marginBottom: '20px' }}>
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Status</th>
+                    <th>Size</th>
+                    <th>Path</th>
+                    <th>Started</th>
+                    <th style={{ textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gogDownloads.map(g => (
+                    <tr key={g.id}>
+                      <td>
+                        <div>
+                          {g.fileName}
+                          <div style={{ fontSize: '0.85em', color: 'var(--ctp-green)', marginTop: '2px' }}>
+                            🎮 {g.gameTitle}
+                          </div>
+                          {g.state === 'Downloading' && g.totalBytes > 0 && (
+                            <div className="progress-bar-container" style={{ marginTop: '6px' }}>
+                              <div className="progress-bar-fill" style={{ width: `${g.progressPercent}%` }} />
+                            </div>
+                          )}
+                          {g.errorMessage && (
+                            <div className="status-messages">
+                              <div className="status-message-item">{g.errorMessage}</div>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <span style={{ color: 'var(--ctp-mauve)' }}>GOG</span>
+                        <div style={{ fontSize: '0.8em', marginTop: '2px' }}>
+                          <span className={`status-badge ${g.state === 'Completed' ? 'completed' : g.state === 'Failed' ? 'error' : 'downloading'}`}>
+                            {g.state}
+                          </span>
+                          {g.state === 'Downloading' && g.progressPercent > 0 && (
+                            <span style={{ marginLeft: '6px', color: 'var(--ctp-subtext0)' }}>{g.progressPercent.toFixed(1)}%</span>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        {g.totalBytes > 0 ? (
+                          <>
+                            {formatBytes(g.bytesDownloaded)}
+                            <div style={{ fontSize: '0.8em', color: 'var(--ctp-subtext0)' }}>
+                              / {formatBytes(g.totalBytes)}
+                            </div>
+                          </>
+                        ) : (
+                          formatBytes(g.bytesDownloaded)
+                        )}
+                      </td>
+                      <td className="reason-cell" title={g.filePath}>{g.filePath}</td>
+                      <td>{formatDate(g.startedAt)}</td>
+                      <td>
+                        <div className="control-actions">
+                          <button className="delete-btn" onClick={() => handleGogCancel(g.id)} title={g.state === 'Downloading' ? 'Cancel' : 'Remove'}>✕</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+
+          {downloads.length === 0 && gogDownloads.length === 0 ? (
             <div className="empty-state">No active downloads</div>
-          ) : (
+          ) : downloads.length > 0 ? (
             <table className="downloads-table">
               <thead>
                 <tr>
@@ -550,7 +662,7 @@ const Status: React.FC = () => {
                 ))}
               </tbody>
             </table>
-          )}
+          ) : null}
         </div>
       )}
 

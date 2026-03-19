@@ -26,8 +26,9 @@ namespace RetroArr.Api.V3.Games
         private readonly ConfigurationService _configService;
         private readonly InstallerScannerService _installerScanner;
         private readonly LocalMediaExportService _localMediaExport;
+        private readonly RetroArr.Core.MetadataSource.Gog.GogDownloadTracker _gogDownloadTracker;
 
-        public GameController(IGameRepository repository, IGameMetadataServiceFactory metadataServiceFactory, RetroArr.Core.IO.IArchiveService archiveService, ILauncherService launcherService, ConfigurationService configService, InstallerScannerService installerScanner, LocalMediaExportService localMediaExport)
+        public GameController(IGameRepository repository, IGameMetadataServiceFactory metadataServiceFactory, RetroArr.Core.IO.IArchiveService archiveService, ILauncherService launcherService, ConfigurationService configService, InstallerScannerService installerScanner, LocalMediaExportService localMediaExport, RetroArr.Core.MetadataSource.Gog.GogDownloadTracker gogDownloadTracker)
         {
             _repository = repository;
             _metadataServiceFactory = metadataServiceFactory;
@@ -36,6 +37,7 @@ namespace RetroArr.Api.V3.Games
             _configService = configService;
             _installerScanner = installerScanner;
             _localMediaExport = localMediaExport;
+            _gogDownloadTracker = gogDownloadTracker;
         }
 
         [HttpGet]
@@ -1508,28 +1510,53 @@ namespace RetroArr.Api.V3.Games
                 var filePath = Path.Combine(targetDir, fileName);
                 _logger.Info($"[GOG] Starting download to game folder: {fileName} -> {filePath} (url={downloadUrl.Substring(0, Math.Min(120, downloadUrl.Length))}...)");
 
+                var trackId = Guid.NewGuid().ToString("N")[..8];
+                var tracker = _gogDownloadTracker;
+
                 _ = Task.Run(async () =>
                 {
+                    System.Threading.CancellationToken ct = default;
                     try
                     {
                         using var httpClient = new System.Net.Http.HttpClient();
                         httpClient.Timeout = TimeSpan.FromHours(2);
                         using var response = await httpClient.GetAsync(downloadUrl, System.Net.Http.HttpCompletionOption.ResponseHeadersRead);
                         response.EnsureSuccessStatusCode();
+
                         var totalBytes = response.Content.Headers.ContentLength;
+                        ct = tracker.Start(trackId, game.Title, fileName, filePath, totalBytes);
                         _logger.Info($"[GOG] Download response OK, content-length={totalBytes}");
+
+                        using var contentStream = await response.Content.ReadAsStreamAsync();
                         using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
-                        await response.Content.CopyToAsync(fs);
-                        _logger.Info($"[GOG] Download complete: {filePath}");
+                        var buffer = new byte[81920];
+                        long totalRead = 0;
+                        int bytesRead;
+                        while ((bytesRead = await contentStream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
+                        {
+                            await fs.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+                            totalRead += bytesRead;
+                            tracker.UpdateProgress(trackId, totalRead);
+                        }
+
+                        tracker.MarkCompleted(trackId);
+                        _logger.Info($"[GOG] Download complete: {filePath} ({totalRead} bytes)");
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        tracker.MarkFailed(trackId, "Download cancelled");
+                        _logger.Info($"[GOG] Download cancelled: {filePath}");
+                        try { if (System.IO.File.Exists(filePath)) System.IO.File.Delete(filePath); } catch { }
                     }
                     catch (Exception ex)
                     {
+                        tracker.MarkFailed(trackId, ex.Message);
                         _logger.Error($"[GOG] Download to game folder failed: {ex.Message}");
                         try { if (System.IO.File.Exists(filePath)) System.IO.File.Delete(filePath); } catch { }
                     }
                 });
 
-                return Ok(new { success = true, message = $"Download started: {fileName}", downloadPath = filePath, folder = targetDir });
+                return Ok(new { success = true, message = $"Download started: {fileName}", downloadPath = filePath, folder = targetDir, trackId });
             }
             catch (Exception ex)
             {
