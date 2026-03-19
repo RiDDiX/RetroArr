@@ -25,7 +25,7 @@ namespace RetroArr.Core.MetadataSource.ScreenScraper
         private readonly string _devId;
         private readonly string _devPassword;
         
-        private const string BaseUrl = "https://www.screenscraper.fr/api2";
+        private const string BaseUrl = "https://api.screenscraper.fr/api2";
         private const string DefaultDevId = "%%SCREENSCRAPER_DEVID%%";
         private const string DefaultDevPassword = "%%SCREENSCRAPER_DEVPASSWORD%%";
         private const string SoftName = "RetroArr";
@@ -76,8 +76,9 @@ namespace RetroArr.Core.MetadataSource.ScreenScraper
 
                 return result.Response.Jeu;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _logger.Error($"[ScreenScraper] jeuInfos exception: {ex.Message}");
                 return null;
             }
         }

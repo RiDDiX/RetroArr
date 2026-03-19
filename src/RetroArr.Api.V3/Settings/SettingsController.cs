@@ -280,19 +280,23 @@ namespace RetroArr.Api.V3.Settings
         {
             try
             {
+                var existingSettings = _configService.LoadScreenScraperSettings();
+                var devId = !string.IsNullOrWhiteSpace(request.DevId) ? request.DevId : existingSettings.DevId;
+                var devPassword = !string.IsNullOrWhiteSpace(request.DevPassword) ? request.DevPassword : existingSettings.DevPassword;
+
                 using var httpClient = new System.Net.Http.HttpClient();
-                var client = new RetroArr.Core.MetadataSource.ScreenScraper.ScreenScraperClient(httpClient, request.Username, request.Password);
+                var client = new RetroArr.Core.MetadataSource.ScreenScraper.ScreenScraperClient(
+                    httpClient, request.Username, request.Password, devId, devPassword);
                 
-                // Try to search for a known game to verify credentials
-                var result = await client.SearchGameAsync("Super Mario World", 4); // SNES system ID
+                var results = await client.SearchGamesByNameAsync("Super Mario World", 4); // SNES system ID
                 
-                if (result != null)
+                if (results.Count > 0)
                 {
-                    return Ok(new { success = true, message = $"Connection successful! Found: {result.GetName()}" });
+                    return Ok(new { success = true, message = $"Connection successful! Found: {results[0].GetName()}" });
                 }
                 else
                 {
-                    return Ok(new { success = true, message = "Connection successful (no results for test query, but API responded)" });
+                    return Ok(new { success = true, message = "Connection successful (API responded, no results for test query)" });
                 }
             }
             catch (Exception ex)
