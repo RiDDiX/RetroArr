@@ -1,3 +1,10 @@
+## v1.0.73 (2026-03-19)
+
+### Changes
+- Auto-export metadata images/videos to platform folders (RetroBat/Batocera/ES convention) (9eb543e)
+- Add local media support: images + videos from RetroBat/Batocera folder convention (e017162)
+- Fix ScreenScraper returning only cover: fetch full details via jeuInfos after search (795f623)
+
 ## v1.0.72 (2026-03-19)
 
 ### Changes
