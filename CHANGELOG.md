@@ -1,3 +1,8 @@
+## v1.0.75 (2026-03-19)
+
+### Changes
+- Fix scan regression: library root /media blocked + platform detection never used (e0a7957)
+
 ## v1.0.74 (2026-03-19)
 
 ### Changes
