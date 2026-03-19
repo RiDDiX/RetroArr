@@ -1,3 +1,8 @@
+## v1.0.78 (2026-03-19)
+
+### Changes
+- Fix GOG download: use embed.gog.com API + redirect handling + token refresh (b5bb7df)
+
 ## v1.0.77 (2026-03-19)
 
 ### Changes

@@ -1,6 +1,6 @@
 {
   "name": "retroarr",
-  "version": "1.0.77",
+  "version": "1.0.78",
   "description": "RetroArr - A PVR for Video Games",
   "scripts": {
     "build": "webpack --config ./frontend/build/webpack.config.js",
