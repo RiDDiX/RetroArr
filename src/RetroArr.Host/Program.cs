@@ -234,6 +234,12 @@ namespace RetroArr.Host
             // Import Review workflow
             builder.Services.AddSingleton<RetroArr.Core.Games.ReviewItemService>();
 
+            // Local Media Export (downloads metadata images/videos to platform folders)
+            builder.Services.AddSingleton<RetroArr.Core.MetadataSource.LocalMediaExportService>(sp =>
+                new RetroArr.Core.MetadataSource.LocalMediaExportService(
+                    sp.GetRequiredService<System.Net.Http.IHttpClientFactory>().CreateClient("LocalMediaExport")));
+
+
             // Database migration service
             builder.Services.AddSingleton<RetroArr.Core.Data.DatabaseMigrationService>();
 

@@ -13,13 +13,16 @@ namespace RetroArr.Api.V3.Metadata
     [Route("api/v3/metadata/review")]
     public class MetadataReviewController : ControllerBase
     {
+        private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(RetroArr.Core.Logging.AppLoggerService.General);
         private readonly IGameRepository _gameRepository;
         private readonly IGameMetadataServiceFactory _metadataServiceFactory;
+        private readonly LocalMediaExportService _localMediaExport;
 
-        public MetadataReviewController(IGameRepository gameRepository, IGameMetadataServiceFactory metadataServiceFactory)
+        public MetadataReviewController(IGameRepository gameRepository, IGameMetadataServiceFactory metadataServiceFactory, LocalMediaExportService localMediaExport)
         {
             _gameRepository = gameRepository;
             _metadataServiceFactory = metadataServiceFactory;
+            _localMediaExport = localMediaExport;
         }
 
         /// <summary>
@@ -214,6 +217,9 @@ namespace RetroArr.Api.V3.Metadata
             game.MatchConfidence = request.Score;
 
             await _gameRepository.UpdateAsync(gameId, game);
+
+            try { await _localMediaExport.ExportMediaForGameAsync(game); }
+            catch (Exception ex) { _logger.Error($"[MetadataReview] Media export error: {ex.Message}"); }
 
             return Ok(new { success = true, title = game.Title });
         }

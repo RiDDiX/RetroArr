@@ -468,6 +468,14 @@ namespace RetroArr.Core.MetadataSource
 
                 // Wheel/Logo as banner
                 game.Images.BannerUrl = ScreenScraperClient.GetMediaUrl(ssGame.Medias, "wheel");
+
+                // Box back
+                game.Images.BoxBackUrl = ScreenScraperClient.GetMediaUrl(ssGame.Medias, "box-2D-back");
+
+                // Gameplay video
+                game.Images.VideoUrl = ScreenScraperClient.GetMediaUrl(ssGame.Medias, "video-normalized");
+                if (string.IsNullOrEmpty(game.Images.VideoUrl))
+                    game.Images.VideoUrl = ScreenScraperClient.GetMediaUrl(ssGame.Medias, "video");
             }
 
             _logger.Info($"[ScreenScraper] Found: {game.Title} ({game.Year})");

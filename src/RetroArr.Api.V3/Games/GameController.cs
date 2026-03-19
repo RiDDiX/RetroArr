@@ -25,8 +25,9 @@ namespace RetroArr.Api.V3.Games
         private readonly ILauncherService _launcherService;
         private readonly ConfigurationService _configService;
         private readonly InstallerScannerService _installerScanner;
+        private readonly LocalMediaExportService _localMediaExport;
 
-        public GameController(IGameRepository repository, IGameMetadataServiceFactory metadataServiceFactory, RetroArr.Core.IO.IArchiveService archiveService, ILauncherService launcherService, ConfigurationService configService, InstallerScannerService installerScanner)
+        public GameController(IGameRepository repository, IGameMetadataServiceFactory metadataServiceFactory, RetroArr.Core.IO.IArchiveService archiveService, ILauncherService launcherService, ConfigurationService configService, InstallerScannerService installerScanner, LocalMediaExportService localMediaExport)
         {
             _repository = repository;
             _metadataServiceFactory = metadataServiceFactory;
@@ -34,6 +35,7 @@ namespace RetroArr.Api.V3.Games
             _launcherService = launcherService;
             _configService = configService;
             _installerScanner = installerScanner;
+            _localMediaExport = localMediaExport;
         }
 
         [HttpGet]
@@ -343,6 +345,8 @@ namespace RetroArr.Api.V3.Games
                     if (!string.IsNullOrEmpty(gameUpdate.Images.CoverLargeUrl)) existingGame.Images.CoverLargeUrl = gameUpdate.Images.CoverLargeUrl;
                     if (!string.IsNullOrEmpty(gameUpdate.Images.BackgroundUrl)) existingGame.Images.BackgroundUrl = gameUpdate.Images.BackgroundUrl;
                     if (!string.IsNullOrEmpty(gameUpdate.Images.BannerUrl)) existingGame.Images.BannerUrl = gameUpdate.Images.BannerUrl;
+                    if (!string.IsNullOrEmpty(gameUpdate.Images.BoxBackUrl)) existingGame.Images.BoxBackUrl = gameUpdate.Images.BoxBackUrl;
+                    if (!string.IsNullOrEmpty(gameUpdate.Images.VideoUrl)) existingGame.Images.VideoUrl = gameUpdate.Images.VideoUrl;
                     if (gameUpdate.Images.Screenshots != null && gameUpdate.Images.Screenshots.Count > 0)
                         existingGame.Images.Screenshots = gameUpdate.Images.Screenshots;
                 }
@@ -353,6 +357,10 @@ namespace RetroArr.Api.V3.Games
             }
 
             var updated = await _repository.UpdateAsync(id, existingGame);
+
+            try { await _localMediaExport.ExportMediaForGameAsync(existingGame); }
+            catch (System.Exception ex) { _logger.Error($"[Game] Media export error: {ex.Message}"); }
+
             return Ok(updated);
         }
 

@@ -34,7 +34,9 @@ namespace RetroArr.Core.Data
             ("MetadataReviewReason",    "TEXT",                          "TEXT",                            "TEXT"),
             ("Region",                  "TEXT",                          "TEXT",                            "VARCHAR(255)"),
             ("Languages",               "TEXT",                          "TEXT",                            "TEXT"),
-            ("Revision",                "TEXT",                          "TEXT",                            "VARCHAR(255)")
+            ("Revision",                "TEXT",                          "TEXT",                            "VARCHAR(255)"),
+            ("Images_BoxBackUrl",       "TEXT",                          "TEXT",                            "TEXT"),
+            ("Images_VideoUrl",         "TEXT",                          "TEXT",                            "TEXT")
         };
 
         private static readonly (string Name, string SqliteType, string PgType, string MariaType)[] GameFilesColumns = new[]

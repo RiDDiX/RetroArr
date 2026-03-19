@@ -20,13 +20,15 @@ namespace RetroArr.Api.V3.Settings
         private readonly MediaScannerService _scannerService;
         private readonly IGameRepository _gameRepository;
         private readonly IGameMetadataServiceFactory _metadataServiceFactory;
+        private readonly LocalMediaExportService _localMediaExport;
 
-        public MediaController(ConfigurationService configService, MediaScannerService scannerService, IGameRepository gameRepository, IGameMetadataServiceFactory metadataServiceFactory)
+        public MediaController(ConfigurationService configService, MediaScannerService scannerService, IGameRepository gameRepository, IGameMetadataServiceFactory metadataServiceFactory, LocalMediaExportService localMediaExport)
         {
             _configService = configService;
             _scannerService = scannerService;
             _gameRepository = gameRepository;
             _metadataServiceFactory = metadataServiceFactory;
+            _localMediaExport = localMediaExport;
         }
 
         [HttpGet]
@@ -205,6 +207,7 @@ namespace RetroArr.Api.V3.Settings
                                     var best = ssResults.First();
                                     ApplyMetadataToGame(game, best, "ScreenScraper");
                                     await _gameRepository.UpdateAsync(game.Id, game);
+                                    try { await _localMediaExport.ExportMediaForGameAsync(game); } catch (Exception mex) { _logger.Error($"[MetadataRescan] Media export error: {mex.Message}"); }
                                     _metadataRescanUpdated++;
                                     updated = true;
                                 }
@@ -227,6 +230,7 @@ namespace RetroArr.Api.V3.Settings
                                         var best = ssResults.First();
                                         ApplyMetadataToGame(game, best, "ScreenScraper");
                                         await _gameRepository.UpdateAsync(game.Id, game);
+                                        try { await _localMediaExport.ExportMediaForGameAsync(game); } catch (Exception mex) { _logger.Error($"[MetadataRescan] Media export error: {mex.Message}"); }
                                         _metadataRescanUpdated++;
                                     }
                                 }
@@ -294,6 +298,7 @@ namespace RetroArr.Api.V3.Settings
                         game.NeedsMetadataReview = false;
                         game.MetadataSource = "IGDB";
                         await _gameRepository.UpdateAsync(game.Id, game);
+                        try { await _localMediaExport.ExportMediaForGameAsync(game); } catch (Exception mex) { _logger.Error($"[MetadataRescan] Media export error: {mex.Message}"); }
                         _metadataRescanUpdated++;
                         return true;
                     }
@@ -317,6 +322,8 @@ namespace RetroArr.Api.V3.Settings
                 if (!string.IsNullOrEmpty(source.Images.CoverLargeUrl)) game.Images.CoverLargeUrl = source.Images.CoverLargeUrl;
                 if (!string.IsNullOrEmpty(source.Images.BackgroundUrl)) game.Images.BackgroundUrl = source.Images.BackgroundUrl;
                 if (!string.IsNullOrEmpty(source.Images.BannerUrl)) game.Images.BannerUrl = source.Images.BannerUrl;
+                if (!string.IsNullOrEmpty(source.Images.BoxBackUrl)) game.Images.BoxBackUrl = source.Images.BoxBackUrl;
+                if (!string.IsNullOrEmpty(source.Images.VideoUrl)) game.Images.VideoUrl = source.Images.VideoUrl;
                 if (source.Images.Screenshots != null && source.Images.Screenshots.Count > 0)
                     game.Images.Screenshots = source.Images.Screenshots;
             }
