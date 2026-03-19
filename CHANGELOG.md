@@ -1,3 +1,8 @@
+## v1.0.80 (2026-03-19)
+
+### Changes
+- Fix GOG downloads missing file extensions (198c250)
+
 ## v1.0.79 (2026-03-19)
 
 ### Changes
