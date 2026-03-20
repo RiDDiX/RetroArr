@@ -137,6 +137,43 @@ namespace RetroArr.Core.MetadataSource.ScreenScraper
             return results;
         }
 
+        /// <summary>
+        /// Get full game details by ScreenScraper game ID using jeuInfos.php.
+        /// Unlike jeuRecherche.php, this returns synopsis, developer, publisher, genres, etc.
+        /// </summary>
+        public async Task<ScreenScraperGame?> GetGameByIdAsync(string gameId)
+        {
+            try
+            {
+                var url = $"{BaseUrl}/jeuInfos.php?devid={_devId}&devpassword={_devPassword}&softname={SoftName}&output=json";
+
+                if (!string.IsNullOrEmpty(_username) && !string.IsNullOrEmpty(_password))
+                {
+                    url += $"&ssid={Uri.EscapeDataString(_username)}&sspassword={Uri.EscapeDataString(_password)}";
+                }
+
+                url += $"&gameid={Uri.EscapeDataString(gameId)}";
+
+                var response = await _httpClient.GetAsync(url);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.Info($"[ScreenScraper] jeuInfos by ID {gameId} returned HTTP {(int)response.StatusCode}");
+                    return null;
+                }
+
+                var json = await response.Content.ReadAsStringAsync();
+                var result = JsonSerializer.Deserialize<ScreenScraperResponse>(json);
+
+                return result?.Response?.Jeu;
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"[ScreenScraper] jeuInfos by ID exception: {ex.Message}");
+                return null;
+            }
+        }
+
         public static string? ComputeSha1(string filePath)
         {
             try

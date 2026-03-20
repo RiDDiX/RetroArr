@@ -74,7 +74,6 @@ namespace RetroArr.Core.Games
         [System.ComponentModel.DataAnnotations.Schema.NotMapped]
         public bool IsOwned { get; set; }
         
-        [System.ComponentModel.DataAnnotations.Schema.NotMapped]
         public string? MetadataSource { get; set; } // "IGDB" or "ScreenScraper"
 
         // Installer tracking (GOG downloads, etc.)
@@ -121,7 +120,9 @@ namespace RetroArr.Core.Games
         public string? CoverLargeUrl { get; set; }
         public string? BackgroundUrl { get; set; }
         [SuppressMessage("Microsoft.Design", "CA1056:UriPropertiesShouldNotBeStrings")]
-        public string? BannerUrl { get; set; }         // Banner horizontal
+        public string? BannerUrl { get; set; }         // Banner horizontal (wheel/marquee)
+        public string? BoxBackUrl { get; set; }        // Box back cover
+        public string? VideoUrl { get; set; }          // Gameplay video
         
         [SuppressMessage("Microsoft.Usage", "CA2227:CollectionPropertiesShouldBeReadOnly")]
         [SuppressMessage("Microsoft.Design", "CA1002:DoNotExposeGenericLists")]

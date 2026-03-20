@@ -76,16 +76,17 @@ namespace RetroArr.Core.Games
             // ========== 3DO ==========
             ["3do"] = new() { Extensions = new[] { ".iso", ".chd", ".cue" } },
             // ========== Sony PlayStation ==========
-            ["nintendo_switch"] = new() { Extensions = new[] { ".nsp", ".xci", ".nsz", ".xcz" } },
-            ["switch"] = new() { Extensions = new[] { ".nsp", ".xci", ".nsz", ".xcz" } },
-            ["ps4"] = new() { Extensions = new[] { ".ps4" }, IsFolderMode = true },
+            ["nintendo_switch"] = new() { Extensions = new[] { ".nsp", ".xci", ".nsz", ".xcz", ".nso", ".nro", ".nca", ".kip" } },
+            ["switch"] = new() { Extensions = new[] { ".nsp", ".xci", ".nsz", ".xcz", ".nso", ".nro", ".nca", ".kip" } },
+            ["ps4"] = new() { Extensions = new[] { ".ps4", ".m3u", ".lnk" }, IsFolderMode = true },
             ["ps5"] = new() { Extensions = new[] { ".pkg" } },
-            ["ps3"] = new() { Extensions = new[] { ".iso", ".pkg", ".bin", ".psn", ".squashfs", ".m3u", ".ps3" }, IsFolderMode = true },
+            ["ps3"] = new() { Extensions = new[] { ".iso", ".pkg", ".bin", ".psn", ".squashfs", ".m3u", ".ps3", ".lnk", ".7z", ".zip", ".rar" }, IsFolderMode = true },
             ["ps2"] = new() { Extensions = new[] { ".iso", ".bin", ".cue", ".chd", ".cso", ".gz", ".mdf", ".nrg", ".img", ".dump" } },
             ["ps1"] = new() { Extensions = new[] { ".bin", ".cue", ".chd", ".pbp", ".iso", ".img", ".mdf", ".toc", ".cbn", ".m3u", ".ccd" } },
-            ["psx"] = new() { Extensions = new[] { ".bin", ".cue", ".chd", ".pbp", ".iso", ".img", ".mdf", ".toc", ".cbn", ".m3u", ".ccd" } },
-            ["psp"] = new() { Extensions = new[] { ".iso", ".cso", ".pbp", ".chd" } },
-            ["vita"] = new() { Extensions = new[] { ".vpk", ".mai", ".psvita", ".zip" } },
+            ["psx"] = new() { Extensions = new[] { ".bin", ".cue", ".chd", ".pbp", ".iso", ".img", ".mdf", ".toc", ".cbn", ".m3u", ".ccd", ".zip", ".7z", ".cso" } },
+            ["psp"] = new() { Extensions = new[] { ".iso", ".cso", ".pbp", ".chd", ".elf", ".prx", ".zip", ".7z", ".squashfs" } },
+            ["vita"] = new() { Extensions = new[] { ".vpk", ".mai", ".psvita", ".m3u", ".zip" }, IsFolderMode = true },
+            ["psvita"] = new() { Extensions = new[] { ".vpk", ".mai", ".psvita", ".m3u", ".zip" }, IsFolderMode = true },
             ["pc"] = new() { Extensions = new[] { ".iso", ".exe", ".zip", ".rar", ".7z", ".setup" }, IsFolderMode = true },
             ["pc_windows"] = new() { Extensions = new[] { ".iso", ".exe", ".zip", ".rar", ".7z", ".setup" }, IsFolderMode = true },
             ["windows"] = new() { Extensions = new[] { ".iso", ".exe", ".zip", ".rar", ".7z", ".setup" }, IsFolderMode = true },
@@ -117,6 +118,7 @@ namespace RetroArr.Core.Games
             ["segacd"] = new() { Extensions = new[] { ".iso", ".bin", ".cue", ".chd", ".m3u" } },
             ["megacd"] = new() { Extensions = new[] { ".iso", ".bin", ".cue", ".chd", ".m3u" } },
             ["32x"] = new() { Extensions = new[] { ".32x", ".bin", ".smd", ".md", ".zip", ".7z" } },
+            ["sega32x"] = new() { Extensions = new[] { ".32x", ".bin", ".smd", ".md", ".zip", ".7z" } },
             // ========== PC / Computer (additional) ==========
             ["dos"] = new() { Extensions = new[] { ".exe", ".com", ".bat", ".zip", ".7z" }, IsFolderMode = true },
             ["linux"] = new() { Extensions = new[] { ".AppImage", ".sh", ".deb", ".tar.gz", ".zip", ".7z" }, IsFolderMode = true },
@@ -159,7 +161,9 @@ namespace RetroArr.Core.Games
             ["atarist"] = new() { Extensions = new[] { ".st", ".stx", ".msa", ".dim", ".ipf", ".m3u", ".zip", ".7z" } },
             // ========== Handhelds ==========
             ["wonderswan"] = new() { Extensions = new[] { ".ws", ".zip", ".7z" } },
+            ["wswan"] = new() { Extensions = new[] { ".ws", ".zip", ".7z" } },
             ["wonderswancolor"] = new() { Extensions = new[] { ".wsc", ".ws", ".zip", ".7z" } },
+            ["wswanc"] = new() { Extensions = new[] { ".wsc", ".ws", ".zip", ".7z" } },
             ["ngp"] = new() { Extensions = new[] { ".ngp", ".zip", ".7z" } },
             ["ngpc"] = new() { Extensions = new[] { ".ngc", ".ngp", ".zip", ".7z" } },
             ["supervision"] = new() { Extensions = new[] { ".sv", ".bin", ".zip", ".7z" } },
@@ -353,6 +357,7 @@ namespace RetroArr.Core.Games
             "shadercache", "compatdata", "depotcache", ".steam", ".local", ".cache", "temp", "tmp", "node_modules",
             "windows", "system32", "syswow64", "Microsoft.NET", "Framework", "Framework64", "Internet Explorer", "Accessories", "Windows NT", "INF", "WinSxS", "SysARM32", "Sysnative", "command",
             "retroarch", "autoconfig", "assets", "overlays", "database", "cursors", "cheats", "filters", "libretro", "thumbnails", "config", "remaps", "playlists", "cores", "screenshots",
+            "images", "videos", "snaps", "marquees", "wheels", "boxart", "fanart",
             "z:", "d:"
         };
 
@@ -494,7 +499,7 @@ namespace RetroArr.Core.Games
                 var platformSubfolders = DetectPlatformSubfolders(folderPath);
 
                 // If a specific platform was requested, filter to only that platform
-                if (!string.IsNullOrEmpty(overridePlatform) && platformSubfolders.Count > 0)
+                if (!string.IsNullOrEmpty(overridePlatform) && overridePlatform != "default" && platformSubfolders.Count > 0)
                 {
                     platformSubfolders = platformSubfolders
                         .Where(p => p.Platform.MatchesFolderName(overridePlatform))
@@ -534,7 +539,36 @@ namespace RetroArr.Core.Games
                             
                             if (platformRule.IsFolderMode)
                             {
-                                gamesAdded += await ScanFolderModeAsync(platformFolder, platformRule, existingGames, platform.FolderName, metadataService, _scanCts.Token);
+                                var folderAdded = await ScanFolderModeAsync(platformFolder, platformRule, existingGames, platform.FolderName, metadataService, _scanCts.Token);
+                                gamesAdded += folderAdded;
+
+                                // Fallback: If folder mode found nothing, try file mode to catch loose files (e.g. .iso directly in platform folder)
+                                // But skip fallback if game directories exist — means games are already in DB (rescan scenario)
+                                if (folderAdded == 0 && !_scanCts.Token.IsCancellationRequested)
+                                {
+                                    bool hasGameDirs = false;
+                                    try
+                                    {
+                                        hasGameDirs = Directory.GetDirectories(platformFolder)
+                                            .Any(d => {
+                                                var name = Path.GetFileName(d);
+                                                return !_folderBlacklist.Contains(name) &&
+                                                       !_supplementaryFolderNames.Contains(name) &&
+                                                       !name.StartsWith(".");
+                                            });
+                                    }
+                                    catch { /* ignore access errors */ }
+
+                                    if (!hasGameDirs)
+                                    {
+                                        Log($"[AutoPlatform] FolderMode found 0 for '{platform.Name}'. No game directories — trying FileMode fallback...");
+                                        gamesAdded += await ScanFileModeAsync(platformFolder, platformRule, existingGames, platform.FolderName, metadataService, _scanCts.Token);
+                                    }
+                                    else
+                                    {
+                                        Log($"[AutoPlatform] FolderMode added 0 for '{platform.Name}' but game directories exist. Skipping FileMode fallback.");
+                                    }
+                                }
                             }
                             else
                             {
@@ -559,10 +593,31 @@ namespace RetroArr.Core.Games
                     gamesAdded = await ScanFolderModeAsync(folderPath, rule, existingGames, platformKey, metadataService, _scanCts.Token);
                     
                     // FALLBACK: If folder mode found 0 games, try file mode just in case
+                    // But skip fallback if game directories exist — means games are already in DB (rescan scenario)
                     if (gamesAdded == 0 && !_scanCts.Token.IsCancellationRequested)
                     {
-                        Log($"ScanFolderMode found 0 games. Falling back to ScanFileMode for exhaustive search.");
-                        gamesAdded = await ScanFileModeAsync(folderPath, rule, existingGames, platformKey, metadataService, _scanCts.Token);
+                        bool hasGameDirs = false;
+                        try
+                        {
+                            hasGameDirs = Directory.GetDirectories(folderPath)
+                                .Any(d => {
+                                    var name = Path.GetFileName(d);
+                                    return !_folderBlacklist.Contains(name) &&
+                                           !_supplementaryFolderNames.Contains(name) &&
+                                           !name.StartsWith(".");
+                                });
+                        }
+                        catch { /* ignore access errors */ }
+
+                        if (!hasGameDirs)
+                        {
+                            Log($"ScanFolderMode found 0 games. No game directories — falling back to ScanFileMode.");
+                            gamesAdded = await ScanFileModeAsync(folderPath, rule, existingGames, platformKey, metadataService, _scanCts.Token);
+                        }
+                        else
+                        {
+                            Log($"ScanFolderMode added 0 but game directories exist. Skipping FileMode fallback.");
+                        }
                     }
 
                     await CleanupAndResyncPlatformAsync(folderPath, platformKey, existingGames, _scanCts.Token);
@@ -624,6 +679,12 @@ namespace RetroArr.Core.Games
             var pcPlatforms = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 { "pc", "pc_windows", "windows", "macos", "macintosh", "linux", "dos", "dosbox" };
 
+            // Resolve platform ID once outside the loop
+            int scanPlatformId = 0;
+            var scanPlatDef = PlatformDefinitions.AllPlatforms.FirstOrDefault(
+                p => p.MatchesFolderName(platformKey));
+            if (scanPlatDef != null) scanPlatformId = scanPlatDef.Id;
+
             foreach (var dir in directories)
             {
                 ct.ThrowIfCancellationRequested();
@@ -634,26 +695,21 @@ namespace RetroArr.Core.Games
                     Log($"[Scanner] Skipping supplementary folder (will scan later): {folderName}");
                     continue;
                 }
-                
-                // Advanced Scanner Logic V2: Find the best executable in the folder structure
-                var (bestExePath, isInstaller) = FindBestExecutable(dir, rule.Extensions, isExternal: false);
-                
-                // For console folder-mode platforms the folder IS the game — no executable required.
-                // PC platforms still need an executable to avoid picking up random folders.
-                if (string.IsNullOrEmpty(bestExePath) && pcPlatforms.Contains(platformKey))
-                    continue;
 
+                try
                 {
+                    // Advanced Scanner Logic V2: Find the best executable in the folder structure
+                    var (bestExePath, isInstaller) = FindBestExecutable(dir, rule.Extensions, isExternal: false);
+                    
+                    // For console folder-mode platforms the folder IS the game — no executable required.
+                    // PC platforms still need an executable to avoid picking up random folders.
+                    if (string.IsNullOrEmpty(bestExePath) && pcPlatforms.Contains(platformKey))
+                        continue;
+
                     // Strip container extensions (.ps3, .ps4) before title cleaning
                     var (baseFolderName, _) = TitleCleanerService.StripContainerExtension(folderName);
                     var (region, langs, revision) = TitleCleanerService.ExtractFilenameMetadata(baseFolderName);
                     var (cleanName, serial) = _titleCleaner.CleanGameTitle(baseFolderName);
-
-                    // Resolve platform ID for this scan
-                    int scanPlatformId = 0;
-                    var scanPlatDef = PlatformDefinitions.AllPlatforms.FirstOrDefault(
-                        p => p.MatchesFolderName(platformKey));
-                    if (scanPlatDef != null) scanPlatformId = scanPlatDef.Id;
                     
                     // Check if game exists for THIS platform (allow same title on different platforms)
                     if (!existingGames.Any(g => g.Title.Equals(cleanName, StringComparison.OrdinalIgnoreCase) &&
@@ -683,6 +739,11 @@ namespace RetroArr.Core.Games
                             Log($"Game already exists in DB (resynced files): {cleanName}");
                         }
                     }
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    Log($"[Scanner] Error processing folder '{folderName}': {ex.Message}. Continuing.", LogLevel.Warning);
                 }
             }
 
@@ -1070,7 +1131,7 @@ namespace RetroArr.Core.Games
 
             if (currentDepth > maxDepth) return;
 
-            if (root.Name.StartsWith(".") || _folderBlacklist.Contains(root.Name) || IsMetadataSubfolder(root.Name)) return;
+            if (currentDepth > 0 && (root.Name.StartsWith(".") || _folderBlacklist.Contains(root.Name) || IsMetadataSubfolder(root.Name))) return;
             if (_supplementaryFolderNames.Contains(root.Name)) return;
 
             try
@@ -1583,7 +1644,32 @@ namespace RetroArr.Core.Games
 
                 Log($"[Scanner] Search variants: {string.Join(" | ", searchVariants)}");
 
-                // Multi-variant search with platform fallback
+                // Check per-platform metadata source preference
+                var preferScreenScraper = scanPlatformId > 0
+                    && PlatformService.GetMetadataSource(scanPlatformId)
+                        .Equals(PlatformService.MetadataSourceScreenScraper, StringComparison.OrdinalIgnoreCase);
+
+                if (preferScreenScraper)
+                {
+                    Log($"[Scanner] Platform {scanPlatformId} prefers ScreenScraper — trying ScreenScraper first");
+                    var ssResults = await metadataService.SearchScreenScraperAsync(searchVariants.First(), platformKey);
+                    if (ssResults.Count > 0)
+                    {
+                        var best = ssResults.First();
+                        best.Path = localPath;
+                        best.ExecutablePath = executablePath;
+                        best.IsExternal = isExternal;
+                        best.MetadataSource = "ScreenScraper";
+                        best.NeedsMetadataReview = false;
+                        if (best.PlatformId == 0 && scanPlatformId > 0)
+                            best.PlatformId = scanPlatformId;
+                        Log($"[Scanner] ScreenScraper match: '{best.Title}'");
+                        return best;
+                    }
+                    Log($"[Scanner] ScreenScraper returned no results, falling back to IGDB");
+                }
+
+                // Multi-variant search with platform fallback (IGDB)
                 var igdbCandidates = await metadataService.SearchWithVariantsAsync(searchVariants, platformKey, null, serial);
 
                 if (igdbCandidates.Count > 0)

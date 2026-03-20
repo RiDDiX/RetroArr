@@ -115,6 +115,21 @@ interface GogDownloadResult extends Partial<TorrentResult> {
   isOwned?: boolean;
 }
 
+function sanitizeHtml(html: string): string {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  // Remove dangerous elements
+  doc.querySelectorAll('script,iframe,object,embed,form,input,textarea,button,meta,link,style').forEach(el => el.remove());
+  // Remove event handler attributes from all elements
+  doc.querySelectorAll('*').forEach(el => {
+    for (const attr of Array.from(el.attributes)) {
+      if (attr.name.startsWith('on') || (attr.name === 'href' && attr.value.trimStart().startsWith('javascript'))) {
+        el.removeAttribute(attr.name);
+      }
+    }
+  });
+  return doc.body.innerHTML;
+}
+
 const GameDetails: React.FC = () => {
   useTranslation(); // Subscribe to language changes
   const { id } = useParams<{ id: string }>();
@@ -136,7 +151,7 @@ const GameDetails: React.FC = () => {
   const [showUninstallModal, setShowUninstallModal] = useState(false);
   const [showInstallWarning, setShowInstallWarning] = useState(false);
   const [showSwitchModal, setShowSwitchModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'search' | 'files' | 'patches' | 'none'>('search'); // 'search' by default to keep existing behavior? Or none? User said "Search Game" is one function. Let's make it toggleable.
+  const [activeTab, setActiveTab] = useState<'search' | 'files' | 'patches' | 'media' | 'none'>('search'); // 'search' by default to keep existing behavior? Or none? User said "Search Game" is one function. Let's make it toggleable.
   // Toggle search section visibility
   const [showEmulator, setShowEmulator] = useState(false);
   const [isWebPlayable, setIsWebPlayable] = useState(false);
@@ -174,6 +189,12 @@ const GameDetails: React.FC = () => {
   const [supRenameLoading, setSupRenameLoading] = useState(false);
   const [supRenameApplying, setSupRenameApplying] = useState(false);
   const [supRenameResult, setSupRenameResult] = useState<{ applied: number; failed: number; skipped: number } | null>(null);
+
+  // Local media state
+  const [localImages, setLocalImages] = useState<Array<{ type: string; fileName: string; url: string }>>([]);
+  const [localVideos, setLocalVideos] = useState<Array<{ type: string; fileName: string; url: string; size?: number }>>([]);
+  const [localMediaLoading, setLocalMediaLoading] = useState(false);
+  const [selectedLocalImage, setSelectedLocalImage] = useState<string | null>(null);
 
   // Patches state
   const [patchFiles, setPatchFiles] = useState<Array<{ name: string; relativePath: string; fullPath: string; size: number; formattedSize: string; extension: string; lastModified: string }>>([]);
@@ -331,11 +352,30 @@ const GameDetails: React.FC = () => {
     loadPatches();
   }, [id, activeTab]);
 
-  const handleGogDownloadToFolder = async (manualUrl: string, fileName?: string) => {
+  // Load local media when media tab is activated
+  useEffect(() => {
+    const loadLocalMedia = async () => {
+      if (!id || activeTab !== 'media') return;
+      setLocalMediaLoading(true);
+      try {
+        const res = await apiClient.get(`/game/${id}/local-media`);
+        setLocalImages(res.data.images || []);
+        setLocalVideos(res.data.videos || []);
+      } catch {
+        setLocalImages([]);
+        setLocalVideos([]);
+      } finally {
+        setLocalMediaLoading(false);
+      }
+    };
+    loadLocalMedia();
+  }, [id, activeTab]);
+
+  const handleGogDownloadToFolder = async (manualUrl: string, fileName?: string, platform?: string) => {
     if (!id || gogDownloading) return;
     setGogDownloading(manualUrl);
     try {
-      const res = await apiClient.post(`/game/${id}/gog-download`, { manualUrl, fileName });
+      const res = await apiClient.post(`/game/${id}/gog-download`, { manualUrl, fileName, platform });
       if (res.data.success) {
         setNotification({ message: res.data.message || 'GOG download started', type: 'success' });
       } else {
@@ -1083,6 +1123,14 @@ const GameDetails: React.FC = () => {
               </button>
             )}
             <button
+              className={`action-btn ${activeTab === 'media' ? 'active' : ''}`}
+              onClick={() => setActiveTab(activeTab === 'media' ? 'none' : 'media')}
+              title={t('localMedia') || 'Local Media'}
+            >
+              <FontAwesomeIcon icon={faFolder} />
+              <span>{t('localMedia') || 'Media'}</span>
+            </button>
+            <button
               className="action-btn"
               onClick={() => setShowCorrectionModal(true)}
               title={t('correctMetadata')}
@@ -1323,7 +1371,7 @@ const GameDetails: React.FC = () => {
             </div>
           )}
           {game.overview && (
-            <p className="overview">{game.overview}</p>
+            <div className="overview" dangerouslySetInnerHTML={{ __html: sanitizeHtml(game.overview) }} />
           )}
 
           {/* User Review Section */}
@@ -1841,7 +1889,7 @@ const GameDetails: React.FC = () => {
                       </div>
                       {dl.manualUrl && (
                         <button
-                          onClick={() => handleGogDownloadToFolder(dl.manualUrl!, dl.name)}
+                          onClick={() => handleGogDownloadToFolder(dl.manualUrl!, dl.name, dl.platform)}
                           disabled={!!gogDownloading}
                           style={{
                             padding: '6px 14px',
@@ -2465,6 +2513,136 @@ const GameDetails: React.FC = () => {
                 </div>
               )}
             </div>
+          </div>
+        )
+      }
+
+      {
+        activeTab === 'media' && game && (
+          <div className="game-files-section" style={{ marginTop: '20px' }}>
+            {localMediaLoading ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: 'var(--ctp-subtext0)' }}>
+                <FontAwesomeIcon icon={faSpinner} spin size="2x" />
+                <div style={{ marginTop: '12px' }}>{t('loading')}</div>
+              </div>
+            ) : localImages.length === 0 && localVideos.length === 0 ? (
+              <div style={{
+                textAlign: 'center', padding: '40px', color: 'var(--ctp-subtext0)',
+                background: 'var(--ctp-surface0)', borderRadius: '10px', border: '1px solid var(--ctp-surface1)'
+              }}>
+                <FontAwesomeIcon icon={faFolder} size="2x" style={{ marginBottom: '12px', opacity: 0.5 }} />
+                <div>{t('noLocalMedia') || 'No local images or videos found.'}</div>
+                <div style={{ fontSize: '12px', marginTop: '8px', opacity: 0.7 }}>
+                  {t('localMediaHint') || 'Place files in images/ and videos/ folders next to your ROM files (RetroBat/Batocera convention).'}
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Videos */}
+                {localVideos.length > 0 && (
+                  <div style={{ marginBottom: '20px' }}>
+                    <h4 style={{ margin: '0 0 12px 0', color: 'var(--ctp-text)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <FontAwesomeIcon icon={faGamepad} style={{ color: 'var(--ctp-mauve)' }} />
+                      {t('videos') || 'Videos'} ({localVideos.length})
+                    </h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {localVideos.map((video, idx) => (
+                        <div key={idx} style={{
+                          background: 'var(--ctp-surface0)', borderRadius: '10px', overflow: 'hidden',
+                          border: '1px solid var(--ctp-surface1)'
+                        }}>
+                          <div style={{ padding: '8px 12px', fontSize: '12px', color: 'var(--ctp-subtext0)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>{video.fileName}</span>
+                            <span style={{
+                              background: 'var(--ctp-mauve)', color: 'var(--ctp-base)',
+                              padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600
+                            }}>{video.type}</span>
+                          </div>
+                          <video
+                            controls
+                            preload="metadata"
+                            style={{ width: '100%', maxHeight: '400px', background: '#000' }}
+                          >
+                            <source src={video.url} type="video/mp4" />
+                          </video>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Images */}
+                {localImages.length > 0 && (
+                  <div>
+                    <h4 style={{ margin: '0 0 12px 0', color: 'var(--ctp-text)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <FontAwesomeIcon icon={faFile} style={{ color: 'var(--ctp-blue)' }} />
+                      {t('images') || 'Images'} ({localImages.length})
+                    </h4>
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                      gap: '12px'
+                    }}>
+                      {localImages.map((img, idx) => (
+                        <div key={idx} style={{
+                          background: 'var(--ctp-surface0)', borderRadius: '10px', overflow: 'hidden',
+                          border: '1px solid var(--ctp-surface1)', cursor: 'pointer',
+                          transition: 'transform 0.15s ease, box-shadow 0.15s ease'
+                        }}
+                          onClick={() => setSelectedLocalImage(img.url)}
+                          onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.02)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.3)'; }}
+                          onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = 'none'; }}
+                        >
+                          <img
+                            src={img.url}
+                            alt={img.fileName}
+                            style={{ width: '100%', height: '180px', objectFit: 'cover', display: 'block' }}
+                            loading="lazy"
+                          />
+                          <div style={{ padding: '8px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--ctp-subtext0)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                              {img.fileName}
+                            </span>
+                            <span style={{
+                              background: 'var(--ctp-blue)', color: 'var(--ctp-base)',
+                              padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, flexShrink: 0, marginLeft: '6px'
+                            }}>{img.type}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Lightbox */}
+            {selectedLocalImage && (
+              <div
+                style={{
+                  position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999,
+                  background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer'
+                }}
+                onClick={() => setSelectedLocalImage(null)}
+              >
+                <img
+                  src={selectedLocalImage}
+                  alt=""
+                  style={{ maxWidth: '90vw', maxHeight: '90vh', objectFit: 'contain', borderRadius: '8px' }}
+                  onClick={e => e.stopPropagation()}
+                />
+                <button
+                  onClick={() => setSelectedLocalImage(null)}
+                  style={{
+                    position: 'absolute', top: '20px', right: '20px',
+                    background: 'rgba(0,0,0,0.5)', color: '#fff', border: 'none',
+                    borderRadius: '50%', width: '40px', height: '40px', fontSize: '20px',
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                  }}
+                >&times;</button>
+              </div>
+            )}
           </div>
         )
       }

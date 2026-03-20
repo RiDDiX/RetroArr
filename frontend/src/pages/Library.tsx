@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import apiClient, { mediaApi, reviewsApi, MetadataRescanStatus, GameReview } from '../api/client';
+import apiClient, { mediaApi, MetadataRescanStatus } from '../api/client';
 import GameCard from '../components/GameCard';
 import ContextMenu from '../components/ContextMenu';
 import { Modal, ConfirmDialog } from '../components/ui';
@@ -50,6 +50,7 @@ interface Platform {
   category?: string;
   igdbPlatformId?: number;
   enabled?: boolean;
+  preferredMetadataSource?: string;
 }
 
 const Library: React.FC = () => {
@@ -87,6 +88,8 @@ const Library: React.FC = () => {
   const [platformScanning, setPlatformScanning] = useState(false);
   const [metadataRescanning, setMetadataRescanning] = useState(false);
   const [rescanStatus, setRescanStatus] = useState<MetadataRescanStatus | null>(null);
+  const [showScraperChoice, setShowScraperChoice] = useState<{ platformId: number; missingOnly: boolean } | null>(null);
+  const [selectedScraper, setSelectedScraper] = useState<'igdb' | 'screenscraper'>('igdb');
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -95,7 +98,7 @@ const Library: React.FC = () => {
     return saved ? parseInt(saved, 10) : 50;
   });
   const itemsPerPageOptions = [10, 25, 50, 100, 250, 500, 1000];
-  const [reviewMap, setReviewMap] = useState<Record<number, GameReview | null>>({});
+  const rescanPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, visible: boolean, game: Game | null }>({
     x: 0,
@@ -136,6 +139,15 @@ const Library: React.FC = () => {
     loadPlatforms();
     checkIgdbConfig();
 
+    // Check if a rescan is already running (display-only, does NOT block buttons)
+    mediaApi.getMetadataRescanStatus().then(res => {
+      if (res.data.isRescanning) {
+        setRescanStatus(res.data);
+        setMetadataRescanning(true);
+        startRescanPolling();
+      }
+    }).catch(() => {});
+
     // Listen for global library updates (e.g. from Auto-Scan in Settings)
     const handleLibraryUpdate = () => {
       console.log("[Library] Received update signal (EVENT). Loading games...");
@@ -146,6 +158,7 @@ const Library: React.FC = () => {
     window.addEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
     return () => {
       window.removeEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
+      if (rescanPollRef.current) clearInterval(rescanPollRef.current);
     };
   }, []);
 
@@ -370,83 +383,101 @@ const Library: React.FC = () => {
     }
   }, [platformScanning]);
 
+  const startRescanPolling = useCallback(() => {
+    if (rescanPollRef.current) clearInterval(rescanPollRef.current);
+    let failCount = 0;
+    rescanPollRef.current = setInterval(async () => {
+      try {
+        const res = await mediaApi.getMetadataRescanStatus();
+        failCount = 0;
+        setRescanStatus(res.data);
+        if (!res.data.isRescanning) {
+          if (rescanPollRef.current) clearInterval(rescanPollRef.current);
+          rescanPollRef.current = null;
+          setMetadataRescanning(false);
+          loadGames();
+        }
+      } catch {
+        failCount++;
+        if (failCount >= 5) {
+          if (rescanPollRef.current) clearInterval(rescanPollRef.current);
+          rescanPollRef.current = null;
+          setMetadataRescanning(false);
+        }
+      }
+    }, 2000);
+  }, []);
+
   // Per-platform metadata rescan handler
-  const handleMetadataRescan = useCallback(async (platformId: number, missingOnly: boolean) => {
-    if (metadataRescanning) return;
+  const handleMetadataRescan = useCallback(async (platformId: number, missingOnly: boolean, preferredSource: string = 'igdb') => {
     setMetadataRescanning(true);
     setRescanStatus(null);
     try {
-      await mediaApi.startMetadataRescan({ platformId, missingOnly });
-      // Poll status
-      const poll = setInterval(async () => {
-        try {
-          const res = await mediaApi.getMetadataRescanStatus();
-          setRescanStatus(res.data);
-          if (!res.data.isRescanning) {
-            clearInterval(poll);
-            setMetadataRescanning(false);
-            loadGames();
-          }
-        } catch {
-          clearInterval(poll);
-          setMetadataRescanning(false);
-        }
-      }, 2000);
-    } catch (err) {
+      await mediaApi.startMetadataRescan({ platformId, missingOnly, preferredSource });
+      startRescanPolling();
+    } catch (err: unknown) {
       console.error('Metadata rescan failed:', err);
+      const axErr = err as { response?: { data?: { message?: string } }; message?: string };
+      const msg = axErr?.response?.data?.message || axErr?.message || 'Unknown error';
+      alert(`Metadata rescan failed: ${msg}`);
       setMetadataRescanning(false);
     }
-  }, [metadataRescanning]);
+  }, [startRescanPolling]);
+
+  const handleCancelRescan = useCallback(async () => {
+    try {
+      await mediaApi.cancelMetadataRescan();
+      if (rescanPollRef.current) clearInterval(rescanPollRef.current);
+      rescanPollRef.current = null;
+      setMetadataRescanning(false);
+      setRescanStatus(null);
+    } catch {
+      // Force-reset frontend state even if cancel endpoint fails
+      if (rescanPollRef.current) clearInterval(rescanPollRef.current);
+      rescanPollRef.current = null;
+      setMetadataRescanning(false);
+      setRescanStatus(null);
+    }
+  }, []);
+
+  const openScraperChoice = (platformId: number, missingOnly: boolean) => {
+    const plat = allPlatforms.find(p => p.id === platformId);
+    const defaultSource = (plat?.preferredMetadataSource || 'igdb') as 'igdb' | 'screenscraper';
+    setSelectedScraper(defaultSource);
+    setShowScraperChoice({ platformId, missingOnly });
+  };
+
+  const startRescanWithChoice = () => {
+    if (!showScraperChoice) return;
+    handleMetadataRescan(showScraperChoice.platformId, showScraperChoice.missingOnly, selectedScraper);
+    setShowScraperChoice(null);
+  };
 
   const selectedPlatformData = useMemo(() => {
     if (!selectedPlatform) return null;
     return platforms.find(p => p.id.toString() === selectedPlatform) || null;
   }, [selectedPlatform, platforms]);
 
-  const filteredGames = games.filter(game => {
-    if (!selectedPlatform) return true;
-    const pid = selectedPlatform.toString();
-    return game.platform?.id?.toString() === pid || game.platformId?.toString() === pid;
-  }).sort((a, b) => {
-    const titleA = a.title?.toLowerCase() || '';
-    const titleB = b.title?.toLowerCase() || '';
-    if (sortOrder === 'asc') return titleA.localeCompare(titleB);
-    return titleB.localeCompare(titleA);
-  });
+  const filteredGames = useMemo(() => {
+    const filtered = games.filter(game => {
+      if (!selectedPlatform) return true;
+      const pid = selectedPlatform.toString();
+      return game.platform?.id?.toString() === pid || game.platformId?.toString() === pid;
+    });
+    filtered.sort((a, b) => {
+      const titleA = a.title?.toLowerCase() || '';
+      const titleB = b.title?.toLowerCase() || '';
+      if (sortOrder === 'asc') return titleA.localeCompare(titleB);
+      return titleB.localeCompare(titleA);
+    });
+    return filtered;
+  }, [games, selectedPlatform, sortOrder]);
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredGames.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
   const paginatedGames = filteredGames.slice(startIndex, endIndex);
-
-  // Batch-fetch reviews for visible page to avoid N per-card API calls
-  useEffect(() => {
-    if (paginatedGames.length === 0) return;
-    const gameIds = paginatedGames.map(g => g.id);
-    const missing = gameIds.filter(id => !(id in reviewMap));
-    if (missing.length === 0) return;
-
-    let cancelled = false;
-    const fetchBatch = async () => {
-      const results: Record<number, GameReview | null> = {};
-      await Promise.allSettled(
-        missing.map(async id => {
-          try {
-            const res = await reviewsApi.getByGameId(id);
-            results[id] = res.data;
-          } catch {
-            results[id] = null;
-          }
-        })
-      );
-      if (!cancelled) {
-        setReviewMap(prev => ({ ...prev, ...results }));
-      }
-    };
-    fetchBatch();
-    return () => { cancelled = true; };
-  }, [paginatedGames.map(g => g.id).join(',')]);
 
   // Reset to page 1 when filter changes
   useEffect(() => {
@@ -554,8 +585,7 @@ const Library: React.FC = () => {
               </button>
               <button
                 className="platform-action-btn rescan-btn"
-                onClick={() => handleMetadataRescan(selectedPlatformData.id, true)}
-                disabled={metadataRescanning}
+                onClick={() => openScraperChoice(selectedPlatformData.id, true)}
                 title={t('rescanMetadataMissing') || 'Re-fetch metadata for games missing info'}
               >
                 <FontAwesomeIcon icon={faDatabase} spin={metadataRescanning} />
@@ -563,8 +593,7 @@ const Library: React.FC = () => {
               </button>
               <button
                 className="platform-action-btn rescan-btn force"
-                onClick={() => handleMetadataRescan(selectedPlatformData.id, false)}
-                disabled={metadataRescanning}
+                onClick={() => openScraperChoice(selectedPlatformData.id, false)}
                 title={t('rescanMetadataForce') || 'Force re-fetch all metadata for this platform'}
               >
                 <FontAwesomeIcon icon={faSync} spin={metadataRescanning} />
@@ -578,6 +607,7 @@ const Library: React.FC = () => {
                   {rescanStatus.currentGame && <>{rescanStatus.currentGame} &mdash; </>}
                   {rescanStatus.progress}/{rescanStatus.total} ({rescanStatus.updated} {t('updated') || 'updated'})
                 </span>
+                <button className="platform-action-btn" onClick={handleCancelRescan} style={{ marginLeft: 8, padding: '2px 8px', fontSize: '0.8em' }} title="Cancel rescan">✕</button>
               </div>
             )}
           </div>
@@ -788,7 +818,6 @@ const Library: React.FC = () => {
               <GameCard
                 key={game.id}
                 game={game}
-                reviewData={reviewMap[game.id]}
                 onClick={() => {
                   console.log('Navigating to game details', game.id);
                   const fromPlatform = selectedPlatform ? platforms.find(p => p.id.toString() === selectedPlatform) : null;
@@ -1049,6 +1078,48 @@ const Library: React.FC = () => {
             </div>
           </>
         )}
+      </Modal>
+
+      {/* Scraper Choice Dialog */}
+      <Modal
+        isOpen={!!showScraperChoice}
+        onClose={() => setShowScraperChoice(null)}
+        title={t('selectScraper') || 'Select Metadata Source'}
+        maxWidth="420px"
+        footer={
+          <>
+            <button className="btn-secondary" onClick={() => setShowScraperChoice(null)}>{t('cancel') || 'Cancel'}</button>
+            <button className="btn-primary" onClick={startRescanWithChoice}>
+              <FontAwesomeIcon icon={faDatabase} /> {t('startRescan') || 'Start Rescan'}
+            </button>
+          </>
+        }
+      >
+        <p style={{ color: 'var(--ctp-subtext0)', marginBottom: 16, fontSize: '0.9em' }}>
+          {showScraperChoice?.missingOnly
+            ? (t('rescanMissingHint') || 'Re-fetch metadata for games missing info.')
+            : (t('rescanForceHint') || 'Force re-fetch all metadata for this platform.')}
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 8, background: selectedScraper === 'igdb' ? 'var(--ctp-surface1)' : 'var(--ctp-surface0)', border: selectedScraper === 'igdb' ? '2px solid var(--accent)' : '2px solid transparent', cursor: 'pointer' }}>
+            <input type="radio" name="scraper" checked={selectedScraper === 'igdb'} onChange={() => setSelectedScraper('igdb')} />
+            <div>
+              <strong style={{ color: 'var(--ctp-text)' }}>IGDB</strong>
+              <div style={{ fontSize: '0.85em', color: 'var(--ctp-subtext0)' }}>
+                {t('igdbPrimaryHint') || 'Best for PC, modern consoles. ScreenScraper as fallback.'}
+              </div>
+            </div>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 8, background: selectedScraper === 'screenscraper' ? 'var(--ctp-surface1)' : 'var(--ctp-surface0)', border: selectedScraper === 'screenscraper' ? '2px solid var(--accent)' : '2px solid transparent', cursor: 'pointer' }}>
+            <input type="radio" name="scraper" checked={selectedScraper === 'screenscraper'} onChange={() => setSelectedScraper('screenscraper')} />
+            <div>
+              <strong style={{ color: 'var(--ctp-text)' }}>ScreenScraper</strong>
+              <div style={{ fontSize: '0.85em', color: 'var(--ctp-subtext0)' }}>
+                {t('screenScraperPrimaryHint') || 'Best for retro consoles, ROMs. IGDB as fallback.'}
+              </div>
+            </div>
+          </label>
+        </div>
       </Modal>
       </div>{/* end .library-main */}
     </div>

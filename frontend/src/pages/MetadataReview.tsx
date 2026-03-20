@@ -63,9 +63,25 @@ const MetadataReview: React.FC = () => {
 
   const confirmMatch = async (candidate: MatchCandidate) => {
     if (!selectedGame) return;
-    setConfirming(candidate.igdbId);
+    setConfirming(candidate.igdbId || -1);
     try {
-      await metadataReviewApi.confirm(selectedGame.gameId, candidate.igdbId, candidate.score);
+      if (candidate.source === 'ScreenScraper') {
+        await metadataReviewApi.confirm(selectedGame.gameId, 0, candidate.score, 'ScreenScraper', {
+          title: candidate.title,
+          overview: candidate.overview,
+          year: candidate.year,
+          developer: candidate.developer,
+          publisher: candidate.publisher,
+          genres: candidate.genres,
+          rating: candidate.rating,
+          coverUrl: candidate.coverUrl,
+          coverLargeUrl: candidate.coverLargeUrl,
+          backgroundUrl: candidate.backgroundUrl,
+          bannerUrl: candidate.bannerUrl,
+        });
+      } else {
+        await metadataReviewApi.confirm(selectedGame.gameId, candidate.igdbId, candidate.score, 'IGDB');
+      }
       setSelectedGame(null);
       setCandidates([]);
       await loadQueue();
@@ -239,7 +255,7 @@ const MetadataReview: React.FC = () => {
                 <div className="candidates-empty">No candidates found. Try a different search term.</div>
               ) : (
                 candidates.map((candidate, idx) => (
-                  <div key={candidate.igdbId} className={`candidate-card ${idx === 0 ? 'best-match' : ''}`}>
+                  <div key={`${candidate.source}-${candidate.igdbId || idx}`} className={`candidate-card ${idx === 0 ? 'best-match' : ''}`}>
                     <div className="candidate-cover">
                       {candidate.coverUrl ? (
                         <img src={candidate.coverUrl} alt="" />
@@ -250,8 +266,19 @@ const MetadataReview: React.FC = () => {
                       )}
                     </div>
                     <div className="candidate-info">
-                      <div className="candidate-title">{candidate.title}</div>
-                      {candidate.alternativeNames.length > 0 && (
+                      <div className="candidate-title">
+                        {candidate.title}
+                        <span className="source-badge" style={{
+                          marginLeft: 8,
+                          padding: '2px 8px',
+                          borderRadius: 4,
+                          fontSize: '0.75em',
+                          fontWeight: 600,
+                          background: candidate.source === 'ScreenScraper' ? '#e65100' : '#1565c0',
+                          color: '#fff'
+                        }}>{candidate.source}</span>
+                      </div>
+                      {candidate.alternativeNames && candidate.alternativeNames.length > 0 && (
                         <div className="candidate-alt-names">
                           {candidate.alternativeNames.slice(0, 3).join(', ')}
                           {candidate.alternativeNames.length > 3 && ` +${candidate.alternativeNames.length - 3} more`}
@@ -262,7 +289,8 @@ const MetadataReview: React.FC = () => {
                           <span className="candidate-platforms">{candidate.platforms.join(', ')}</span>
                         )}
                         {candidate.year && <span className="candidate-year">{candidate.year}</span>}
-                        <span className="candidate-id">IGDB: {candidate.igdbId}</span>
+                        {candidate.source === 'IGDB' && <span className="candidate-id">IGDB: {candidate.igdbId}</span>}
+                        {candidate.developer && <span className="candidate-developer">{candidate.developer}</span>}
                       </div>
                     </div>
                     <div className="candidate-score">
@@ -276,7 +304,7 @@ const MetadataReview: React.FC = () => {
                         onClick={() => confirmMatch(candidate)}
                         disabled={confirming != null}
                       >
-                        {confirming === candidate.igdbId ? (
+                        {confirming === (candidate.igdbId || -1) ? (
                           <FontAwesomeIcon icon={faSpinner} spin />
                         ) : (
                           <><FontAwesomeIcon icon={faCheck} /> Confirm</>

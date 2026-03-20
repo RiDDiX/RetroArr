@@ -9,29 +9,35 @@ namespace RetroArr.Core.Games
     public class PlatformService
     {
         private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(Logging.AppLoggerService.General);
-        private static readonly string _settingsPath = ResolveSettingsPath();
+        private static readonly string _settingsPath = ResolveSettingsPath("platform_settings.json");
+        private static readonly string _metadataSourcePath = ResolveSettingsPath("platform_metadata_source.json");
 
-        private static string ResolveSettingsPath()
+        private static string ResolveSettingsPath(string fileName)
         {
             // Docker: /app/config is the mounted persistent volume
             var dockerConfig = Path.Combine(AppContext.BaseDirectory, "config");
             if (Directory.Exists(dockerConfig))
-                return Path.Combine(dockerConfig, "platform_settings.json");
+                return Path.Combine(dockerConfig, fileName);
 
             // Fallback: ApplicationData (native installs)
             var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             if (!string.IsNullOrEmpty(appData))
-                return Path.Combine(appData, "RetroArr", "config", "platform_settings.json");
+                return Path.Combine(appData, "RetroArr", "config", fileName);
 
-            return Path.Combine(dockerConfig, "platform_settings.json");
+            return Path.Combine(dockerConfig, fileName);
         }
 
         private static Dictionary<int, bool> _enabledOverrides = new();
+        private static Dictionary<int, string> _metadataSourceOverrides = new();
         private static readonly object _lock = new();
+
+        public const string MetadataSourceIgdb = "igdb";
+        public const string MetadataSourceScreenScraper = "screenscraper";
 
         static PlatformService()
         {
             LoadSettings();
+            LoadMetadataSourceSettings();
         }
 
         private static void LoadSettings()
@@ -54,6 +60,26 @@ namespace RetroArr.Core.Games
             }
         }
 
+        private static void LoadMetadataSourceSettings()
+        {
+            lock (_lock)
+            {
+                try
+                {
+                    if (File.Exists(_metadataSourcePath))
+                    {
+                        var json = File.ReadAllText(_metadataSourcePath);
+                        _metadataSourceOverrides = JsonSerializer.Deserialize<Dictionary<int, string>>(json) ?? new();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error($"[PlatformService] Error loading metadata source settings: {ex.Message}");
+                    _metadataSourceOverrides = new();
+                }
+            }
+        }
+
         private static void SaveSettings()
         {
             lock (_lock)
@@ -72,6 +98,28 @@ namespace RetroArr.Core.Games
                 catch (Exception ex)
                 {
                     _logger.Error($"[PlatformService] Error saving settings: {ex.Message}");
+                }
+            }
+        }
+
+        private static void SaveMetadataSourceSettings()
+        {
+            lock (_lock)
+            {
+                try
+                {
+                    var dir = Path.GetDirectoryName(_metadataSourcePath);
+                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    {
+                        Directory.CreateDirectory(dir);
+                    }
+
+                    var json = JsonSerializer.Serialize(_metadataSourceOverrides, new JsonSerializerOptions { WriteIndented = true });
+                    File.WriteAllText(_metadataSourcePath, json);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error($"[PlatformService] Error saving metadata source settings: {ex.Message}");
                 }
             }
         }
@@ -116,6 +164,31 @@ namespace RetroArr.Core.Games
                 .Select(p => p.FolderName)
                 .Distinct()
                 .ToList();
+        }
+
+        public static string GetMetadataSource(int platformId)
+        {
+            lock (_lock)
+            {
+                return _metadataSourceOverrides.TryGetValue(platformId, out var source) ? source : MetadataSourceIgdb;
+            }
+        }
+
+        public static void SetMetadataSource(int platformId, string source)
+        {
+            lock (_lock)
+            {
+                var normalized = (source ?? MetadataSourceIgdb).ToLowerInvariant();
+                if (normalized == MetadataSourceIgdb)
+                {
+                    _metadataSourceOverrides.Remove(platformId);
+                }
+                else
+                {
+                    _metadataSourceOverrides[platformId] = normalized;
+                }
+                SaveMetadataSourceSettings();
+            }
         }
     }
 }

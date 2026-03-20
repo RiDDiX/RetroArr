@@ -20,13 +20,15 @@ namespace RetroArr.Api.V3.Settings
         private readonly MediaScannerService _scannerService;
         private readonly IGameRepository _gameRepository;
         private readonly IGameMetadataServiceFactory _metadataServiceFactory;
+        private readonly LocalMediaExportService _localMediaExport;
 
-        public MediaController(ConfigurationService configService, MediaScannerService scannerService, IGameRepository gameRepository, IGameMetadataServiceFactory metadataServiceFactory)
+        public MediaController(ConfigurationService configService, MediaScannerService scannerService, IGameRepository gameRepository, IGameMetadataServiceFactory metadataServiceFactory, LocalMediaExportService localMediaExport)
         {
             _configService = configService;
             _scannerService = scannerService;
             _gameRepository = gameRepository;
             _metadataServiceFactory = metadataServiceFactory;
+            _localMediaExport = localMediaExport;
         }
 
         [HttpGet]
@@ -110,12 +112,14 @@ namespace RetroArr.Api.V3.Settings
         // ==================== Metadata Rescan ====================
 
         private static volatile bool _isRescanningMetadata;
+        private static volatile bool _rescanCancellationRequested;
         public static bool IsRescanningMetadata => _isRescanningMetadata;
 
         private static int _metadataRescanTotal;
         private static int _metadataRescanProgress;
         private static int _metadataRescanUpdated;
         private static string? _metadataRescanCurrentGame;
+        private static DateTime? _rescanStartedAt;
 
         public class MetadataRescanRequest
         {
@@ -124,6 +128,9 @@ namespace RetroArr.Api.V3.Settings
 
             [System.Text.Json.Serialization.JsonPropertyName("missingOnly")]
             public bool MissingOnly { get; set; } = true;
+
+            [System.Text.Json.Serialization.JsonPropertyName("preferredSource")]
+            public string PreferredSource { get; set; } = "igdb";
         }
 
         [HttpPost("metadata/rescan")]
@@ -148,9 +155,11 @@ namespace RetroArr.Api.V3.Settings
             Task.Run(async () =>
             {
                 _isRescanningMetadata = true;
+                _rescanCancellationRequested = false;
                 _metadataRescanProgress = 0;
                 _metadataRescanUpdated = 0;
                 _metadataRescanCurrentGame = null;
+                _rescanStartedAt = DateTime.UtcNow;
                 try
                 {
                     var allGames = await _gameRepository.GetAllAsync();
@@ -163,7 +172,18 @@ namespace RetroArr.Api.V3.Settings
 
                     if (request?.MissingOnly == true)
                     {
-                        targetGames = targetGames.Where(g => !g.IgdbId.HasValue || string.IsNullOrEmpty(g.Overview));
+                        var preferredSourceOverride = request?.PreferredSource;
+                        targetGames = targetGames.Where(g =>
+                        {
+                            if (!g.IgdbId.HasValue || string.IsNullOrEmpty(g.Overview))
+                                return true;
+
+                            var effectiveSrc = !string.IsNullOrEmpty(preferredSourceOverride)
+                                ? preferredSourceOverride
+                                : (g.PlatformId > 0 ? PlatformService.GetMetadataSource(g.PlatformId) : PlatformService.MetadataSourceIgdb);
+                            var currentSrc = g.MetadataSource ?? "IGDB";
+                            return !currentSrc.Equals(effectiveSrc, StringComparison.OrdinalIgnoreCase);
+                        });
                     }
 
                     var gamesList = targetGames.ToList();
@@ -172,9 +192,15 @@ namespace RetroArr.Api.V3.Settings
 
                     var metadataService = _metadataServiceFactory.CreateService();
                     var titleCleaner = new TitleCleanerService();
+                    var globalPreferredSource = request?.PreferredSource;
 
                     foreach (var game in gamesList)
                     {
+                        if (_rescanCancellationRequested)
+                        {
+                            _logger.Info("[MetadataRescan] Cancelled by user.");
+                            break;
+                        }
                         _metadataRescanProgress++;
                         _metadataRescanCurrentGame = game.Title;
                         try
@@ -186,36 +212,68 @@ namespace RetroArr.Api.V3.Settings
                                 platformKey = platform?.FolderName;
                             }
 
+                            var effectiveSource = !string.IsNullOrEmpty(globalPreferredSource)
+                                ? globalPreferredSource
+                                : (game.PlatformId > 0 ? PlatformService.GetMetadataSource(game.PlatformId) : PlatformService.MetadataSourceIgdb);
+                            var useScreenScraperFirst = effectiveSource.Equals("screenscraper", StringComparison.OrdinalIgnoreCase);
+
                             var (cleanTitle, _) = titleCleaner.CleanGameTitle(game.Title);
                             var variants = titleCleaner.GenerateSearchVariants(cleanTitle);
                             if (variants.Count == 0) variants.Add(cleanTitle);
 
-                            var searchResults = await metadataService.SearchGamesAsync(variants.First(), platformKey);
-                            if (searchResults.Count > 0)
+                            // Fix stored title if the cleaner improved it (e.g. stripped PS serial prefix)
+                            bool titleCleaned = false;
+                            if (!cleanTitle.Equals(game.Title, StringComparison.Ordinal) && !string.IsNullOrEmpty(cleanTitle))
                             {
-                                var best = searchResults.First();
-                                if (best.IgdbId > 0)
+                                _logger.Info($"[MetadataRescan] Title cleaned: '{game.Title}' → '{cleanTitle}'");
+                                game.Title = cleanTitle;
+                                titleCleaned = true;
+                            }
+
+                            bool updated = false;
+
+                            if (useScreenScraperFirst)
+                            {
+                                // ScreenScraper primary, IGDB fallback
+                                var ssResults = await metadataService.SearchScreenScraperAsync(variants.First(), platformKey);
+                                if (ssResults.Count > 0)
                                 {
-                                    var fullMeta = await metadataService.GetGameMetadataAsync(best.IgdbId.Value);
-                                    if (fullMeta != null)
+                                    var best = ssResults.First();
+                                    ApplyMetadataToGame(game, best, "ScreenScraper");
+                                    await _gameRepository.UpdateAsync(game.Id, game);
+                                    try { await _localMediaExport.ExportMediaForGameAsync(game); } catch (Exception mex) { _logger.Error($"[MetadataRescan] Media export error: {mex.Message}"); }
+                                    _metadataRescanUpdated++;
+                                    updated = true;
+                                }
+
+                                if (!updated)
+                                {
+                                    updated = await TryIgdbRescan(game, metadataService, variants, platformKey);
+                                }
+                            }
+                            else
+                            {
+                                // IGDB primary, ScreenScraper fallback
+                                updated = await TryIgdbRescan(game, metadataService, variants, platformKey);
+
+                                if (!updated)
+                                {
+                                    var ssResults = await metadataService.SearchScreenScraperAsync(variants.First(), platformKey);
+                                    if (ssResults.Count > 0)
                                     {
-                                        game.IgdbId = fullMeta.IgdbId;
-                                        game.Title = fullMeta.Title;
-                                        game.Overview = fullMeta.Overview;
-                                        game.Storyline = fullMeta.Storyline;
-                                        game.Developer = fullMeta.Developer;
-                                        game.Publisher = fullMeta.Publisher;
-                                        game.Rating = fullMeta.Rating;
-                                        game.RatingCount = fullMeta.RatingCount;
-                                        game.Year = fullMeta.Year;
-                                        game.ReleaseDate = fullMeta.ReleaseDate;
-                                        game.Genres = fullMeta.Genres;
-                                        game.Images = fullMeta.Images;
-                                        game.NeedsMetadataReview = false;
+                                        var best = ssResults.First();
+                                        ApplyMetadataToGame(game, best, "ScreenScraper");
                                         await _gameRepository.UpdateAsync(game.Id, game);
+                                        try { await _localMediaExport.ExportMediaForGameAsync(game); } catch (Exception mex) { _logger.Error($"[MetadataRescan] Media export error: {mex.Message}"); }
                                         _metadataRescanUpdated++;
                                     }
                                 }
+                            }
+
+                            // Persist cleaned title even when no metadata was found
+                            if (!updated && titleCleaned)
+                            {
+                                await _gameRepository.UpdateAsync(game.Id, game);
                             }
 
                             await Task.Delay(300);
@@ -250,8 +308,79 @@ namespace RetroArr.Api.V3.Settings
                 total = _metadataRescanTotal,
                 progress = _metadataRescanProgress,
                 updated = _metadataRescanUpdated,
-                currentGame = _metadataRescanCurrentGame
+                currentGame = _metadataRescanCurrentGame,
+                startedAt = _rescanStartedAt?.ToString("o")
             });
+        }
+
+        [HttpPost("metadata/rescan/cancel")]
+        public IActionResult CancelMetadataRescan()
+        {
+            if (!_isRescanningMetadata)
+                return Ok(new { message = "No rescan is running." });
+
+            _rescanCancellationRequested = true;
+            _logger.Info("[MetadataRescan] Cancellation requested.");
+            return Ok(new { message = "Cancellation requested." });
+        }
+
+        private async Task<bool> TryIgdbRescan(Game game, GameMetadataService metadataService, List<string> variants, string? platformKey)
+        {
+            var searchResults = await metadataService.SearchGamesAsync(variants.First(), platformKey);
+            if (searchResults.Count > 0)
+            {
+                var best = searchResults.First();
+                if (best.IgdbId > 0)
+                {
+                    var fullMeta = await metadataService.GetGameMetadataAsync(best.IgdbId.Value);
+                    if (fullMeta != null)
+                    {
+                        game.IgdbId = fullMeta.IgdbId;
+                        game.Title = fullMeta.Title;
+                        game.Overview = fullMeta.Overview;
+                        game.Storyline = fullMeta.Storyline;
+                        game.Developer = fullMeta.Developer;
+                        game.Publisher = fullMeta.Publisher;
+                        game.Rating = fullMeta.Rating;
+                        game.RatingCount = fullMeta.RatingCount;
+                        game.Year = fullMeta.Year;
+                        game.ReleaseDate = fullMeta.ReleaseDate;
+                        game.Genres = fullMeta.Genres;
+                        game.Images = fullMeta.Images;
+                        game.NeedsMetadataReview = false;
+                        game.MetadataSource = "IGDB";
+                        await _gameRepository.UpdateAsync(game.Id, game);
+                        try { await _localMediaExport.ExportMediaForGameAsync(game); } catch (Exception mex) { _logger.Error($"[MetadataRescan] Media export error: {mex.Message}"); }
+                        _metadataRescanUpdated++;
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        private static void ApplyMetadataToGame(Game game, Game source, string metadataSource)
+        {
+            if (!string.IsNullOrEmpty(source.Title)) game.Title = source.Title;
+            if (!string.IsNullOrEmpty(source.Overview)) game.Overview = source.Overview;
+            if (source.Year > 0) game.Year = source.Year;
+            if (!string.IsNullOrEmpty(source.Developer)) game.Developer = source.Developer;
+            if (!string.IsNullOrEmpty(source.Publisher)) game.Publisher = source.Publisher;
+            if (source.Rating.HasValue) game.Rating = source.Rating;
+            if (source.Genres != null && source.Genres.Count > 0) game.Genres = source.Genres;
+            if (source.Images != null)
+            {
+                if (!string.IsNullOrEmpty(source.Images.CoverUrl)) game.Images.CoverUrl = source.Images.CoverUrl;
+                if (!string.IsNullOrEmpty(source.Images.CoverLargeUrl)) game.Images.CoverLargeUrl = source.Images.CoverLargeUrl;
+                if (!string.IsNullOrEmpty(source.Images.BackgroundUrl)) game.Images.BackgroundUrl = source.Images.BackgroundUrl;
+                if (!string.IsNullOrEmpty(source.Images.BannerUrl)) game.Images.BannerUrl = source.Images.BannerUrl;
+                if (!string.IsNullOrEmpty(source.Images.BoxBackUrl)) game.Images.BoxBackUrl = source.Images.BoxBackUrl;
+                if (!string.IsNullOrEmpty(source.Images.VideoUrl)) game.Images.VideoUrl = source.Images.VideoUrl;
+                if (source.Images.Screenshots != null && source.Images.Screenshots.Count > 0)
+                    game.Images.Screenshots = source.Images.Screenshots;
+            }
+            game.NeedsMetadataReview = false;
+            game.MetadataSource = metadataSource;
         }
     }
 }

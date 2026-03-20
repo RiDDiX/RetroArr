@@ -25,8 +25,10 @@ namespace RetroArr.Api.V3.Games
         private readonly ILauncherService _launcherService;
         private readonly ConfigurationService _configService;
         private readonly InstallerScannerService _installerScanner;
+        private readonly LocalMediaExportService _localMediaExport;
+        private readonly RetroArr.Core.MetadataSource.Gog.GogDownloadTracker _gogDownloadTracker;
 
-        public GameController(IGameRepository repository, IGameMetadataServiceFactory metadataServiceFactory, RetroArr.Core.IO.IArchiveService archiveService, ILauncherService launcherService, ConfigurationService configService, InstallerScannerService installerScanner)
+        public GameController(IGameRepository repository, IGameMetadataServiceFactory metadataServiceFactory, RetroArr.Core.IO.IArchiveService archiveService, ILauncherService launcherService, ConfigurationService configService, InstallerScannerService installerScanner, LocalMediaExportService localMediaExport, RetroArr.Core.MetadataSource.Gog.GogDownloadTracker gogDownloadTracker)
         {
             _repository = repository;
             _metadataServiceFactory = metadataServiceFactory;
@@ -34,6 +36,8 @@ namespace RetroArr.Api.V3.Games
             _launcherService = launcherService;
             _configService = configService;
             _installerScanner = installerScanner;
+            _localMediaExport = localMediaExport;
+            _gogDownloadTracker = gogDownloadTracker;
         }
 
         [HttpGet]
@@ -301,19 +305,16 @@ namespace RetroArr.Api.V3.Games
             if (!string.IsNullOrEmpty(gameUpdate.Title)) existingGame.Title = gameUpdate.Title;
             if (!string.IsNullOrEmpty(gameUpdate.InstallPath)) existingGame.InstallPath = gameUpdate.InstallPath;
             if (!string.IsNullOrEmpty(gameUpdate.ExecutablePath)) existingGame.ExecutablePath = gameUpdate.ExecutablePath;
-            // Add other fields as necessary if the frontend sends them
 
-            // If IGDB ID changed, fetch fresh metadata
+            // If IGDB ID changed, fetch fresh metadata from IGDB
             if (igdbIdChanged)
             {
                 try
                 {
                     var metadataService = _metadataServiceFactory.CreateService();
-                    // Fetch in English (or default) to store in DB. Localization happens on GetById.
                     var freshMetadata = await metadataService.GetGameMetadataAsync(existingGame.IgdbId.Value, "en");
                     
                     if (freshMetadata != null) {
-                       // Update core metadata
                        existingGame.Title = freshMetadata.Title; 
                        existingGame.Overview = freshMetadata.Overview;
                        existingGame.Storyline = freshMetadata.Storyline;
@@ -322,7 +323,6 @@ namespace RetroArr.Api.V3.Games
                        existingGame.Rating = freshMetadata.Rating;
                        existingGame.Genres = freshMetadata.Genres;
                        
-                       // IMAGES are critical!
                        if (freshMetadata.Images != null) {
                            existingGame.Images = freshMetadata.Images;
                        }
@@ -330,12 +330,39 @@ namespace RetroArr.Api.V3.Games
                 }
                 catch (System.Exception ex)
                 {
-                    // Log error but proceed with saving the ID change at least?
                     _logger.Error($"Error refreshing metadata: {ex.Message}");
                 }
             }
+            else if (!string.IsNullOrEmpty(gameUpdate.MetadataSource) && gameUpdate.MetadataSource == "ScreenScraper")
+            {
+                if (!string.IsNullOrEmpty(gameUpdate.Overview)) existingGame.Overview = gameUpdate.Overview;
+                if (gameUpdate.Year > 0) existingGame.Year = gameUpdate.Year;
+                if (!string.IsNullOrEmpty(gameUpdate.Developer)) existingGame.Developer = gameUpdate.Developer;
+                if (!string.IsNullOrEmpty(gameUpdate.Publisher)) existingGame.Publisher = gameUpdate.Publisher;
+                if (gameUpdate.Rating.HasValue) existingGame.Rating = gameUpdate.Rating;
+                if (gameUpdate.Genres != null && gameUpdate.Genres.Count > 0) existingGame.Genres = gameUpdate.Genres;
+                if (gameUpdate.Images != null)
+                {
+                    if (!string.IsNullOrEmpty(gameUpdate.Images.CoverUrl)) existingGame.Images.CoverUrl = gameUpdate.Images.CoverUrl;
+                    if (!string.IsNullOrEmpty(gameUpdate.Images.CoverLargeUrl)) existingGame.Images.CoverLargeUrl = gameUpdate.Images.CoverLargeUrl;
+                    if (!string.IsNullOrEmpty(gameUpdate.Images.BackgroundUrl)) existingGame.Images.BackgroundUrl = gameUpdate.Images.BackgroundUrl;
+                    if (!string.IsNullOrEmpty(gameUpdate.Images.BannerUrl)) existingGame.Images.BannerUrl = gameUpdate.Images.BannerUrl;
+                    if (!string.IsNullOrEmpty(gameUpdate.Images.BoxBackUrl)) existingGame.Images.BoxBackUrl = gameUpdate.Images.BoxBackUrl;
+                    if (!string.IsNullOrEmpty(gameUpdate.Images.VideoUrl)) existingGame.Images.VideoUrl = gameUpdate.Images.VideoUrl;
+                    if (gameUpdate.Images.Screenshots != null && gameUpdate.Images.Screenshots.Count > 0)
+                        existingGame.Images.Screenshots = gameUpdate.Images.Screenshots;
+                }
+                existingGame.MetadataConfirmedByUser = true;
+                existingGame.MetadataConfirmedAt = System.DateTime.UtcNow;
+                existingGame.NeedsMetadataReview = false;
+                _logger.Info($"[Game] Applied ScreenScraper metadata for game {id}: {existingGame.Title}");
+            }
 
             var updated = await _repository.UpdateAsync(id, existingGame);
+
+            try { await _localMediaExport.ExportMediaForGameAsync(existingGame); }
+            catch (System.Exception ex) { _logger.Error($"[Game] Media export error: {ex.Message}"); }
+
             return Ok(updated);
         }
 
@@ -1238,6 +1265,194 @@ namespace RetroArr.Api.V3.Games
         }
 
         /// <summary>
+        /// Discover local media files (images + videos) for a game.
+        /// Follows RetroBat/Batocera convention: {platform}/images/ and {platform}/videos/
+        /// Files are matched by ROM filename without extension.
+        /// </summary>
+        [HttpGet("{id}/local-media")]
+        public async Task<ActionResult> GetLocalMedia(int id)
+        {
+            var game = await _repository.GetByIdAsync(id);
+            if (game == null) return NotFound();
+
+            var images = new List<object>();
+            var videos = new List<object>();
+
+            // Determine platform directory from game path
+            string? platformDir = null;
+            string? romBaseName = null;
+
+            // Single-file ROM: game.Path points to the ROM file
+            if (!string.IsNullOrEmpty(game.Path) && System.IO.File.Exists(game.Path))
+            {
+                platformDir = Path.GetDirectoryName(game.Path);
+                romBaseName = Path.GetFileNameWithoutExtension(game.Path);
+            }
+            // Folder-based game: game.Path is the game folder, parent is platform dir
+            else if (!string.IsNullOrEmpty(game.Path) && Directory.Exists(game.Path))
+            {
+                platformDir = Path.GetDirectoryName(game.Path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                romBaseName = Path.GetFileName(game.Path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            }
+
+            if (string.IsNullOrEmpty(platformDir) || string.IsNullOrEmpty(romBaseName))
+                return Ok(new { images, videos });
+
+            // Scan images/ subdirectory
+            var imagesDir = Path.Combine(platformDir, "images");
+            if (Directory.Exists(imagesDir))
+            {
+                var imageExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif" };
+                try
+                {
+                    foreach (var file in Directory.GetFiles(imagesDir))
+                    {
+                        var fileName = Path.GetFileNameWithoutExtension(file);
+                        var ext = Path.GetExtension(file);
+                        if (!imageExtensions.Contains(ext)) continue;
+
+                        // Match: filename starts with ROM base name
+                        if (!fileName.StartsWith(romBaseName, StringComparison.OrdinalIgnoreCase)) continue;
+
+                        // Determine image type from suffix
+                        var suffix = fileName.Substring(romBaseName.Length);
+                        var imageType = suffix.ToLowerInvariant() switch
+                        {
+                            "-thumb" => "cover",
+                            "-image" => "screenshot",
+                            "-boxback" => "boxback",
+                            "-marquee" => "marquee",
+                            "-wheel" => "wheel",
+                            "-fanart" => "fanart",
+                            "-bezel" => "bezel",
+                            "-mix" => "mix",
+                            "" => "cover",
+                            _ => suffix.TrimStart('-')
+                        };
+
+                        images.Add(new
+                        {
+                            type = imageType,
+                            fileName = Path.GetFileName(file),
+                            fullPath = file,
+                            url = $"/api/v3/game/{id}/local-media/file?path={Uri.EscapeDataString(Path.GetFileName(file))}&folder=images"
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error($"[LocalMedia] Error scanning images dir: {ex.Message}");
+                }
+            }
+
+            // Scan videos/ subdirectory
+            var videosDir = Path.Combine(platformDir, "videos");
+            if (Directory.Exists(videosDir))
+            {
+                var videoExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".mp4", ".mkv", ".avi", ".webm", ".mov" };
+                try
+                {
+                    foreach (var file in Directory.GetFiles(videosDir))
+                    {
+                        var fileName = Path.GetFileNameWithoutExtension(file);
+                        var ext = Path.GetExtension(file);
+                        if (!videoExtensions.Contains(ext)) continue;
+
+                        if (!fileName.StartsWith(romBaseName, StringComparison.OrdinalIgnoreCase)) continue;
+
+                        var suffix = fileName.Substring(romBaseName.Length);
+                        var videoType = suffix.ToLowerInvariant() switch
+                        {
+                            "-video" => "gameplay",
+                            "" => "gameplay",
+                            _ => suffix.TrimStart('-')
+                        };
+
+                        videos.Add(new
+                        {
+                            type = videoType,
+                            fileName = Path.GetFileName(file),
+                            fullPath = file,
+                            size = new FileInfo(file).Length,
+                            url = $"/api/v3/game/{id}/local-media/file?path={Uri.EscapeDataString(Path.GetFileName(file))}&folder=videos"
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error($"[LocalMedia] Error scanning videos dir: {ex.Message}");
+                }
+            }
+
+            return Ok(new { images, videos, platformDir, romBaseName });
+        }
+
+        /// <summary>
+        /// Serve a local media file (image or video) from the platform's images/ or videos/ directory.
+        /// Supports HTTP range requests for video streaming.
+        /// </summary>
+        [HttpGet("{id}/local-media/file")]
+        public async Task<ActionResult> ServeLocalMediaFile(int id, [FromQuery] string path, [FromQuery] string folder = "images")
+        {
+            if (string.IsNullOrEmpty(path))
+                return BadRequest("path parameter is required");
+
+            var game = await _repository.GetByIdAsync(id);
+            if (game == null) return NotFound();
+
+            // Determine platform directory
+            string? platformDir = null;
+            if (!string.IsNullOrEmpty(game.Path) && System.IO.File.Exists(game.Path))
+                platformDir = Path.GetDirectoryName(game.Path);
+            else if (!string.IsNullOrEmpty(game.Path) && Directory.Exists(game.Path))
+                platformDir = Path.GetDirectoryName(game.Path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+
+            if (string.IsNullOrEmpty(platformDir))
+                return NotFound("Cannot determine platform directory");
+
+            // Only allow images/ or videos/ subdirectories
+            if (folder != "images" && folder != "videos")
+                return BadRequest("folder must be 'images' or 'videos'");
+
+            var mediaDir = Path.Combine(platformDir, folder);
+            var fullPath = Path.GetFullPath(Path.Combine(mediaDir, path));
+
+            // Security: ensure path stays within the media directory
+            if (!fullPath.StartsWith(Path.GetFullPath(mediaDir), StringComparison.OrdinalIgnoreCase))
+                return BadRequest("Invalid file path");
+
+            if (!System.IO.File.Exists(fullPath))
+                return NotFound("File not found");
+
+            var ext = Path.GetExtension(fullPath).ToLowerInvariant();
+            var contentType = ext switch
+            {
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".png" => "image/png",
+                ".webp" => "image/webp",
+                ".gif" => "image/gif",
+                ".bmp" => "image/bmp",
+                ".mp4" => "video/mp4",
+                ".mkv" => "video/x-matroska",
+                ".avi" => "video/x-msvideo",
+                ".webm" => "video/webm",
+                ".mov" => "video/quicktime",
+                _ => "application/octet-stream"
+            };
+
+            var fileInfo = new FileInfo(fullPath);
+
+            // Support range requests for video streaming
+            if (contentType.StartsWith("video/"))
+            {
+                return PhysicalFile(fullPath, contentType, enableRangeProcessing: true);
+            }
+
+            var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            return File(stream, contentType);
+        }
+
+        /// <summary>
         /// Download a GOG file directly into the game's folder
         /// </summary>
         [HttpPost("{id}/gog-download")]
@@ -1266,49 +1481,125 @@ namespace RetroArr.Api.V3.Games
                 const string GogClientId = "46899977096215655";
                 const string GogClientSecret = "9d85c43b1482497dbbce61f6e4aa173a433796eeae2ca8c5f6129f2dc4de46d9";
 
+                _logger.Info($"[GOG] DownloadGogToGameFolder: game={id}, manualUrl={request.ManualUrl}, targetDir={targetDir}");
+
                 var client = new GogClient(gogSettings.RefreshToken);
                 var refreshed = await client.RefreshTokenAsync(GogClientId, GogClientSecret);
                 if (!refreshed)
+                {
+                    _logger.Error("[GOG] DownloadGogToGameFolder: token refresh failed");
                     return BadRequest(new { success = false, message = "Failed to authenticate with GOG" });
+                }
 
                 var downloadUrl = await client.GetDownloadUrlAsync(request.ManualUrl);
                 if (string.IsNullOrEmpty(downloadUrl))
+                {
+                    _logger.Error($"[GOG] DownloadGogToGameFolder: GetDownloadUrlAsync returned null for {request.ManualUrl}");
                     return BadRequest(new { success = false, message = "Failed to get download URL from GOG" });
+                }
 
+                // Resolve filename: use display name from frontend, but ensure it has a file extension
+                // GOG CDN URLs contain the real filename with extension (e.g. setup_dungeons_2_1.0.exe)
                 var fileName = request.FileName;
-                if (string.IsNullOrEmpty(fileName))
+                var cdnFileName = "";
+                try
                 {
                     var uri = new Uri(downloadUrl);
-                    fileName = Path.GetFileName(uri.LocalPath);
-                    if (string.IsNullOrEmpty(fileName))
-                        fileName = $"{game.Title}_gog_setup.exe";
+                    cdnFileName = Path.GetFileName(uri.LocalPath);
+                }
+                catch { /* ignore malformed URL */ }
+
+                if (string.IsNullOrEmpty(fileName))
+                {
+                    fileName = !string.IsNullOrEmpty(cdnFileName) ? cdnFileName : $"{game.Title}_gog_setup.exe";
+                }
+                else if (!Path.HasExtension(fileName) && !string.IsNullOrEmpty(cdnFileName) && Path.HasExtension(cdnFileName))
+                {
+                    // Display name has no extension — append extension from CDN URL
+                    var ext = Path.GetExtension(cdnFileName);
+                    fileName = fileName + ext;
+                    _logger.Info($"[GOG] Appended extension from CDN: {ext} -> {fileName}");
+                }
+
+                // Ultimate fallback: if still no extension, use platform-based default
+                if (!Path.HasExtension(fileName))
+                {
+                    var platformExt = (request.Platform?.ToLowerInvariant()) switch
+                    {
+                        "windows" => ".exe",
+                        "linux" => ".sh",
+                        "mac" or "osx" => ".dmg",
+                        _ => ".bin"
+                    };
+                    fileName = fileName + platformExt;
+                    _logger.Info($"[GOG] Platform fallback extension: {platformExt} -> {fileName}");
                 }
 
                 var filePath = Path.Combine(targetDir, fileName);
-                _logger.Info($"[GOG] Starting download to game folder: {fileName} -> {filePath}");
+                _logger.Info($"[GOG] Starting download to game folder: {fileName} -> {filePath} (url={downloadUrl.Substring(0, Math.Min(120, downloadUrl.Length))}...)");
+
+                var trackId = Guid.NewGuid().ToString("N")[..8];
+                var tracker = _gogDownloadTracker;
 
                 _ = Task.Run(async () =>
                 {
+                    System.Threading.CancellationToken ct = default;
                     try
                     {
                         using var httpClient = new System.Net.Http.HttpClient();
                         httpClient.Timeout = TimeSpan.FromHours(2);
                         using var response = await httpClient.GetAsync(downloadUrl, System.Net.Http.HttpCompletionOption.ResponseHeadersRead);
                         response.EnsureSuccessStatusCode();
+
+                        // Try to get real filename from Content-Disposition header
+                        var cdHeader = response.Content.Headers.ContentDisposition?.FileName?.Trim('"', ' ');
+                        if (!string.IsNullOrEmpty(cdHeader) && !Path.HasExtension(fileName) && Path.HasExtension(cdHeader))
+                        {
+                            var ext = Path.GetExtension(cdHeader);
+                            fileName = fileName + ext;
+                            var newFilePath = Path.Combine(targetDir, fileName);
+                            _logger.Info($"[GOG] Content-Disposition extension: {ext} -> {fileName}");
+                            filePath = newFilePath;
+                        }
+
+                        var totalBytes = response.Content.Headers.ContentLength;
+                        ct = tracker.Start(trackId, game.Title, fileName, filePath, totalBytes);
+                        _logger.Info($"[GOG] Download response OK, content-length={totalBytes}");
+
+                        using var contentStream = await response.Content.ReadAsStreamAsync();
                         using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
-                        await response.Content.CopyToAsync(fs);
-                        _logger.Info($"[GOG] Download complete: {filePath}");
+                        var buffer = new byte[81920];
+                        long totalRead = 0;
+                        int bytesRead;
+                        while ((bytesRead = await contentStream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
+                        {
+                            await fs.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+                            totalRead += bytesRead;
+                            tracker.UpdateProgress(trackId, totalRead);
+                        }
+
+                        tracker.MarkCompleted(trackId);
+                        _logger.Info($"[GOG] Download complete: {filePath} ({totalRead} bytes)");
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        tracker.MarkFailed(trackId, "Download cancelled");
+                        _logger.Info($"[GOG] Download cancelled: {filePath}");
+                        try { if (System.IO.File.Exists(filePath)) System.IO.File.Delete(filePath); } catch { }
                     }
                     catch (Exception ex)
                     {
+                        tracker.MarkFailed(trackId, ex.Message);
                         _logger.Error($"[GOG] Download to game folder failed: {ex.Message}");
+                        try { if (System.IO.File.Exists(filePath)) System.IO.File.Delete(filePath); } catch { }
                     }
                 });
 
-                return Ok(new { success = true, message = $"Download started: {fileName}", downloadPath = filePath, folder = targetDir });
+                return Ok(new { success = true, message = $"Download started: {fileName}", downloadPath = filePath, folder = targetDir, trackId });
             }
             catch (Exception ex)
             {
+                _logger.Error($"[GOG] DownloadGogToGameFolder exception: {ex.Message}");
                 return BadRequest(new { success = false, message = ex.Message });
             }
         }
@@ -1649,6 +1940,7 @@ namespace RetroArr.Api.V3.Games
     {
         public string ManualUrl { get; set; } = string.Empty;
         public string? FileName { get; set; }
+        public string? Platform { get; set; }
     }
 
     public class MapFileRequest

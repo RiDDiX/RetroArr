@@ -121,24 +121,26 @@ namespace RetroArr.Api.V3.Platforms
         */
 
         [HttpGet]
-        public ActionResult<List<Platform>> GetAll([FromQuery] bool? enabledOnly = null)
+        public ActionResult<List<object>> GetAll([FromQuery] bool? enabledOnly = null)
         {
-            var platforms = _allPlatforms.Select(p => new Platform
+            var platforms = _allPlatforms.Select(p => new
             {
-                Id = p.Id,
-                Name = p.Name,
-                Slug = p.Slug,
-                FolderName = p.FolderName,
-                Type = p.Type,
-                Category = p.Category,
-                IgdbPlatformId = p.IgdbPlatformId,
-                ParentPlatformId = p.ParentPlatformId,
-                Enabled = PlatformService.IsEnabled(p.Id, p.Enabled)
+                id = p.Id,
+                name = p.Name,
+                slug = p.Slug,
+                folderName = p.FolderName,
+                type = p.Type.ToString(),
+                category = p.Category,
+                igdbPlatformId = p.IgdbPlatformId,
+                screenScraperSystemId = p.ScreenScraperSystemId,
+                parentPlatformId = p.ParentPlatformId,
+                enabled = PlatformService.IsEnabled(p.Id, p.Enabled),
+                preferredMetadataSource = PlatformService.GetMetadataSource(p.Id)
             }).AsEnumerable();
             
             if (enabledOnly == true)
             {
-                platforms = platforms.Where(p => p.Enabled);
+                platforms = platforms.Where(p => p.enabled);
             }
             
             return Ok(platforms.ToList());
@@ -227,33 +229,35 @@ namespace RetroArr.Api.V3.Platforms
         }
 
         [HttpGet("by-category/{category}")]
-        public ActionResult<List<Platform>> GetByCategory(string category, [FromQuery] bool? enabledOnly = null)
+        public ActionResult<List<object>> GetByCategory(string category, [FromQuery] bool? enabledOnly = null)
         {
             var platforms = _allPlatforms
                 .Where(p => p.Category != null && p.Category.Equals(category, System.StringComparison.OrdinalIgnoreCase))
-                .Select(p => new Platform
+                .Select(p => new
                 {
-                    Id = p.Id,
-                    Name = p.Name,
-                    Slug = p.Slug,
-                    FolderName = p.FolderName,
-                    Type = p.Type,
-                    Category = p.Category,
-                    IgdbPlatformId = p.IgdbPlatformId,
-                    ParentPlatformId = p.ParentPlatformId,
-                    Enabled = PlatformService.IsEnabled(p.Id, p.Enabled)
-                });
+                    id = p.Id,
+                    name = p.Name,
+                    slug = p.Slug,
+                    folderName = p.FolderName,
+                    type = p.Type.ToString(),
+                    category = p.Category,
+                    igdbPlatformId = p.IgdbPlatformId,
+                    screenScraperSystemId = p.ScreenScraperSystemId,
+                    parentPlatformId = p.ParentPlatformId,
+                    enabled = PlatformService.IsEnabled(p.Id, p.Enabled),
+                    preferredMetadataSource = PlatformService.GetMetadataSource(p.Id)
+                }).AsEnumerable();
             
             if (enabledOnly == true)
             {
-                platforms = platforms.Where(p => p.Enabled);
+                platforms = platforms.Where(p => p.enabled);
             }
             
             return Ok(platforms.ToList());
         }
 
         [HttpPut("{id}/toggle")]
-        public ActionResult<Platform> TogglePlatform(int id, [FromBody] TogglePlatformRequest request)
+        public ActionResult TogglePlatform(int id, [FromBody] TogglePlatformRequest request)
         {
             var platform = _allPlatforms.FirstOrDefault(p => p.Id == id);
             if (platform == null)
@@ -263,17 +267,37 @@ namespace RetroArr.Api.V3.Platforms
 
             PlatformService.SetEnabled(id, request.Enabled);
 
-            return Ok(new Platform
+            return Ok(new
             {
-                Id = platform.Id,
-                Name = platform.Name,
-                Slug = platform.Slug,
-                FolderName = platform.FolderName,
-                Type = platform.Type,
-                Category = platform.Category,
-                IgdbPlatformId = platform.IgdbPlatformId,
-                ParentPlatformId = platform.ParentPlatformId,
-                Enabled = request.Enabled
+                id = platform.Id,
+                name = platform.Name,
+                slug = platform.Slug,
+                folderName = platform.FolderName,
+                type = platform.Type.ToString(),
+                category = platform.Category,
+                igdbPlatformId = platform.IgdbPlatformId,
+                parentPlatformId = platform.ParentPlatformId,
+                enabled = request.Enabled,
+                preferredMetadataSource = PlatformService.GetMetadataSource(id)
+            });
+        }
+
+        [HttpPut("{id}/metadata-source")]
+        public ActionResult SetMetadataSource(int id, [FromBody] SetMetadataSourceRequest request)
+        {
+            var platform = _allPlatforms.FirstOrDefault(p => p.Id == id);
+            if (platform == null)
+            {
+                return NotFound();
+            }
+
+            PlatformService.SetMetadataSource(id, request.Source);
+
+            return Ok(new
+            {
+                id = platform.Id,
+                name = platform.Name,
+                preferredMetadataSource = PlatformService.GetMetadataSource(id)
             });
         }
 
@@ -299,6 +323,11 @@ namespace RetroArr.Api.V3.Platforms
     public class TogglePlatformRequest
     {
         public bool Enabled { get; set; }
+    }
+
+    public class SetMetadataSourceRequest
+    {
+        public string Source { get; set; } = "igdb";
     }
 
     public class AutoEnableRequest

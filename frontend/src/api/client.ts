@@ -108,6 +108,21 @@ export interface GameUpdateFile {
   type: string;
 }
 
+export interface LocalMediaItem {
+  type: string;
+  fileName: string;
+  fullPath: string;
+  url: string;
+  size?: number;
+}
+
+export interface LocalMediaResponse {
+  images: LocalMediaItem[];
+  videos: LocalMediaItem[];
+  platformDir?: string;
+  romBaseName?: string;
+}
+
 export interface Platform {
   id: number;
   name: string;
@@ -120,6 +135,7 @@ export interface Platform {
   igdbPlatformId?: number;
   screenScraperSystemId?: number;
   parentPlatformId?: number;
+  preferredMetadataSource?: string;
 }
 
 export interface DashboardStats {
@@ -350,6 +366,7 @@ export const gamesApi = {
 export const platformsApi = {
   getAll: () => apiClient.get<Platform[]>('/platform'),
   getEnabled: () => apiClient.get<Platform[]>('/platform', { params: { enabledOnly: true } }),
+  setMetadataSource: (id: number, source: string) => apiClient.put(`/platform/${id}/metadata-source`, { source }),
 };
 
 // -- Dashboard --
@@ -366,6 +383,7 @@ export interface MetadataRescanStatus {
   progress: number;
   updated: number;
   currentGame?: string;
+  startedAt?: string;
 }
 
 // -- Media / Scanner --
@@ -375,9 +393,10 @@ export const mediaApi = {
   startScan: (options?: { forceRefresh?: boolean; platform?: string }) => apiClient.post('/media/scan', options),
   stopScan: () => apiClient.post('/media/scan/stop'),
   getScanStatus: () => apiClient.get<ScanStatus>('/media/scan/status'),
-  startMetadataRescan: (options?: { platformId?: number; missingOnly?: boolean }) =>
+  startMetadataRescan: (options?: { platformId?: number; missingOnly?: boolean; preferredSource?: string }) =>
     apiClient.post('/media/metadata/rescan', options),
   getMetadataRescanStatus: () => apiClient.get<MetadataRescanStatus>('/media/metadata/rescan/status'),
+  cancelMetadataRescan: () => apiClient.post('/media/metadata/rescan/cancel'),
 };
 
 // -- Search --
@@ -566,6 +585,15 @@ export interface MatchCandidate {
   year?: number;
   coverUrl?: string;
   score: number;
+  source: string;
+  overview?: string;
+  developer?: string;
+  publisher?: string;
+  genres?: string[];
+  rating?: number;
+  coverLargeUrl?: string;
+  backgroundUrl?: string;
+  bannerUrl?: string;
 }
 
 export const metadataReviewApi = {
@@ -573,8 +601,8 @@ export const metadataReviewApi = {
     apiClient.get<MetadataReviewItem[]>('/metadata/review', { params: { platformFilter }, timeout: 120000 }),
   getCandidates: (gameId: number, searchOverride?: string) =>
     apiClient.get<MatchCandidate[]>(`/metadata/review/${gameId}/candidates`, { params: { searchOverride } }),
-  confirm: (gameId: number, igdbId: number, score?: number) =>
-    apiClient.post(`/metadata/review/${gameId}/confirm`, { igdbId, score }),
+  confirm: (gameId: number, igdbId: number, score?: number, source?: string, screenScraperData?: Record<string, unknown>) =>
+    apiClient.post(`/metadata/review/${gameId}/confirm`, { igdbId, score, source: source || 'IGDB', screenScraperData }),
   skip: (gameId: number) =>
     apiClient.post(`/metadata/review/${gameId}/skip`),
   dismiss: (gameId: number) =>

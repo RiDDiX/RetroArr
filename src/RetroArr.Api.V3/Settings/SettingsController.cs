@@ -532,25 +532,53 @@ namespace RetroArr.Api.V3.Settings
                     _logger.Info($"[GOG] Created download directory: {downloadPath}");
                 }
 
-                // Get actual download URL
+                // Get actual download URL — always refresh the token first
+                const string GogClientId = "46899977096215655";
+                const string GogClientSecret = "9d85c43b1482497dbbce61f6e4aa173a433796eeae2ca8c5f6129f2dc4de46d9";
                 var client = new GogClient(gogSettings.RefreshToken);
-                if (!string.IsNullOrEmpty(gogSettings.AccessToken))
-                {
-                    client.SetAccessToken(gogSettings.AccessToken, 3600);
-                }
+                var refreshed = await client.RefreshTokenAsync(GogClientId, GogClientSecret);
+                if (!refreshed)
+                    return BadRequest(new { success = false, message = "Failed to authenticate with GOG. Please re-authenticate in Settings." });
 
                 var downloadUrl = await client.GetDownloadUrlAsync(request.ManualUrl);
                 if (string.IsNullOrEmpty(downloadUrl))
                     return BadRequest(new { success = false, message = "Failed to get download URL" });
 
-                // Extract filename from URL or use provided name
+                // Resolve filename: use display name from frontend, but ensure it has a file extension
+                // GOG CDN URLs contain the real filename with extension (e.g. setup_dungeons_2_1.0.exe)
                 var fileName = request.FileName;
-                if (string.IsNullOrEmpty(fileName))
+                var cdnFileName = "";
+                try
                 {
                     var uri = new Uri(downloadUrl);
-                    fileName = System.IO.Path.GetFileName(uri.LocalPath);
-                    if (string.IsNullOrEmpty(fileName))
-                        fileName = $"{request.GameTitle}_setup.exe";
+                    cdnFileName = System.IO.Path.GetFileName(uri.LocalPath);
+                }
+                catch { /* ignore malformed URL */ }
+
+                if (string.IsNullOrEmpty(fileName))
+                {
+                    fileName = !string.IsNullOrEmpty(cdnFileName) ? cdnFileName : $"{request.GameTitle}_setup.exe";
+                }
+                else if (!System.IO.Path.HasExtension(fileName) && !string.IsNullOrEmpty(cdnFileName) && System.IO.Path.HasExtension(cdnFileName))
+                {
+                    // Display name has no extension — append extension from CDN URL
+                    var ext = System.IO.Path.GetExtension(cdnFileName);
+                    fileName = fileName + ext;
+                    _logger.Info($"[GOG] Appended extension from CDN: {ext} -> {fileName}");
+                }
+
+                // Ultimate fallback: if still no extension, use platform-based default
+                if (!System.IO.Path.HasExtension(fileName))
+                {
+                    var platformExt = (request.Platform?.ToLowerInvariant()) switch
+                    {
+                        "windows" => ".exe",
+                        "linux" => ".sh",
+                        "mac" or "osx" => ".dmg",
+                        _ => ".bin"
+                    };
+                    fileName = fileName + platformExt;
+                    _logger.Info($"[GOG] Platform fallback extension: {platformExt} -> {fileName}");
                 }
 
                 var filePath = System.IO.Path.Combine(downloadPath, fileName);
@@ -571,6 +599,16 @@ namespace RetroArr.Api.V3.Settings
                         
                         using var response = await httpClient.GetAsync(downloadUrl, System.Net.Http.HttpCompletionOption.ResponseHeadersRead);
                         response.EnsureSuccessStatusCode();
+
+                        // Try to get real filename from Content-Disposition header
+                        var cdHeader = response.Content.Headers.ContentDisposition?.FileName?.Trim('"', ' ');
+                        if (!string.IsNullOrEmpty(cdHeader) && !System.IO.Path.HasExtension(fileName) && System.IO.Path.HasExtension(cdHeader))
+                        {
+                            var ext = System.IO.Path.GetExtension(cdHeader);
+                            fileName = fileName + ext;
+                            filePath = System.IO.Path.Combine(downloadPath, fileName);
+                            _logger.Info($"[GOG] Content-Disposition extension: {ext} -> {fileName}");
+                        }
 
                         var totalBytes = response.Content.Headers.ContentLength;
                         ct = tracker.Start(trackId, request.GameTitle, fileName, filePath, totalBytes);
@@ -673,5 +711,6 @@ namespace RetroArr.Api.V3.Settings
         public string ManualUrl { get; set; } = string.Empty;
         public string GameTitle { get; set; } = string.Empty;
         public string? FileName { get; set; }
+        public string? Platform { get; set; }
     }
 }
