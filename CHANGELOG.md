@@ -1,3 +1,8 @@
+## v1.0.83 (2026-03-20)
+
+### Changes
+- Add per-platform metadata source selection (IGDB/ScreenScraper) (239ddcd)
+
 ## v1.0.82 (2026-03-20)
 
 ### Changes
