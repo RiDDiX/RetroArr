@@ -1,3 +1,10 @@
+## v1.0.91 (2026-03-20)
+
+### Changes
+- README: add PlayStation serial number detection to features list (2fa5f49)
+- Fix platform icons: replace IGDB-based ID map with RetroArr internal IDs (5314352)
+- chore: bump version to v1.0.70 [skip ci] (f347632)
+
 ## v1.0.90 (2026-03-20)
 
 ### Changes
