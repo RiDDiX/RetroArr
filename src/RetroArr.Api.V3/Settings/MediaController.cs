@@ -112,12 +112,14 @@ namespace RetroArr.Api.V3.Settings
         // ==================== Metadata Rescan ====================
 
         private static volatile bool _isRescanningMetadata;
+        private static volatile bool _rescanCancellationRequested;
         public static bool IsRescanningMetadata => _isRescanningMetadata;
 
         private static int _metadataRescanTotal;
         private static int _metadataRescanProgress;
         private static int _metadataRescanUpdated;
         private static string? _metadataRescanCurrentGame;
+        private static DateTime? _rescanStartedAt;
 
         public class MetadataRescanRequest
         {
@@ -153,9 +155,11 @@ namespace RetroArr.Api.V3.Settings
             Task.Run(async () =>
             {
                 _isRescanningMetadata = true;
+                _rescanCancellationRequested = false;
                 _metadataRescanProgress = 0;
                 _metadataRescanUpdated = 0;
                 _metadataRescanCurrentGame = null;
+                _rescanStartedAt = DateTime.UtcNow;
                 try
                 {
                     var allGames = await _gameRepository.GetAllAsync();
@@ -192,6 +196,11 @@ namespace RetroArr.Api.V3.Settings
 
                     foreach (var game in gamesList)
                     {
+                        if (_rescanCancellationRequested)
+                        {
+                            _logger.Info("[MetadataRescan] Cancelled by user.");
+                            break;
+                        }
                         _metadataRescanProgress++;
                         _metadataRescanCurrentGame = game.Title;
                         try
@@ -284,8 +293,20 @@ namespace RetroArr.Api.V3.Settings
                 total = _metadataRescanTotal,
                 progress = _metadataRescanProgress,
                 updated = _metadataRescanUpdated,
-                currentGame = _metadataRescanCurrentGame
+                currentGame = _metadataRescanCurrentGame,
+                startedAt = _rescanStartedAt?.ToString("o")
             });
+        }
+
+        [HttpPost("metadata/rescan/cancel")]
+        public IActionResult CancelMetadataRescan()
+        {
+            if (!_isRescanningMetadata)
+                return Ok(new { message = "No rescan is running." });
+
+            _rescanCancellationRequested = true;
+            _logger.Info("[MetadataRescan] Cancellation requested.");
+            return Ok(new { message = "Cancellation requested." });
         }
 
         private async Task<bool> TryIgdbRescan(Game game, GameMetadataService metadataService, List<string> variants, string? platformKey)

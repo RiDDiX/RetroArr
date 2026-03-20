@@ -383,6 +383,7 @@ export interface MetadataRescanStatus {
   progress: number;
   updated: number;
   currentGame?: string;
+  startedAt?: string;
 }
 
 // -- Media / Scanner --
@@ -395,6 +396,7 @@ export const mediaApi = {
   startMetadataRescan: (options?: { platformId?: number; missingOnly?: boolean; preferredSource?: string }) =>
     apiClient.post('/media/metadata/rescan', options),
   getMetadataRescanStatus: () => apiClient.get<MetadataRescanStatus>('/media/metadata/rescan/status'),
+  cancelMetadataRescan: () => apiClient.post('/media/metadata/rescan/cancel'),
 };
 
 // -- Search --

@@ -142,6 +142,14 @@ const Library: React.FC = () => {
     // Restore rescan state if one is already running
     mediaApi.getMetadataRescanStatus().then(res => {
       if (res.data.isRescanning) {
+        // Safety: if rescan started > 30 min ago with no progress, consider it stuck
+        if (res.data.startedAt) {
+          const elapsed = Date.now() - new Date(res.data.startedAt).getTime();
+          if (elapsed > 30 * 60 * 1000 && res.data.progress === 0) {
+            console.warn('[Library] Stale rescan detected, ignoring.');
+            return;
+          }
+        }
         setMetadataRescanning(true);
         setRescanStatus(res.data);
         startRescanPolling();
@@ -416,11 +424,29 @@ const Library: React.FC = () => {
     try {
       await mediaApi.startMetadataRescan({ platformId, missingOnly, preferredSource });
       startRescanPolling();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Metadata rescan failed:', err);
+      const msg = err?.response?.data?.message || err?.message || 'Unknown error';
+      alert(`Metadata rescan failed: ${msg}`);
       setMetadataRescanning(false);
     }
   }, [metadataRescanning, startRescanPolling]);
+
+  const handleCancelRescan = useCallback(async () => {
+    try {
+      await mediaApi.cancelMetadataRescan();
+      if (rescanPollRef.current) clearInterval(rescanPollRef.current);
+      rescanPollRef.current = null;
+      setMetadataRescanning(false);
+      setRescanStatus(null);
+    } catch {
+      // Force-reset frontend state even if cancel endpoint fails
+      if (rescanPollRef.current) clearInterval(rescanPollRef.current);
+      rescanPollRef.current = null;
+      setMetadataRescanning(false);
+      setRescanStatus(null);
+    }
+  }, []);
 
   const openScraperChoice = (platformId: number, missingOnly: boolean) => {
     const plat = allPlatforms.find(p => p.id === platformId);
@@ -591,6 +617,7 @@ const Library: React.FC = () => {
                   {rescanStatus.currentGame && <>{rescanStatus.currentGame} &mdash; </>}
                   {rescanStatus.progress}/{rescanStatus.total} ({rescanStatus.updated} {t('updated') || 'updated'})
                 </span>
+                <button className="platform-action-btn" onClick={handleCancelRescan} style={{ marginLeft: 8, padding: '2px 8px', fontSize: '0.8em' }} title="Cancel rescan">✕</button>
               </div>
             )}
           </div>
