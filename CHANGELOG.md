@@ -1,3 +1,10 @@
+## v1.0.92 (2026-03-20)
+
+### Changes
+- fix: Steam sync timeout for large libraries (7477e9e)
+- perf: server-side pagination, bulk reviews, response compression, PlatformId index (d0734b7)
+- chore: bump version to v1.0.91 [skip ci] (2027cfc)
+
 ## v1.0.91 (2026-03-20)
 
 ### Changes
