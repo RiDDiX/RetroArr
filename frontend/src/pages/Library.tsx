@@ -424,9 +424,10 @@ const Library: React.FC = () => {
     try {
       await mediaApi.startMetadataRescan({ platformId, missingOnly, preferredSource });
       startRescanPolling();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Metadata rescan failed:', err);
-      const msg = err?.response?.data?.message || err?.message || 'Unknown error';
+      const axErr = err as { response?: { data?: { message?: string } }; message?: string };
+      const msg = axErr?.response?.data?.message || axErr?.message || 'Unknown error';
       alert(`Metadata rescan failed: ${msg}`);
       setMetadataRescanning(false);
     }
