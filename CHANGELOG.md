@@ -1,3 +1,8 @@
+## v1.0.84 (2026-03-20)
+
+### Changes
+- Fix metadata rescan replacement, persistent progress, library performance (6f468cf)
+
 ## v1.0.83 (2026-03-20)
 
 ### Changes
