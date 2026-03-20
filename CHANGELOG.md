@@ -1,3 +1,10 @@
+## v1.0.89 (2026-03-20)
+
+### Changes
+- security: mask credentials in API responses, extend log redaction (2bfa355)
+- README: add PlayStation serial number detection to features list (2fa5f49)
+- Fix platform icons: replace IGDB-based ID map with RetroArr internal IDs (5314352)
+
 ## v1.0.88 (2026-03-20)
 
 ### Changes
