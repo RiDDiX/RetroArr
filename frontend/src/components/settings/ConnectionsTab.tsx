@@ -12,6 +12,7 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
   // Steam
   const [steamApiKey, setSteamApiKey] = useState('');
   const [steamId, setSteamId] = useState('');
+  const [steamConfigured, setSteamConfigured] = useState(false);
   const [steamTesting, setSteamTesting] = useState(false);
   const [steamTestResult, setSteamTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [steamSyncing, setSteamSyncing] = useState(false);
@@ -20,6 +21,7 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
   // IGDB
   const [igdbClientId, setIgdbClientId] = useState('');
   const [igdbClientSecret, setIgdbClientSecret] = useState('');
+  const [igdbConfigured, setIgdbConfigured] = useState(false);
 
   // GOG
   const [gogAuthCode, setGogAuthCode] = useState('');
@@ -33,6 +35,7 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
   const [screenScraperUsername, setScreenScraperUsername] = useState('');
   const [screenScraperPassword, setScreenScraperPassword] = useState('');
   const [screenScraperEnabled, setScreenScraperEnabled] = useState(true);
+  const [screenScraperConfigured, setScreenScraperConfigured] = useState(false);
   const [screenScraperTesting, setScreenScraperTesting] = useState(false);
   const [screenScraperTestResult, setScreenScraperTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -46,10 +49,10 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
         apiClient.get('/settings/igdb'),
         apiClient.get('/settings/steam'),
       ]);
-      setIgdbClientId(igdbRes.data.clientId);
-      setIgdbClientSecret(igdbRes.data.clientSecret);
-      setSteamApiKey(steamRes.data.apiKey);
-      setSteamId(steamRes.data.steamId);
+      setIgdbClientId(igdbRes.data.clientId || '');
+      setIgdbConfigured(igdbRes.data.isConfigured === true);
+      setSteamId(steamRes.data.steamId || '');
+      setSteamConfigured(steamRes.data.isConfigured === true);
 
       try {
         const gogRes = await apiClient.get('/gog/settings');
@@ -60,8 +63,8 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
       try {
         const ssRes = await apiClient.get('/settings/screenscraper');
         setScreenScraperUsername(ssRes.data.username || '');
-        setScreenScraperPassword(ssRes.data.password || '');
         setScreenScraperEnabled(ssRes.data.enabled !== false);
+        setScreenScraperConfigured(ssRes.data.isConfigured === true);
       } catch { /* ScreenScraper not available */ }
     } catch (error) {
       console.error('Error loading connection settings:', error);
@@ -111,6 +114,7 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
       await apiClient.delete('/settings/steam');
       setSteamApiKey('');
       setSteamId('');
+      setSteamConfigured(false);
       alert(t('steamSettingsSaved'));
     } catch (error: unknown) {
       alert(`${t('error')}: ${getErrorMessage(error)}`);
@@ -134,6 +138,7 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
       await apiClient.delete('/settings/igdb');
       setIgdbClientId('');
       setIgdbClientSecret('');
+      setIgdbConfigured(false);
       alert(t('igdbSettingsSaved'));
     } catch (error: unknown) {
       alert(`${t('error')}: ${getErrorMessage(error)}`);
@@ -226,6 +231,7 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
       setScreenScraperUsername('');
       setScreenScraperPassword('');
       setScreenScraperEnabled(false);
+      setScreenScraperConfigured(false);
     } catch (error: unknown) {
       console.error('Error disconnecting ScreenScraper:', error);
     }
@@ -241,7 +247,7 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
         <form onSubmit={handleSaveSteam}>
           <div className="form-group">
             <label htmlFor="steam-api-key">{t('steamApiKey')}</label>
-            <input type="password" id="steam-api-key" placeholder={t('steamApiKey')} value={steamApiKey} onChange={(e) => setSteamApiKey(e.target.value)} />
+            <input type="password" id="steam-api-key" placeholder={steamConfigured ? '••••••••' : t('steamApiKey')} value={steamApiKey} onChange={(e) => setSteamApiKey(e.target.value)} />
             <small>{t('steamApiKeyHelp')} <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noopener noreferrer">{t('steamDevPage')}</a></small>
           </div>
           <div className="form-group">
@@ -249,14 +255,14 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
             <input type="text" id="steam-id" placeholder={t('steamId')} value={steamId} onChange={(e) => setSteamId(e.target.value)} />
           </div>
           <div className="button-group">
-            <button type="button" className="btn-secondary" onClick={handleTestSteam} disabled={steamTesting || !steamApiKey || !steamId}>
+            <button type="button" className="btn-secondary" onClick={handleTestSteam} disabled={steamTesting || (!steamApiKey && !steamConfigured) || !steamId}>
               {steamTesting ? t('testing') : t('testConnection')}
             </button>
-            <button type="button" className="btn-secondary" onClick={handleSyncSteam} disabled={steamSyncing || !steamApiKey || !steamId}>
+            <button type="button" className="btn-secondary" onClick={handleSyncSteam} disabled={steamSyncing || (!steamApiKey && !steamConfigured) || !steamId}>
               {steamSyncing ? t('syncing') : t('syncLibrary')}
             </button>
             <button type="submit" className="btn-primary">{t('saveSteam')}</button>
-            {steamApiKey && (
+            {(steamApiKey || steamConfigured) && (
               <button type="button" className="btn-delete" onClick={handleDisconnectSteam} style={{ marginLeft: '10px' }}>
                 {t('disconnect')}
               </button>
@@ -284,11 +290,11 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
           </div>
           <div className="form-group">
             <label htmlFor="igdb-client-secret">{t('igdbClientSecret')}</label>
-            <input type="password" id="igdb-client-secret" placeholder={t('igdbClientSecret')} value={igdbClientSecret} onChange={(e) => setIgdbClientSecret(e.target.value)} />
+            <input type="password" id="igdb-client-secret" placeholder={igdbConfigured ? '••••••••' : t('igdbClientSecret')} value={igdbClientSecret} onChange={(e) => setIgdbClientSecret(e.target.value)} />
           </div>
           <div className="button-group">
             <button type="submit" className="btn-primary">{t('saveMetadata')}</button>
-            {igdbClientId && (
+            {(igdbClientId || igdbConfigured) && (
               <button type="button" className="btn-delete" onClick={handleDisconnectIgdb} style={{ marginLeft: '10px' }}>
                 {t('disconnect')}
               </button>
@@ -392,7 +398,7 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
           </div>
           <div className="form-group">
             <label htmlFor="screenscraper-password">{t('password') || 'Password'}</label>
-            <input type="password" id="screenscraper-password" placeholder={t('password') || 'Password'} value={screenScraperPassword} onChange={(e) => setScreenScraperPassword(e.target.value)} />
+            <input type="password" id="screenscraper-password" placeholder={screenScraperConfigured ? '••••••••' : (t('password') || 'Password')} value={screenScraperPassword} onChange={(e) => setScreenScraperPassword(e.target.value)} />
           </div>
           <div className="form-group">
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -401,11 +407,11 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
             </label>
           </div>
           <div className="button-group">
-            <button type="button" className="btn-secondary" onClick={handleTestScreenScraper} disabled={screenScraperTesting || !screenScraperUsername || !screenScraperPassword}>
+            <button type="button" className="btn-secondary" onClick={handleTestScreenScraper} disabled={screenScraperTesting || !screenScraperUsername || (!screenScraperPassword && !screenScraperConfigured)}>
               {screenScraperTesting ? t('testing') : t('testConnection')}
             </button>
             <button type="submit" className="btn-primary">{t('save')}</button>
-            {screenScraperUsername && (
+            {(screenScraperUsername || screenScraperConfigured) && (
               <button type="button" className="btn-delete" onClick={handleDisconnectScreenScraper} style={{ marginLeft: '10px' }}>
                 {t('disconnect')}
               </button>

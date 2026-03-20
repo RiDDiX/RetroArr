@@ -6,7 +6,7 @@ namespace RetroArr.Core.Logging
     public static class LogRedactor
     {
         private static readonly Regex ApiKeyInUrl = new(
-            @"(apikey|apiKey|api_key|token|secret|password|passwd)=([^&\s]+)",
+            @"(apikey|apiKey|api_key|key|token|secret|password|passwd|client_id|client_secret|refresh_token|devid|devpassword|ssid|sspassword)=([^&\s]+)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly HashSet<string> SensitiveHeaders = new(System.StringComparer.OrdinalIgnoreCase)
