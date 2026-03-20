@@ -231,87 +231,186 @@ namespace RetroArr.Api.V3.Settings
             }
         }
 
+        // ==================== Steam Sync (background job) ====================
+
+        private static volatile bool _isSyncingSteam;
+        private static volatile bool _steamSyncCancellationRequested;
+        private static int _steamSyncTotal;
+        private static int _steamSyncProgress;
+        private static int _steamSyncAdded;
+        private static int _steamSyncLinked;
+        private static int _steamSyncSkipped;
+        private static int _steamSyncFailed;
+        private static string? _steamSyncCurrentGame;
+        private static string? _steamSyncError;
+
         [HttpPost("steam/sync")]
         public async Task<IActionResult> SyncSteamLibrary()
         {
+            if (_isSyncingSteam)
+                return Conflict(new { success = false, message = "A Steam sync is already in progress." });
+
+            var settings = _configService.LoadSteamSettings();
+            if (!settings.IsConfigured)
+                return BadRequest(new { success = false, message = "Steam not configured" });
+
+            // Pre-fetch Steam library (fast, single API call) before going background
+            List<SteamUserGame> steamGames;
             try
             {
-                var settings = _configService.LoadSteamSettings();
-                if (!settings.IsConfigured)
-                    return BadRequest(new { success = false, message = "Steam not configured" });
-
-                // Use a fresh client with the correct key (avoid DI stale key issues)
                 var client = new SteamClient(settings.ApiKey);
-                var steamGames = await client.GetOwnedGamesAsync(settings.SteamId);
-                var existingGames = await _gameRepository.GetAllAsync();
-                
-                int addedCount = 0;
-                var metadataService = _metadataServiceFactory.CreateService();
-
-                foreach (var steamGame in steamGames)
-                {
-                    var existingGame = existingGames.FirstOrDefault(g => g.SteamId == steamGame.AppId || 
-                                                (g.Title.Equals(steamGame.Name, StringComparison.OrdinalIgnoreCase)));
-
-                    if (existingGame != null)
-                    {
-                        // Update existing game if it doesn't have the SteamId
-                        if (!existingGame.SteamId.HasValue || existingGame.SteamId != steamGame.AppId)
-                        {
-                            existingGame.SteamId = steamGame.AppId;
-                            // Optionally update other fields if needed, but for now just link it
-                            await _gameRepository.UpdateAsync(existingGame.Id, existingGame);
-                            _logger.Info($"[SteamSync] Linked '{existingGame.Title}' to Steam AppID: {steamGame.AppId}");
-                        }
-                    }
-                    else
-                    {
-                        var newGame = new Game
-                        {
-                            Title = steamGame.Name,
-                            SteamId = steamGame.AppId,
-                            Added = DateTime.UtcNow,
-                            Status = GameStatus.Announced, 
-                            Monitored = true,
-                            PlatformId = 125, // Steam platform
-                            IsExternal = true // Mark as external launcher game
-                        };
-
-                        // Enrich with IGDB Metadata
-                        try 
-                        {
-                            var searchResults = await metadataService.SearchGamesAsync(steamGame.Name);
-                            var match = searchResults.FirstOrDefault();
-                            
-                            if (match != null)
-                            {
-                                newGame.IgdbId = match.IgdbId;
-                                newGame.Overview = match.Overview;
-                                newGame.Images = match.Images;
-                                newGame.Genres = match.Genres;
-                                newGame.Developer = match.Developer;
-                                newGame.Publisher = match.Publisher;
-                                newGame.ReleaseDate = match.ReleaseDate;
-                                newGame.Year = match.Year;
-                                newGame.Rating = match.Rating;
-                            }
-                        }
-                        catch (Exception)
-                        {
-                            // Ignore enrichment failures
-                        }
-
-                        await _gameRepository.AddAsync(newGame);
-                        addedCount++;
-                    }
-                }
-
-                return Ok(new { success = true, message = $"Synced {steamGames.Count} games. Added {addedCount} new games.", count = addedCount });
+                steamGames = await client.GetOwnedGamesAsync(settings.SteamId);
             }
             catch (Exception ex)
             {
-                return BadRequest(new { success = false, message = ex.Message });
+                return BadRequest(new { success = false, message = $"Failed to fetch Steam library: {ex.Message}" });
             }
+
+            if (steamGames.Count == 0)
+                return Ok(new { success = true, message = "Steam library is empty. Nothing to sync.", count = 0 });
+
+            // Reset progress and start background processing
+            _isSyncingSteam = true;
+            _steamSyncCancellationRequested = false;
+            _steamSyncTotal = steamGames.Count;
+            _steamSyncProgress = 0;
+            _steamSyncAdded = 0;
+            _steamSyncLinked = 0;
+            _steamSyncSkipped = 0;
+            _steamSyncFailed = 0;
+            _steamSyncCurrentGame = null;
+            _steamSyncError = null;
+
+            // Capture references for the background task
+            var gameRepository = _gameRepository;
+            var metadataServiceFactory = _metadataServiceFactory;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var existingGames = await gameRepository.GetAllAsync();
+                    var metadataService = metadataServiceFactory.CreateService();
+
+                    foreach (var steamGame in steamGames)
+                    {
+                        if (_steamSyncCancellationRequested)
+                        {
+                            _logger.Info("[SteamSync] Cancelled by user.");
+                            break;
+                        }
+
+                        _steamSyncProgress++;
+                        _steamSyncCurrentGame = steamGame.Name;
+
+                        try
+                        {
+                            var existingGame = existingGames.FirstOrDefault(g => g.SteamId == steamGame.AppId ||
+                                (g.Title.Equals(steamGame.Name, StringComparison.OrdinalIgnoreCase)));
+
+                            if (existingGame != null)
+                            {
+                                if (!existingGame.SteamId.HasValue || existingGame.SteamId != steamGame.AppId)
+                                {
+                                    existingGame.SteamId = steamGame.AppId;
+                                    await gameRepository.UpdateAsync(existingGame.Id, existingGame);
+                                    _steamSyncLinked++;
+                                    _logger.Info($"[SteamSync] Linked '{existingGame.Title}' to Steam AppID: {steamGame.AppId}");
+                                }
+                                else
+                                {
+                                    _steamSyncSkipped++;
+                                }
+                            }
+                            else
+                            {
+                                var newGame = new Game
+                                {
+                                    Title = steamGame.Name,
+                                    SteamId = steamGame.AppId,
+                                    Added = DateTime.UtcNow,
+                                    Status = GameStatus.Announced,
+                                    Monitored = true,
+                                    PlatformId = 125,
+                                    IsExternal = true
+                                };
+
+                                try
+                                {
+                                    var searchResults = await metadataService.SearchGamesAsync(steamGame.Name);
+                                    var match = searchResults.FirstOrDefault();
+                                    if (match != null)
+                                    {
+                                        newGame.IgdbId = match.IgdbId;
+                                        newGame.Overview = match.Overview;
+                                        newGame.Images = match.Images;
+                                        newGame.Genres = match.Genres;
+                                        newGame.Developer = match.Developer;
+                                        newGame.Publisher = match.Publisher;
+                                        newGame.ReleaseDate = match.ReleaseDate;
+                                        newGame.Year = match.Year;
+                                        newGame.Rating = match.Rating;
+                                    }
+                                    await Task.Delay(150);
+                                }
+                                catch (Exception)
+                                {
+                                    // Enrichment failure is non-fatal; game is still added without metadata
+                                }
+
+                                await gameRepository.AddAsync(newGame);
+                                _steamSyncAdded++;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _steamSyncFailed++;
+                            _logger.Error($"[SteamSync] Error processing '{steamGame.Name}': {ex.Message}");
+                        }
+                    }
+
+                    _logger.Info($"[SteamSync] Complete. Total: {steamGames.Count}, Added: {_steamSyncAdded}, Linked: {_steamSyncLinked}, Skipped: {_steamSyncSkipped}, Failed: {_steamSyncFailed}");
+                }
+                catch (Exception ex)
+                {
+                    _steamSyncError = ex.Message;
+                    _logger.Error($"[SteamSync] Fatal error: {ex}");
+                }
+                finally
+                {
+                    _isSyncingSteam = false;
+                }
+            });
+
+            return Ok(new { success = true, message = $"Steam sync started for {steamGames.Count} games. Check status for progress." });
+        }
+
+        [HttpGet("steam/sync/status")]
+        public IActionResult GetSteamSyncStatus()
+        {
+            return Ok(new
+            {
+                isSyncing = _isSyncingSteam,
+                total = _steamSyncTotal,
+                progress = _steamSyncProgress,
+                added = _steamSyncAdded,
+                linked = _steamSyncLinked,
+                skipped = _steamSyncSkipped,
+                failed = _steamSyncFailed,
+                currentGame = _steamSyncCurrentGame,
+                error = _steamSyncError
+            });
+        }
+
+        [HttpPost("steam/sync/cancel")]
+        public IActionResult CancelSteamSync()
+        {
+            if (!_isSyncingSteam)
+                return Ok(new { message = "No Steam sync is running." });
+
+            _steamSyncCancellationRequested = true;
+            _logger.Info("[SteamSync] Cancellation requested.");
+            return Ok(new { message = "Cancellation requested." });
         }
 
         [HttpGet("screenscraper")]

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import apiClient, { getErrorMessage } from '../../api/client';
+import React, { useState, useEffect, useRef } from 'react';
+import apiClient, { getErrorMessage, SteamSyncStatus } from '../../api/client';
 import igdbLogo from '../../assets/igdb_logo.png';
 import steamLogo from '../../assets/steam_logo.png';
 
@@ -17,6 +17,8 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
   const [steamTestResult, setSteamTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [steamSyncing, setSteamSyncing] = useState(false);
   const [steamSyncResult, setSteamSyncResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [steamSyncStatus, setSteamSyncStatus] = useState<SteamSyncStatus | null>(null);
+  const steamSyncPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // IGDB
   const [igdbClientId, setIgdbClientId] = useState('');
@@ -95,18 +97,57 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
     }
   };
 
+  const stopSteamSyncPolling = () => {
+    if (steamSyncPollRef.current) {
+      clearInterval(steamSyncPollRef.current);
+      steamSyncPollRef.current = null;
+    }
+  };
+
+  const startSteamSyncPolling = () => {
+    stopSteamSyncPolling();
+    steamSyncPollRef.current = setInterval(async () => {
+      try {
+        const res = await apiClient.get<SteamSyncStatus>('/settings/steam/sync/status');
+        const status = res.data;
+        setSteamSyncStatus(status);
+        if (!status.isSyncing) {
+          stopSteamSyncPolling();
+          setSteamSyncing(false);
+          const msg = status.error
+            ? `✗ Error: ${status.error}`
+            : `✓ Sync complete — ${status.added} added, ${status.linked} linked, ${status.skipped} skipped${status.failed > 0 ? `, ${status.failed} failed` : ''}`;
+          setSteamSyncResult({ success: !status.error, message: msg });
+        }
+      } catch {
+        stopSteamSyncPolling();
+        setSteamSyncing(false);
+      }
+    }, 1500);
+  };
+
   const handleSyncSteam = async () => {
     setSteamSyncing(true);
     setSteamSyncResult(null);
+    setSteamSyncStatus(null);
     try {
-      const response = await apiClient.post('/settings/steam/sync');
-      setSteamSyncResult({ success: response.data.success, message: response.data.message });
+      await apiClient.post('/settings/steam/sync');
+      startSteamSyncPolling();
     } catch (error: unknown) {
       setSteamSyncResult({ success: false, message: `✗ ${t('error')}: ${getErrorMessage(error)}` });
-    } finally {
       setSteamSyncing(false);
     }
   };
+
+  const handleCancelSteamSync = async () => {
+    try {
+      await apiClient.post('/settings/steam/sync/cancel');
+    } catch { /* ignore */ }
+  };
+
+  useEffect(() => {
+    return () => stopSteamSyncPolling();
+  }, []);
 
   const handleDisconnectSteam = async () => {
     if (!window.confirm(t('disconnectConfirm'))) return;
@@ -261,6 +302,11 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
             <button type="button" className="btn-secondary" onClick={handleSyncSteam} disabled={steamSyncing || (!steamApiKey && !steamConfigured) || !steamId}>
               {steamSyncing ? t('syncing') : t('syncLibrary')}
             </button>
+            {steamSyncing && (
+              <button type="button" className="btn-delete" onClick={handleCancelSteamSync} style={{ marginLeft: '6px' }}>
+                ✕ Cancel
+              </button>
+            )}
             <button type="submit" className="btn-primary">{t('saveSteam')}</button>
             {(steamApiKey || steamConfigured) && (
               <button type="button" className="btn-delete" onClick={handleDisconnectSteam} style={{ marginLeft: '10px' }}>
@@ -270,6 +316,23 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
           </div>
           {steamTestResult && (
             <div className={`test-result ${steamTestResult.success ? 'success' : 'error'}`}>{steamTestResult.message}</div>
+          )}
+          {steamSyncing && steamSyncStatus && steamSyncStatus.total > 0 && (
+            <div style={{ marginTop: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '4px', color: 'var(--ctp-subtext0)' }}>
+                <span>{steamSyncStatus.currentGame || '...'}</span>
+                <span>{steamSyncStatus.progress}/{steamSyncStatus.total}</span>
+              </div>
+              <div style={{ width: '100%', height: '8px', backgroundColor: 'var(--ctp-surface0)', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{ width: `${(steamSyncStatus.progress / steamSyncStatus.total) * 100}%`, height: '100%', backgroundColor: 'var(--ctp-blue)', borderRadius: '4px', transition: 'width 0.3s ease' }} />
+              </div>
+              <div style={{ display: 'flex', gap: '12px', fontSize: '0.8rem', marginTop: '4px', color: 'var(--ctp-subtext1)' }}>
+                <span>✓ {steamSyncStatus.added} added</span>
+                <span>🔗 {steamSyncStatus.linked} linked</span>
+                <span>⏭ {steamSyncStatus.skipped} skipped</span>
+                {steamSyncStatus.failed > 0 && <span style={{ color: 'var(--ctp-red)' }}>✗ {steamSyncStatus.failed} failed</span>}
+              </div>
+            </div>
           )}
           {steamSyncResult && (
             <div className={`test-result ${steamSyncResult.success ? 'success' : 'error'}`}>{steamSyncResult.message}</div>
