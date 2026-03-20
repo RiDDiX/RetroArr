@@ -74,7 +74,6 @@ namespace RetroArr.Core.Games
         [System.ComponentModel.DataAnnotations.Schema.NotMapped]
         public bool IsOwned { get; set; }
         
-        [System.ComponentModel.DataAnnotations.Schema.NotMapped]
         public string? MetadataSource { get; set; } // "IGDB" or "ScreenScraper"
 
         // Installer tracking (GOG downloads, etc.)

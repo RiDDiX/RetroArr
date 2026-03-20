@@ -168,7 +168,18 @@ namespace RetroArr.Api.V3.Settings
 
                     if (request?.MissingOnly == true)
                     {
-                        targetGames = targetGames.Where(g => !g.IgdbId.HasValue || string.IsNullOrEmpty(g.Overview));
+                        var preferredSourceOverride = request?.PreferredSource;
+                        targetGames = targetGames.Where(g =>
+                        {
+                            if (!g.IgdbId.HasValue || string.IsNullOrEmpty(g.Overview))
+                                return true;
+
+                            var effectiveSrc = !string.IsNullOrEmpty(preferredSourceOverride)
+                                ? preferredSourceOverride
+                                : (g.PlatformId > 0 ? PlatformService.GetMetadataSource(g.PlatformId) : PlatformService.MetadataSourceIgdb);
+                            var currentSrc = g.MetadataSource ?? "IGDB";
+                            return !currentSrc.Equals(effectiveSrc, StringComparison.OrdinalIgnoreCase);
+                        });
                     }
 
                     var gamesList = targetGames.ToList();
