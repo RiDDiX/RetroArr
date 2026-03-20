@@ -1,3 +1,8 @@
+## v1.0.87 (2026-03-20)
+
+### Changes
+- Fix invisible scraper modal: replace raw divs with Modal component (942ba04)
+
 ## v1.0.86 (2026-03-20)
 
 ### Changes
