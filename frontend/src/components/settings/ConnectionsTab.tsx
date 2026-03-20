@@ -146,6 +146,16 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
   };
 
   useEffect(() => {
+    // Resume polling if a sync is already running (e.g. navigated away and back)
+    apiClient.get<SteamSyncStatus>('/settings/steam/sync/status').then(res => {
+      const status = res.data;
+      if (status.isSyncing) {
+        setSteamSyncing(true);
+        setSteamSyncStatus(status);
+        startSteamSyncPolling();
+      }
+    }).catch(() => { /* ignore */ });
+
     return () => stopSteamSyncPolling();
   }, []);
 
