@@ -1,3 +1,8 @@
+## v1.0.93 (2026-03-20)
+
+### Changes
+- fix: resume Steam sync progress on ConnectionsTab remount (e791beb)
+
 ## v1.0.92 (2026-03-20)
 
 ### Changes
