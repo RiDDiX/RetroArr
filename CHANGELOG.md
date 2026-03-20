@@ -1,3 +1,8 @@
+## v1.0.81 (2026-03-20)
+
+### Changes
+- Fix GOG patch downloads missing extensions + scanner creating duplicates (c8d254f)
+
 ## v1.0.80 (2026-03-19)
 
 ### Changes
