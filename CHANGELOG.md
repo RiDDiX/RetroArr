@@ -1,3 +1,8 @@
+## v1.0.82 (2026-03-20)
+
+### Changes
+- Fix platform rules: PS Vita, PS3, PS4, PSP, PSX, Switch extensions + RetroBat aliases (100f814)
+
 ## v1.0.81 (2026-03-20)
 
 ### Changes
