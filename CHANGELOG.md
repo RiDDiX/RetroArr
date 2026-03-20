@@ -1,3 +1,9 @@
+## v1.0.85 (2026-03-20)
+
+### Changes
+- Fix lint: replace catch(err: any) with catch(err: unknown) (a2f8a16)
+- Fix rescan buttons: add cancel endpoint, visible error feedback, stuck detection (2f78d8c)
+
 ## v1.0.84 (2026-03-20)
 
 ### Changes
