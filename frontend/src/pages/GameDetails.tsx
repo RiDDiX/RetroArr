@@ -371,11 +371,11 @@ const GameDetails: React.FC = () => {
     loadLocalMedia();
   }, [id, activeTab]);
 
-  const handleGogDownloadToFolder = async (manualUrl: string, fileName?: string) => {
+  const handleGogDownloadToFolder = async (manualUrl: string, fileName?: string, platform?: string) => {
     if (!id || gogDownloading) return;
     setGogDownloading(manualUrl);
     try {
-      const res = await apiClient.post(`/game/${id}/gog-download`, { manualUrl, fileName });
+      const res = await apiClient.post(`/game/${id}/gog-download`, { manualUrl, fileName, platform });
       if (res.data.success) {
         setNotification({ message: res.data.message || 'GOG download started', type: 'success' });
       } else {
@@ -1889,7 +1889,7 @@ const GameDetails: React.FC = () => {
                       </div>
                       {dl.manualUrl && (
                         <button
-                          onClick={() => handleGogDownloadToFolder(dl.manualUrl!, dl.name)}
+                          onClick={() => handleGogDownloadToFolder(dl.manualUrl!, dl.name, dl.platform)}
                           disabled={!!gogDownloading}
                           style={{
                             padding: '6px 14px',

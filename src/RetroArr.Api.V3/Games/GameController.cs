@@ -1521,6 +1521,20 @@ namespace RetroArr.Api.V3.Games
                     _logger.Info($"[GOG] Appended extension from CDN: {ext} -> {fileName}");
                 }
 
+                // Ultimate fallback: if still no extension, use platform-based default
+                if (!Path.HasExtension(fileName))
+                {
+                    var platformExt = (request.Platform?.ToLowerInvariant()) switch
+                    {
+                        "windows" => ".exe",
+                        "linux" => ".sh",
+                        "mac" or "osx" => ".dmg",
+                        _ => ".bin"
+                    };
+                    fileName = fileName + platformExt;
+                    _logger.Info($"[GOG] Platform fallback extension: {platformExt} -> {fileName}");
+                }
+
                 var filePath = Path.Combine(targetDir, fileName);
                 _logger.Info($"[GOG] Starting download to game folder: {fileName} -> {filePath} (url={downloadUrl.Substring(0, Math.Min(120, downloadUrl.Length))}...)");
 
@@ -1926,6 +1940,7 @@ namespace RetroArr.Api.V3.Games
     {
         public string ManualUrl { get; set; } = string.Empty;
         public string? FileName { get; set; }
+        public string? Platform { get; set; }
     }
 
     public class MapFileRequest
