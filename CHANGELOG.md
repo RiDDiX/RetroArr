@@ -1,3 +1,8 @@
+## v1.0.86 (2026-03-20)
+
+### Changes
+- Fix dead rescan buttons: remove disabled guard, let backend be authority (11077ed)
+
 ## v1.0.85 (2026-03-20)
 
 ### Changes
