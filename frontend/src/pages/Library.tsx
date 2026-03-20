@@ -139,19 +139,11 @@ const Library: React.FC = () => {
     loadPlatforms();
     checkIgdbConfig();
 
-    // Restore rescan state if one is already running
+    // Check if a rescan is already running (display-only, does NOT block buttons)
     mediaApi.getMetadataRescanStatus().then(res => {
       if (res.data.isRescanning) {
-        // Safety: if rescan started > 30 min ago with no progress, consider it stuck
-        if (res.data.startedAt) {
-          const elapsed = Date.now() - new Date(res.data.startedAt).getTime();
-          if (elapsed > 30 * 60 * 1000 && res.data.progress === 0) {
-            console.warn('[Library] Stale rescan detected, ignoring.');
-            return;
-          }
-        }
-        setMetadataRescanning(true);
         setRescanStatus(res.data);
+        setMetadataRescanning(true);
         startRescanPolling();
       }
     }).catch(() => {});
@@ -418,7 +410,6 @@ const Library: React.FC = () => {
 
   // Per-platform metadata rescan handler
   const handleMetadataRescan = useCallback(async (platformId: number, missingOnly: boolean, preferredSource: string = 'igdb') => {
-    if (metadataRescanning) return;
     setMetadataRescanning(true);
     setRescanStatus(null);
     try {
@@ -431,7 +422,7 @@ const Library: React.FC = () => {
       alert(`Metadata rescan failed: ${msg}`);
       setMetadataRescanning(false);
     }
-  }, [metadataRescanning, startRescanPolling]);
+  }, [startRescanPolling]);
 
   const handleCancelRescan = useCallback(async () => {
     try {
@@ -595,7 +586,6 @@ const Library: React.FC = () => {
               <button
                 className="platform-action-btn rescan-btn"
                 onClick={() => openScraperChoice(selectedPlatformData.id, true)}
-                disabled={metadataRescanning}
                 title={t('rescanMetadataMissing') || 'Re-fetch metadata for games missing info'}
               >
                 <FontAwesomeIcon icon={faDatabase} spin={metadataRescanning} />
@@ -604,7 +594,6 @@ const Library: React.FC = () => {
               <button
                 className="platform-action-btn rescan-btn force"
                 onClick={() => openScraperChoice(selectedPlatformData.id, false)}
-                disabled={metadataRescanning}
                 title={t('rescanMetadataForce') || 'Force re-fetch all metadata for this platform'}
               >
                 <FontAwesomeIcon icon={faSync} spin={metadataRescanning} />
