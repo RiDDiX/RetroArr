@@ -221,6 +221,15 @@ namespace RetroArr.Api.V3.Settings
                             var variants = titleCleaner.GenerateSearchVariants(cleanTitle);
                             if (variants.Count == 0) variants.Add(cleanTitle);
 
+                            // Fix stored title if the cleaner improved it (e.g. stripped PS serial prefix)
+                            bool titleCleaned = false;
+                            if (!cleanTitle.Equals(game.Title, StringComparison.Ordinal) && !string.IsNullOrEmpty(cleanTitle))
+                            {
+                                _logger.Info($"[MetadataRescan] Title cleaned: '{game.Title}' → '{cleanTitle}'");
+                                game.Title = cleanTitle;
+                                titleCleaned = true;
+                            }
+
                             bool updated = false;
 
                             if (useScreenScraperFirst)
@@ -259,6 +268,12 @@ namespace RetroArr.Api.V3.Settings
                                         _metadataRescanUpdated++;
                                     }
                                 }
+                            }
+
+                            // Persist cleaned title even when no metadata was found
+                            if (!updated && titleCleaned)
+                            {
+                                await _gameRepository.UpdateAsync(game.Id, game);
                             }
 
                             await Task.Delay(300);

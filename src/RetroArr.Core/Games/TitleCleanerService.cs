@@ -118,6 +118,11 @@ namespace RetroArr.Core.Games
             @"(CUSA|PPSA|BLES|BLUS|BCES|BCUS|NPEB|NPUB|NPEA|NPUA|SLES|SLUS|SCES|SCUS|SLPS|SLPM|SCCS|SLKA|BCAS|BLAS|BCJM|BLJM|BCJS|BLJS|PLJS|PLJM|PCJS|ELJS|ELJM|PCSA|PCSE|PCSG|PCSB|PCSH|PCSD|ULES|ULUS|UCES|UCUS|UCAS|ULJM|ULJS|UCJS|NPJH|NPEH|NPUH|SCED|SCUD|PAPX|PCPX)[-_]?(?:\d{3}[.]\d{2}|\d{4,5})",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+        // Safety-net: strip PS serial prefix + digits from the start of a cleaned title
+        private static readonly Regex _psSerialPrefixCleanup = new Regex(
+            @"^(?:CUSA|PPSA|BLES|BLUS|BCES|BCUS|NPEB|NPUB|NPEA|NPUA|SLES|SLUS|SCES|SCUS|SLPS|SLPM|SCCS|SLKA|BCAS|BLAS|BCJM|BLJM|BCJS|BLJS|PLJS|PLJM|PCJS|ELJS|ELJM|PCSA|PCSE|PCSG|PCSB|PCSH|PCSD|ULES|ULUS|UCES|UCUS|UCAS|ULJM|ULJS|UCJS|NPJH|NPEH|NPUH|SCED|SCUD|PAPX|PCPX)[\s._-]*(?:\d{3}[\s._-]*\d{2}|\d{4,5})\s*",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
         // Switch Title ID (16-char hex)
         private static readonly Regex _switchSerialRegex = new Regex(
             @"[0-9a-fA-F]{16}",
@@ -190,6 +195,9 @@ namespace RetroArr.Core.Games
             {
                 serial = psSerialMatch.Value.ToUpper().Replace("-", "").Replace("_", "").Replace(".", "");
                 workingTitle = workingTitle.Replace(psSerialMatch.Value, " ", StringComparison.OrdinalIgnoreCase);
+                // Also try with underscores/dashes normalised to spaces (preprocessing already did this)
+                var normalizedSerial = psSerialMatch.Value.Replace('_', ' ').Replace('-', ' ');
+                workingTitle = workingTitle.Replace(normalizedSerial, " ", StringComparison.OrdinalIgnoreCase);
             }
 
             // 0b. Try to find Switch Serial (16-char hex)
@@ -232,6 +240,9 @@ namespace RetroArr.Core.Games
             }
 
             string title = string.Join(" ", cleanWords).Trim();
+            
+            // Safety-net: strip any remaining PS serial prefix from the start of the title
+            title = _psSerialPrefixCleanup.Replace(title, "").Trim();
             
             // Remove lingering noise
             title = _multiSpaceRegex.Replace(title, " ");
