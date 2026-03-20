@@ -21,7 +21,7 @@ namespace RetroArr.Core.Games
             "us", "eu", "es", "uk", "asia", "cn", "ru", "gb", "mb", "kb", "romslab", "madloader", "usa", "eur", "jp", "region",
             "eng", "english", "spa", "spanish", "fra", "french", "ger", "german", "ita", "italian", "kor", "korean", "chi", "chinese", "tw", "hk",
             "rpgarchive", "gamesmega", "nxdump", "nx", "switch", "game",
-            "opoisso893", "cyb1k", "pppwn", "pppwngo", "goldhen", "ps3", "ps4", "ps5", "psp", "playstation", "sony",
+            "opoisso893", "cyb1k", "pppwn", "pppwngo", "goldhen", "ps3", "ps4", "ps5", "psp", "psvita", "vita", "playstation", "sony",
             "definitive", "remastered", "remake",
             "nsp", "xci", "nsz", "xcz", "vpk", "pkg", "iso", "nla", "zip", "rar", "7z"
         };
@@ -31,7 +31,7 @@ namespace RetroArr.Core.Games
         };
 
         private static readonly HashSet<string> _containerExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) {
-            ".ps3", ".ps3dir", ".psn", ".ps4"
+            ".ps3", ".ps3dir", ".psn", ".ps4", ".psvita"
         };
 
         // Region tokens found in filenames — ordered by specificity (longest first)
