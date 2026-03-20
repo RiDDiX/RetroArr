@@ -48,6 +48,7 @@ Open `http://your-ip:2727`, then go to **Settings → Metadata** and add your [I
 **Library & Scanning**
 - Scans and identifies files across **80+ platforms** — PC, PlayStation 1–5, Xbox, Nintendo NES through Switch 2, Sega, Atari, NEC, Arcade (MAME, FBNeo, CPS, Neo Geo), ScummVM, DOSBox, and more
 - Metadata from **IGDB**, **Steam**, and **ScreenScraper** (retro/arcade fallback): covers, descriptions, ratings, release dates
+- PlayStation serial number detection (SCES, SCUS, SLUS, SLES, …) — serial is extracted, title cleaned for correct metadata lookup
 - Region & language detection from filenames with flag display (USA, Europe, Japan, PAL, multi-region)
 - Revision/variant tagging: Beta, Rev A, Disc 2, etc.
 - Automatic folder renaming based on cleaned metadata titles
