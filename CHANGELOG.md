@@ -1,3 +1,8 @@
+## v1.0.88 (2026-03-20)
+
+### Changes
+- Fix PSX serial prefix not stripped from game titles (3058a54)
+
 ## v1.0.87 (2026-03-20)
 
 ### Changes
