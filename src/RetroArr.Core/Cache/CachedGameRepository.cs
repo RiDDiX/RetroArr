@@ -30,9 +30,15 @@ namespace RetroArr.Core.Cache
 
         public async Task<List<Game>> GetAllLightAsync()
         {
-            // Light queries are fast enough; skip cache to avoid stale data
-            return await _inner.GetAllLightAsync();
+            if (!_cache.IsEnabled) return await _inner.GetAllLightAsync();
+            return await _cache.GetOrSetAsync(
+                CacheKeys.GamesAll + ":light",
+                () => _inner.GetAllLightAsync(),
+                TimeSpan.FromSeconds(_settings.LibraryListTtlSeconds));
         }
+
+        public Task<PagedResult<GameListDto>> GetAllPagedAsync(int page, int pageSize, int? platformId = null, string? search = null, string sortOrder = "asc")
+            => _inner.GetAllPagedAsync(page, pageSize, platformId, search, sortOrder);
 
         public async Task<Game?> GetByIdAsync(int id)
         {
@@ -124,6 +130,7 @@ namespace RetroArr.Core.Cache
         private async Task InvalidateListCaches()
         {
             await _cache.RemoveAsync(CacheKeys.GamesAll);
+            await _cache.RemoveAsync(CacheKeys.GamesAll + ":light");
             await _cache.RemoveAsync(CacheKeys.GamesProblems);
             await _cache.RemoveAsync(CacheKeys.DbStats);
         }

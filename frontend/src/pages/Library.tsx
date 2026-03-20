@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import apiClient, { mediaApi, MetadataRescanStatus } from '../api/client';
+import apiClient, { gamesApi, reviewsApi, mediaApi, MetadataRescanStatus, GameListDto, BulkReviewData } from '../api/client';
 import GameCard from '../components/GameCard';
 import ContextMenu from '../components/ContextMenu';
 import { Modal, ConfirmDialog } from '../components/ui';
@@ -16,18 +16,21 @@ interface Game {
   id: number;
   title: string;
   year: number;
-  overview: string;
+  overview?: string;
   images: {
     coverUrl?: string;
   };
-  rating: number;
+  rating?: number;
   genres: string[];
   platformId?: number;
-  platform: { id?: number; name: string };
+  platform?: { id?: number; name: string };
   status: string;
   steamId?: number;
   igdbId?: number;
   path?: string;
+  region?: string;
+  languages?: string;
+  revision?: string;
 }
 
 interface SearchResult {
@@ -74,7 +77,10 @@ const Library: React.FC = () => {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchResults, setShowSearchResults] = useState(false);
-  const [games, setGames] = useState<Game[]>([]);
+  const [pagedGames, setPagedGames] = useState<GameListDto[]>([]);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [bulkReviews, setBulkReviews] = useState<Record<number, BulkReviewData>>({});
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [, setForceUpdateCounter] = useState(0); // Force re-render trigger
   const [isIgdbConfigured, setIsIgdbConfigured] = useState(true); // Assume true until check
@@ -99,6 +105,28 @@ const Library: React.FC = () => {
   });
   const itemsPerPageOptions = [10, 25, 50, 100, 250, 500, 1000];
   const rescanPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  
+  // Platform game counts from a lightweight total query
+  const [platformGameCounts, setPlatformGameCounts] = useState<Record<string, number>>({});
+
+  // Adapter: convert GameListDto to the Game shape expected by GameCard
+  const dtoToCardGame = useCallback((dto: GameListDto): Game => ({
+    id: dto.id,
+    title: dto.title,
+    year: dto.year,
+    images: { coverUrl: dto.coverUrl },
+    rating: dto.rating,
+    genres: dto.genres,
+    platformId: dto.platformId,
+    platform: dto.platformName ? { id: dto.platformId, name: dto.platformName } : undefined,
+    status: dto.status,
+    steamId: dto.steamId,
+    path: dto.path,
+    region: dto.region,
+    languages: dto.languages,
+    revision: dto.revision,
+    igdbId: dto.igdbId,
+  }), []);
 
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, visible: boolean, game: Game | null }>({
     x: 0,
@@ -123,19 +151,69 @@ const Library: React.FC = () => {
     });
   };
 
-  const handleDeleteGame = async (game: Game) => {
+  const handleDeleteGame = async (game: Game | GameListDto) => {
     try {
       await apiClient.delete(`/game/${game.id}`);
-      await loadGames();
+      await loadPagedGames();
+      await loadPlatformCounts();
       window.dispatchEvent(new Event('LIBRARY_UPDATED_EVENT'));
     } catch (error: unknown) {
       console.error('Error deleting game:', error);
     }
   };
 
-  // Cargar juegos de la biblioteca desde la API
+  // Server-side paginated game loader
+  const loadPagedGames = useCallback(async (page?: number, size?: number, platform?: string, sort?: string) => {
+    try {
+      const p = page ?? currentPage;
+      const s = size ?? itemsPerPage;
+      const pid = platform ?? selectedPlatform;
+      const so = sort ?? sortOrder;
+      const response = await gamesApi.getPaged({
+        page: p,
+        pageSize: s,
+        platformId: pid ? parseInt(pid, 10) : undefined,
+        sortOrder: so,
+      });
+      const data = response.data;
+      setPagedGames(data.items);
+      setTotalItems(data.totalItems);
+      setTotalPages(data.totalPages);
+
+      // Bulk-load reviews for visible games
+      if (data.items.length > 0) {
+        const ids = data.items.map((g: GameListDto) => g.id);
+        reviewsApi.getBulk(ids).then(res => setBulkReviews(res.data)).catch(() => {});
+      } else {
+        setBulkReviews({});
+      }
+    } catch (error) {
+      console.error('Error loading paged games:', error);
+    }
+  }, [currentPage, itemsPerPage, selectedPlatform, sortOrder]);
+
+  // Load platform game counts (lightweight call for sidebar badges)
+  const loadPlatformCounts = useCallback(async () => {
+    try {
+      const response = await gamesApi.getAll();
+      const counts: Record<string, number> = {};
+      let total = 0;
+      for (const game of response.data) {
+        const pid = (game.platformId ?? 0).toString();
+        counts[pid] = (counts[pid] || 0) + 1;
+        total++;
+      }
+      counts['__total'] = total;
+      setPlatformGameCounts(counts);
+    } catch {
+      // Sidebar counts are non-critical
+    }
+  }, []);
+
+  // Initial load + event listeners
   useEffect(() => {
-    loadGames();
+    loadPagedGames();
+    loadPlatformCounts();
     loadPlatforms();
     checkIgdbConfig();
 
@@ -151,8 +229,9 @@ const Library: React.FC = () => {
     // Listen for global library updates (e.g. from Auto-Scan in Settings)
     const handleLibraryUpdate = () => {
       console.log("[Library] Received update signal (EVENT). Loading games...");
-      setForceUpdateCounter(prev => prev + 1); // FORCE React to re-render
-      loadGames();
+      setForceUpdateCounter(prev => prev + 1);
+      loadPagedGames();
+      loadPlatformCounts();
     };
 
     window.addEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
@@ -162,14 +241,10 @@ const Library: React.FC = () => {
     };
   }, []);
 
-  const loadGames = async () => {
-    try {
-      const response = await apiClient.get('/game', { params: { t: Date.now() } });
-      setGames(response.data);
-    } catch (error) {
-      console.error('Error loading games:', error);
-    }
-  };
+  // Reload when pagination/filter/sort changes
+  useEffect(() => {
+    loadPagedGames();
+  }, [currentPage, itemsPerPage, selectedPlatform, sortOrder]);
 
   const checkIgdbConfig = async () => {
     try {
@@ -205,10 +280,9 @@ const Library: React.FC = () => {
     
     // First, filter local games
     const query = searchQuery.toLowerCase();
-    const localMatches = games.filter(g => 
-      g.title?.toLowerCase().includes(query) ||
-      g.overview?.toLowerCase().includes(query)
-    );
+    const localMatches = pagedGames
+      .filter((g: GameListDto) => g.title?.toLowerCase().includes(query))
+      .map(dtoToCardGame);
     setLocalResults(localMatches);
     
     // Then search online
@@ -230,7 +304,8 @@ const Library: React.FC = () => {
   const confirmClearLibrary = async () => {
     try {
       await apiClient.delete('/game/all');
-      await loadGames();
+      await loadPagedGames();
+      await loadPlatformCounts();
       window.dispatchEvent(new Event('LIBRARY_UPDATED_EVENT'));
     } catch (error) {
       console.error('Error clearing library:', error);
@@ -288,7 +363,8 @@ const Library: React.FC = () => {
       };
 
       await apiClient.post('/game', newGame);
-      await loadGames();
+      await loadPagedGames();
+      await loadPlatformCounts();
       window.dispatchEvent(new Event('LIBRARY_UPDATED_EVENT'));
 
       setShowSearchResults(false);
@@ -317,15 +393,7 @@ const Library: React.FC = () => {
     );
   };
 
-  // Compute game counts per platform for sidebar badges
-  const platformGameCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const game of games) {
-      const pid = (game.platformId ?? game.platform?.id ?? 0).toString();
-      counts[pid] = (counts[pid] || 0) + 1;
-    }
-    return counts;
-  }, [games]);
+  // platformGameCounts is now loaded from loadPlatformCounts() into state
 
   // Group platforms by category for sidebar
   const platformsByCategory = useMemo(() => {
@@ -369,7 +437,8 @@ const Library: React.FC = () => {
           if (!res.data.isScanning) {
             clearInterval(poll);
             setPlatformScanning(false);
-            loadGames();
+            loadPagedGames();
+            loadPlatformCounts();
             loadPlatforms();
           }
         } catch {
@@ -395,7 +464,8 @@ const Library: React.FC = () => {
           if (rescanPollRef.current) clearInterval(rescanPollRef.current);
           rescanPollRef.current = null;
           setMetadataRescanning(false);
-          loadGames();
+          loadPagedGames();
+          loadPlatformCounts();
         }
       } catch {
         failCount++;
@@ -458,31 +528,14 @@ const Library: React.FC = () => {
     return platforms.find(p => p.id.toString() === selectedPlatform) || null;
   }, [selectedPlatform, platforms]);
 
-  const filteredGames = useMemo(() => {
-    const filtered = games.filter(game => {
-      if (!selectedPlatform) return true;
-      const pid = selectedPlatform.toString();
-      return game.platform?.id?.toString() === pid || game.platformId?.toString() === pid;
-    });
-    filtered.sort((a, b) => {
-      const titleA = a.title?.toLowerCase() || '';
-      const titleB = b.title?.toLowerCase() || '';
-      if (sortOrder === 'asc') return titleA.localeCompare(titleB);
-      return titleB.localeCompare(titleA);
-    });
-    return filtered;
-  }, [games, selectedPlatform, sortOrder]);
-
-  // Pagination calculations
-  const totalPages = Math.ceil(filteredGames.length / itemsPerPage);
+  // Server provides pre-filtered, pre-sorted, pre-paginated data
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const paginatedGames = filteredGames.slice(startIndex, endIndex);
+  const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
 
   // Reset to page 1 when filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedPlatform, searchQuery, sortOrder]);
+  }, [selectedPlatform, sortOrder]);
 
   // Save items per page preference
   const handleItemsPerPageChange = (value: number) => {
@@ -508,7 +561,7 @@ const Library: React.FC = () => {
               onClick={() => handlePlatformChange('')}
             >
               <span className="sidebar-platform-name">{t('allPlatforms') || 'All Platforms'}</span>
-              <span className="sidebar-platform-count">{games.length}</span>
+              <span className="sidebar-platform-count">{platformGameCounts['__total'] || 0}</span>
             </button>
 
             {sortedCategories.map(cat => (
@@ -545,7 +598,7 @@ const Library: React.FC = () => {
             <div className="library-stats">
               <span style={{ textTransform: 'uppercase', fontWeight: 'bold' }}>
                 {selectedPlatformData ? selectedPlatformData.name : t('allPlatforms') || 'All Platforms'}
-                {' '}&mdash;{' '}{filteredGames.length} {t('gamesCount')}
+                {' '}&mdash;{' '}{totalItems} {t('gamesCount')}
               </span>
             </div>
           </div>
@@ -689,10 +742,11 @@ const Library: React.FC = () => {
               ) : (
                 searchResults.map((result, index) => {
                   // Check if this online result matches an existing game in library
-                  const existingGame = games.find(g => 
+                  const existingDto = pagedGames.find((g: GameListDto) => 
                     g.title?.toLowerCase() === result.title?.toLowerCase() ||
                     (g.igdbId && g.igdbId === result.id)
                   );
+                  const existingGame = existingDto ? dtoToCardGame(existingDto) : null;
                   const isExisting = !!existingGame;
 
                   return (
@@ -744,7 +798,7 @@ const Library: React.FC = () => {
                           <>
                             <button
                               className="add-game-btn"
-                              onClick={() => { navigate(`/game/${existingGame.id}`); setShowSearchResults(false); }}
+                              onClick={() => { navigate(`/game/${existingGame!.id}`); setShowSearchResults(false); }}
                               style={{ backgroundColor: 'var(--ctp-green)', color: 'var(--ctp-base)' }}
                             >
                               {t('viewGame') || 'View'}
@@ -779,7 +833,7 @@ const Library: React.FC = () => {
 
 
       {
-        filteredGames.length === 0 ? (
+        pagedGames.length === 0 ? (
           <div className="empty-library">
             <div className="empty-icon" onClick={toggleKofi} style={{ cursor: 'pointer' }}>
               <img src={appLogo} alt="RetroArr" className="empty-lib-logo" />
@@ -814,81 +868,88 @@ const Library: React.FC = () => {
           </div>
         ) : viewMode === 'grid' ? (
           <div className="game-grid">
-            {paginatedGames.map(game => (
-              <GameCard
-                key={game.id}
-                game={game}
-                onClick={() => {
-                  console.log('Navigating to game details', game.id);
-                  const fromPlatform = selectedPlatform ? platforms.find(p => p.id.toString() === selectedPlatform) : null;
-                  navigate(`/game/${game.id}`, { state: { fromPlatformId: selectedPlatform, fromPlatformName: fromPlatform?.name } });
-                }}
-                onContextMenu={(e) => handleContextMenu(e, game)}
-                onDelete={() => handleDeleteGame(game)}
-              />
-            ))}
+            {pagedGames.map((dto: GameListDto) => {
+              const game = dtoToCardGame(dto);
+              return (
+                <GameCard
+                  key={dto.id}
+                  game={game}
+                  reviewData={bulkReviews[dto.id]}
+                  onClick={() => {
+                    console.log('Navigating to game details', dto.id);
+                    const fromPlatform = selectedPlatform ? platforms.find(p => p.id.toString() === selectedPlatform) : null;
+                    navigate(`/game/${dto.id}`, { state: { fromPlatformId: selectedPlatform, fromPlatformName: fromPlatform?.name } });
+                  }}
+                  onContextMenu={(e) => handleContextMenu(e, game)}
+                  onDelete={() => handleDeleteGame(dto)}
+                />
+              );
+            })}
           </div>
         ) : (
           <div className="game-list">
-            {paginatedGames.map(game => (
-              <div
-                key={game.id}
-                className="game-list-item"
-                onClick={() => {
-                  const fromPlatform = selectedPlatform ? platforms.find(p => p.id.toString() === selectedPlatform) : null;
-                  navigate(`/game/${game.id}`, { state: { fromPlatformId: selectedPlatform, fromPlatformName: fromPlatform?.name } });
-                }}
-                onContextMenu={(e) => handleContextMenu(e, game)}
-              >
-                {game.images?.coverUrl ? (
-                  <img src={game.images.coverUrl} alt={game.title} className="list-cover" />
-                ) : (
-                  <div className="list-cover-placeholder">?</div>
-                )}
-                <div className="list-info">
-                  <h3>{game.title || 'Untitled'}</h3>
-                  <div className="list-meta">
-                    <span>{game.year || 'N/A'}</span>
-                    {game.platform?.name && <span>{game.platform.name}</span>}
-                    <span
-                      className="list-status-badge"
-                      style={{
-                        backgroundColor: getStatusColor(game.status),
-                        color: ['Missing', 'Downloading', 'Downloaded'].includes(game.status) ? 'var(--ctp-crust)' : 'var(--ctp-text)'
+            {pagedGames.map((dto: GameListDto) => {
+              const game = dtoToCardGame(dto);
+              return (
+                <div
+                  key={dto.id}
+                  className="game-list-item"
+                  onClick={() => {
+                    const fromPlatform = selectedPlatform ? platforms.find(p => p.id.toString() === selectedPlatform) : null;
+                    navigate(`/game/${dto.id}`, { state: { fromPlatformId: selectedPlatform, fromPlatformName: fromPlatform?.name } });
+                  }}
+                  onContextMenu={(e) => handleContextMenu(e, game)}
+                >
+                  {dto.coverUrl ? (
+                    <img src={dto.coverUrl} alt={dto.title} className="list-cover" />
+                  ) : (
+                    <div className="list-cover-placeholder">?</div>
+                  )}
+                  <div className="list-info">
+                    <h3>{dto.title || 'Untitled'}</h3>
+                    <div className="list-meta">
+                      <span>{dto.year || 'N/A'}</span>
+                      {dto.platformName && <span>{dto.platformName}</span>}
+                      <span
+                        className="list-status-badge"
+                        style={{
+                          backgroundColor: getStatusColor(dto.status),
+                          color: ['Missing', 'Downloading', 'Downloaded'].includes(dto.status) ? 'var(--ctp-crust)' : 'var(--ctp-text)'
+                        }}
+                      >
+                        {translateStatus(dto.status)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="list-rating">
+                    {typeof dto.rating === 'number' && dto.rating > 0 ? (
+                      <span>{Math.round(dto.rating)}%</span>
+                    ) : (
+                      <span className="no-rating">N/A</span>
+                    )}
+                    <button
+                      className="list-delete-btn"
+                      title={t('deleteFromLibrary')}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteGame(dto);
                       }}
                     >
-                      {translateStatus(game.status)}
-                    </span>
+                      ×
+                    </button>
                   </div>
                 </div>
-                <div className="list-rating">
-                  {typeof game.rating === 'number' && game.rating > 0 ? (
-                    <span>{Math.round(game.rating)}%</span>
-                  ) : (
-                    <span className="no-rating">N/A</span>
-                  )}
-                  <button
-                    className="list-delete-btn"
-                    title={t('deleteFromLibrary')}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteGame(game);
-                    }}
-                  >
-                    ×
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )
       }
 
       {/* Pagination Controls */}
-      {filteredGames.length > 0 && totalPages > 0 && (
+      {totalItems > 0 && totalPages > 0 && (
         <div className="pagination-controls">
           <div className="pagination-info">
-            {t('showing') || 'Showing'} {startIndex + 1}-{Math.min(endIndex, filteredGames.length)} {t('of') || 'of'} {filteredGames.length}
+            {t('showing') || 'Showing'} {startIndex + 1}-{Math.min(endIndex, totalItems)} {t('of') || 'of'} {totalItems}
           </div>
           
           <div className="pagination-buttons">

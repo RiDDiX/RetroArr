@@ -26,6 +26,7 @@ using Photino.NET;
 using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Configuration;
 using NLog.Extensions.Logging;
+using Microsoft.AspNetCore.ResponseCompression;
 using RetroArr.Host.Middleware;
 
 namespace RetroArr.Host
@@ -101,6 +102,14 @@ namespace RetroArr.Host
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddSwaggerGen();
             builder.Services.AddHttpClient(); // Register IHttpClientFactory
+
+            builder.Services.AddResponseCompression(options =>
+            {
+                options.EnableForHttps = true;
+                options.Providers.Add<BrotliCompressionProvider>();
+                options.Providers.Add<GzipCompressionProvider>();
+                options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(new[] { "application/json" });
+            });
 
             // Add CORS for development
             builder.Services.AddCors(options =>
@@ -329,6 +338,7 @@ namespace RetroArr.Host
             var app = builder.Build();
 
             // Configure middleware
+            app.UseResponseCompression();
             app.UseDeveloperExceptionPage(); // FORCE DEBUG
             if (app.Environment.IsDevelopment())
             {

@@ -280,6 +280,18 @@ export interface SteamSettings {
   steamId: string;
 }
 
+export interface SteamSyncStatus {
+  isSyncing: boolean;
+  total: number;
+  progress: number;
+  added: number;
+  linked: number;
+  skipped: number;
+  failed: number;
+  currentGame: string | null;
+  error: string | null;
+}
+
 export interface ScreenScraperSettings {
   username: string;
   password: string;
@@ -344,11 +356,46 @@ export interface CacheConfig {
   isConnected?: boolean;
 }
 
+export interface GameListDto {
+  id: number;
+  title: string;
+  year: number;
+  coverUrl?: string;
+  rating?: number;
+  genres: string[];
+  platformId: number;
+  platformName?: string;
+  platformSlug?: string;
+  status: string;
+  steamId?: number;
+  path?: string;
+  region?: string;
+  languages?: string;
+  revision?: string;
+  igdbId?: number;
+}
+
+export interface PagedResult<T> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+}
+
+export interface BulkReviewData {
+  userRating?: number;
+  metacriticScore?: number;
+  openCriticScore?: number;
+}
+
 // ===== API Functions =====
 
 // -- Games --
 export const gamesApi = {
-  getAll: () => apiClient.get<Game[]>('/game', { params: { t: Date.now() } }),
+  getAll: () => apiClient.get<Game[]>('/game'),
+  getPaged: (params: { page?: number; pageSize?: number; platformId?: number; search?: string; sortOrder?: string }) =>
+    apiClient.get<PagedResult<GameListDto>>('/game/paged', { params }),
   getById: (id: number, lang: string) => apiClient.get<Game>(`/game/${id}`, { params: { lang } }),
   create: (game: Partial<Game>) => apiClient.post<Game>('/game', game),
   update: (id: number, updates: Partial<Game>) => apiClient.put<Game>(`/game/${id}`, updates),
@@ -424,6 +471,8 @@ export const settingsApi = {
   deleteSteam: () => apiClient.delete('/settings/steam'),
   testSteam: (settings: SteamSettings) => apiClient.post('/settings/steam/test', settings),
   syncSteam: () => apiClient.post('/settings/steam/sync'),
+  getSteamSyncStatus: () => apiClient.get<SteamSyncStatus>('/settings/steam/sync/status'),
+  cancelSteamSync: () => apiClient.post('/settings/steam/sync/cancel'),
 
   getScreenScraper: () => apiClient.get<ScreenScraperSettings>('/settings/screenscraper'),
   saveScreenScraper: (settings: Partial<ScreenScraperSettings>) => apiClient.post('/settings/screenscraper', settings),
@@ -470,6 +519,7 @@ export const collectionsApi = {
 // -- Reviews --
 export const reviewsApi = {
   getByGameId: (gameId: number) => apiClient.get<GameReview>(`/review/game/${gameId}`),
+  getBulk: (gameIds: number[]) => apiClient.get<Record<number, BulkReviewData>>(`/review/bulk`, { params: { gameIds: gameIds.join(',') } }),
   setRating: (gameId: number, rating: number) => apiClient.post(`/review/game/${gameId}`, { userRating: rating }),
   setStatus: (gameId: number, status: string) => apiClient.post(`/review/game/${gameId}`, { completionStatus: status }),
   setNotes: (gameId: number, notes: string) => apiClient.post(`/review/game/${gameId}`, { notes }),
