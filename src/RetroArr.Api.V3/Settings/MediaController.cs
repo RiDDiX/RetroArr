@@ -177,7 +177,7 @@ namespace RetroArr.Api.V3.Settings
 
                     var metadataService = _metadataServiceFactory.CreateService();
                     var titleCleaner = new TitleCleanerService();
-                    var useScreenScraperFirst = (request?.PreferredSource ?? "igdb").Equals("screenscraper", StringComparison.OrdinalIgnoreCase);
+                    var globalPreferredSource = request?.PreferredSource;
 
                     foreach (var game in gamesList)
                     {
@@ -191,6 +191,11 @@ namespace RetroArr.Api.V3.Settings
                                 var platform = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.Id == game.PlatformId);
                                 platformKey = platform?.FolderName;
                             }
+
+                            var effectiveSource = !string.IsNullOrEmpty(globalPreferredSource)
+                                ? globalPreferredSource
+                                : (game.PlatformId > 0 ? PlatformService.GetMetadataSource(game.PlatformId) : PlatformService.MetadataSourceIgdb);
+                            var useScreenScraperFirst = effectiveSource.Equals("screenscraper", StringComparison.OrdinalIgnoreCase);
 
                             var (cleanTitle, _) = titleCleaner.CleanGameTitle(game.Title);
                             var variants = titleCleaner.GenerateSearchVariants(cleanTitle);

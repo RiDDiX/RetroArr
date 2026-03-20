@@ -1644,7 +1644,32 @@ namespace RetroArr.Core.Games
 
                 Log($"[Scanner] Search variants: {string.Join(" | ", searchVariants)}");
 
-                // Multi-variant search with platform fallback
+                // Check per-platform metadata source preference
+                var preferScreenScraper = scanPlatformId > 0
+                    && PlatformService.GetMetadataSource(scanPlatformId)
+                        .Equals(PlatformService.MetadataSourceScreenScraper, StringComparison.OrdinalIgnoreCase);
+
+                if (preferScreenScraper)
+                {
+                    Log($"[Scanner] Platform {scanPlatformId} prefers ScreenScraper — trying ScreenScraper first");
+                    var ssResults = await metadataService.SearchScreenScraperAsync(searchVariants.First(), platformKey);
+                    if (ssResults.Count > 0)
+                    {
+                        var best = ssResults.First();
+                        best.Path = localPath;
+                        best.ExecutablePath = executablePath;
+                        best.IsExternal = isExternal;
+                        best.MetadataSource = "ScreenScraper";
+                        best.NeedsMetadataReview = false;
+                        if (best.PlatformId == 0 && scanPlatformId > 0)
+                            best.PlatformId = scanPlatformId;
+                        Log($"[Scanner] ScreenScraper match: '{best.Title}'");
+                        return best;
+                    }
+                    Log($"[Scanner] ScreenScraper returned no results, falling back to IGDB");
+                }
+
+                // Multi-variant search with platform fallback (IGDB)
                 var igdbCandidates = await metadataService.SearchWithVariantsAsync(searchVariants, platformKey, null, serial);
 
                 if (igdbCandidates.Count > 0)

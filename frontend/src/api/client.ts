@@ -135,6 +135,7 @@ export interface Platform {
   igdbPlatformId?: number;
   screenScraperSystemId?: number;
   parentPlatformId?: number;
+  preferredMetadataSource?: string;
 }
 
 export interface DashboardStats {
@@ -365,6 +366,7 @@ export const gamesApi = {
 export const platformsApi = {
   getAll: () => apiClient.get<Platform[]>('/platform'),
   getEnabled: () => apiClient.get<Platform[]>('/platform', { params: { enabledOnly: true } }),
+  setMetadataSource: (id: number, source: string) => apiClient.put(`/platform/${id}/metadata-source`, { source }),
 };
 
 // -- Dashboard --

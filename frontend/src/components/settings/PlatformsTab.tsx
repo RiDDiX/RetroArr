@@ -9,6 +9,7 @@ interface Platform {
   category?: string;
   enabled: boolean;
   igdbPlatformId?: number;
+  preferredMetadataSource?: string;
 }
 
 interface PlatformsTabProps {
@@ -44,6 +45,16 @@ const PlatformsTab: React.FC<PlatformsTabProps> = ({ t }) => {
       await apiClient.put(`/platform/${platform.id}/toggle`, { enabled: newEnabled });
     } catch {
       setPlatforms(prev => prev.map(p => p.id === platform.id ? { ...p, enabled: !newEnabled } : p));
+    }
+  };
+
+  const changeMetadataSource = async (platform: Platform, source: string) => {
+    const prev = platform.preferredMetadataSource || 'igdb';
+    setPlatforms(ps => ps.map(p => p.id === platform.id ? { ...p, preferredMetadataSource: source } : p));
+    try {
+      await apiClient.put(`/platform/${platform.id}/metadata-source`, { source });
+    } catch {
+      setPlatforms(ps => ps.map(p => p.id === platform.id ? { ...p, preferredMetadataSource: prev } : p));
     }
   };
 
@@ -119,7 +130,7 @@ const PlatformsTab: React.FC<PlatformsTabProps> = ({ t }) => {
                       marginBottom: '0.25rem'
                     }}
                   >
-                    <div style={{ flex: 1 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <span style={{ fontWeight: platform.enabled ? 'bold' : 'normal' }}>
                         {platform.name}
                       </span>
@@ -127,7 +138,25 @@ const PlatformsTab: React.FC<PlatformsTabProps> = ({ t }) => {
                         /{platform.folderName}/
                       </span>
                     </div>
-                    <label className="toggle-switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '20px' }}>
+                    <select
+                      value={platform.preferredMetadataSource || 'igdb'}
+                      onChange={(e) => changeMetadataSource(platform, e.target.value)}
+                      style={{
+                        backgroundColor: 'var(--ctp-surface0)',
+                        color: 'var(--ctp-text)',
+                        border: '1px solid var(--ctp-surface1)',
+                        borderRadius: '4px',
+                        padding: '2px 6px',
+                        fontSize: '0.75rem',
+                        marginRight: '0.75rem',
+                        cursor: 'pointer',
+                        minWidth: '110px'
+                      }}
+                    >
+                      <option value="igdb">IGDB</option>
+                      <option value="screenscraper">ScreenScraper</option>
+                    </select>
+                    <label className="toggle-switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '20px', flexShrink: 0 }}>
                       <input
                         type="checkbox"
                         checked={platform.enabled}

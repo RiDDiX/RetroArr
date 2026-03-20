@@ -50,6 +50,7 @@ interface Platform {
   category?: string;
   igdbPlatformId?: number;
   enabled?: boolean;
+  preferredMetadataSource?: string;
 }
 
 const Library: React.FC = () => {
@@ -400,7 +401,9 @@ const Library: React.FC = () => {
   }, [metadataRescanning]);
 
   const openScraperChoice = (platformId: number, missingOnly: boolean) => {
-    setSelectedScraper('igdb');
+    const plat = allPlatforms.find(p => p.id === platformId);
+    const defaultSource = (plat?.preferredMetadataSource || 'igdb') as 'igdb' | 'screenscraper';
+    setSelectedScraper(defaultSource);
     setShowScraperChoice({ platformId, missingOnly });
   };
 
