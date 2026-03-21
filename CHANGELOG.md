@@ -1,3 +1,8 @@
+## v1.0.95 (2026-03-21)
+
+### Changes
+- fix: include ProtonDbTier in GameDetails API response, enlarge badges (d7fea34)
+
 ## v1.0.94 (2026-03-21)
 
 ### Changes
