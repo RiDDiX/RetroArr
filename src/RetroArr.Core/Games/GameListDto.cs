@@ -21,6 +21,7 @@ namespace RetroArr.Core.Games
         public string? Languages { get; set; }
         public string? Revision { get; set; }
         public int? IgdbId { get; set; }
+        public string? ProtonDbTier { get; set; }
     }
 
     public class PagedResult<T>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import apiClient, { gamesApi, reviewsApi, mediaApi, MetadataRescanStatus, GameListDto, BulkReviewData } from '../api/client';
+import apiClient, { gamesApi, reviewsApi, mediaApi, MetadataRescanStatus, GameListDto, BulkReviewData, ProtonDbRefreshStatus } from '../api/client';
 import GameCard from '../components/GameCard';
 import ContextMenu from '../components/ContextMenu';
 import { Modal, ConfirmDialog } from '../components/ui';
@@ -31,6 +31,7 @@ interface Game {
   region?: string;
   languages?: string;
   revision?: string;
+  protonDbTier?: string;
 }
 
 interface SearchResult {
@@ -96,6 +97,11 @@ const Library: React.FC = () => {
   const [rescanStatus, setRescanStatus] = useState<MetadataRescanStatus | null>(null);
   const [showScraperChoice, setShowScraperChoice] = useState<{ platformId: number; missingOnly: boolean } | null>(null);
   const [selectedScraper, setSelectedScraper] = useState<'igdb' | 'screenscraper'>('igdb');
+
+  // ProtonDB refresh state
+  const [protonRefreshing, setProtonRefreshing] = useState(false);
+  const [protonRefreshStatus, setProtonRefreshStatus] = useState<ProtonDbRefreshStatus | null>(null);
+  const protonPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -126,6 +132,7 @@ const Library: React.FC = () => {
     languages: dto.languages,
     revision: dto.revision,
     igdbId: dto.igdbId,
+    protonDbTier: dto.protonDbTier,
   }), []);
 
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, visible: boolean, game: Game | null }>({
@@ -235,9 +242,18 @@ const Library: React.FC = () => {
     };
 
     window.addEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
+    // Resume ProtonDB polling if refresh is running
+    apiClient.get<ProtonDbRefreshStatus>('/protondb/refresh/status').then(res => {
+      if (res.data.isRefreshing) {
+        setProtonRefreshing(true);
+        setProtonRefreshStatus(res.data);
+      }
+    }).catch(() => { /* ignore */ });
+
     return () => {
       window.removeEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
       if (rescanPollRef.current) clearInterval(rescanPollRef.current);
+      if (protonPollRef.current) clearInterval(protonPollRef.current);
     };
   }, []);
 
@@ -510,6 +526,54 @@ const Library: React.FC = () => {
     }
   }, []);
 
+  // ProtonDB refresh handlers
+  const stopProtonPolling = useCallback(() => {
+    if (protonPollRef.current) { clearInterval(protonPollRef.current); protonPollRef.current = null; }
+  }, []);
+
+  const startProtonPolling = useCallback(() => {
+    stopProtonPolling();
+    protonPollRef.current = setInterval(async () => {
+      try {
+        const res = await apiClient.get<ProtonDbRefreshStatus>('/protondb/refresh/status');
+        setProtonRefreshStatus(res.data);
+        if (!res.data.isRefreshing) {
+          stopProtonPolling();
+          setProtonRefreshing(false);
+          loadPagedGames();
+        }
+      } catch {
+        stopProtonPolling();
+        setProtonRefreshing(false);
+      }
+    }, 1500);
+  }, [stopProtonPolling]);
+
+  const handleRefreshProtonDb = useCallback(async () => {
+    setProtonRefreshing(true);
+    setProtonRefreshStatus(null);
+    try {
+      await apiClient.post('/protondb/refresh');
+      startProtonPolling();
+    } catch {
+      setProtonRefreshing(false);
+    }
+  }, [startProtonPolling]);
+
+  const handleCancelProtonRefresh = useCallback(async () => {
+    try { await apiClient.post('/protondb/refresh/cancel'); } catch { /* ignore */ }
+    stopProtonPolling();
+    setProtonRefreshing(false);
+    setProtonRefreshStatus(null);
+  }, [stopProtonPolling]);
+
+  // Start ProtonDB polling when protonRefreshing becomes true (e.g. resumed on mount)
+  useEffect(() => {
+    if (protonRefreshing && !protonPollRef.current) {
+      startProtonPolling();
+    }
+  }, [protonRefreshing, startProtonPolling]);
+
   const openScraperChoice = (platformId: number, missingOnly: boolean) => {
     const plat = allPlatforms.find(p => p.id === platformId);
     const defaultSource = (plat?.preferredMetadataSource || 'igdb') as 'igdb' | 'screenscraper';
@@ -652,7 +716,32 @@ const Library: React.FC = () => {
                 <FontAwesomeIcon icon={faSync} spin={metadataRescanning} />
                 {t('forceRefresh') || 'Force Refresh'}
               </button>
+              <button
+                className="platform-action-btn rescan-btn"
+                onClick={handleRefreshProtonDb}
+                disabled={protonRefreshing}
+                title="Refresh ProtonDB compatibility ratings for all Steam games"
+                style={{ background: protonRefreshing ? undefined : 'var(--ctp-surface1)' }}
+              >
+                <FontAwesomeIcon icon={faGamepad} spin={protonRefreshing} />
+                {protonRefreshing
+                  ? `ProtonDB ${protonRefreshStatus?.progress || 0}/${protonRefreshStatus?.total || '?'}`
+                  : 'ProtonDB'}
+              </button>
+              {protonRefreshing && (
+                <button className="platform-action-btn" onClick={handleCancelProtonRefresh} style={{ padding: '2px 8px', fontSize: '0.8em' }} title="Cancel ProtonDB refresh">✕</button>
+              )}
             </div>
+            {protonRefreshing && protonRefreshStatus && protonRefreshStatus.total > 0 && (
+              <div className="rescan-progress">
+                <div className="rescan-progress-bar" style={{ width: `${(protonRefreshStatus.progress / protonRefreshStatus.total) * 100}%`, backgroundColor: 'var(--ctp-green)' }} />
+                <span className="rescan-progress-text">
+                  {protonRefreshStatus.currentGame && <>{protonRefreshStatus.currentGame} &mdash; </>}
+                  {protonRefreshStatus.progress}/{protonRefreshStatus.total} ({protonRefreshStatus.updated} updated)
+                </span>
+                <button className="platform-action-btn" onClick={handleCancelProtonRefresh} style={{ marginLeft: 8, padding: '2px 8px', fontSize: '0.8em' }} title="Cancel">✕</button>
+              </div>
+            )}
             {metadataRescanning && rescanStatus && (
               <div className="rescan-progress">
                 <div className="rescan-progress-bar" style={{ width: `${rescanStatus.total > 0 ? (rescanStatus.progress / rescanStatus.total) * 100 : 0}%` }} />

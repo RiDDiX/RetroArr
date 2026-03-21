@@ -373,6 +373,17 @@ export interface GameListDto {
   languages?: string;
   revision?: string;
   igdbId?: number;
+  protonDbTier?: string;
+}
+
+export interface ProtonDbRefreshStatus {
+  isRefreshing: boolean;
+  total: number;
+  progress: number;
+  updated: number;
+  skipped: number;
+  currentGame: string | null;
+  error: string | null;
 }
 
 export interface PagedResult<T> {
@@ -473,6 +484,10 @@ export const settingsApi = {
   syncSteam: () => apiClient.post('/settings/steam/sync'),
   getSteamSyncStatus: () => apiClient.get<SteamSyncStatus>('/settings/steam/sync/status'),
   cancelSteamSync: () => apiClient.post('/settings/steam/sync/cancel'),
+
+  refreshProtonDb: () => apiClient.post('/protondb/refresh'),
+  getProtonDbRefreshStatus: () => apiClient.get<ProtonDbRefreshStatus>('/protondb/refresh/status'),
+  cancelProtonDbRefresh: () => apiClient.post('/protondb/refresh/cancel'),
 
   getScreenScraper: () => apiClient.get<ScreenScraperSettings>('/settings/screenscraper'),
   saveScreenScraper: (settings: Partial<ScreenScraperSettings>) => apiClient.post('/settings/screenscraper', settings),

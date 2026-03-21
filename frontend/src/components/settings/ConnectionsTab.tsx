@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import apiClient, { getErrorMessage, SteamSyncStatus } from '../../api/client';
+import apiClient, { getErrorMessage, SteamSyncStatus, ProtonDbRefreshStatus } from '../../api/client';
 import igdbLogo from '../../assets/igdb_logo.png';
 import steamLogo from '../../assets/steam_logo.png';
 
@@ -19,6 +19,12 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
   const [steamSyncResult, setSteamSyncResult] = useState<{ success: boolean; message: string } | null>(null);
   const [steamSyncStatus, setSteamSyncStatus] = useState<SteamSyncStatus | null>(null);
   const steamSyncPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ProtonDB
+  const [protonRefreshing, setProtonRefreshing] = useState(false);
+  const [protonRefreshStatus, setProtonRefreshStatus] = useState<ProtonDbRefreshStatus | null>(null);
+  const [protonRefreshResult, setProtonRefreshResult] = useState<{ success: boolean; message: string } | null>(null);
+  const protonPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // IGDB
   const [igdbClientId, setIgdbClientId] = useState('');
@@ -145,8 +151,57 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
     } catch { /* ignore */ }
   };
 
+  // ProtonDB refresh handlers
+  const stopProtonPolling = () => {
+    if (protonPollRef.current) {
+      clearInterval(protonPollRef.current);
+      protonPollRef.current = null;
+    }
+  };
+
+  const startProtonPolling = () => {
+    stopProtonPolling();
+    protonPollRef.current = setInterval(async () => {
+      try {
+        const res = await apiClient.get<ProtonDbRefreshStatus>('/protondb/refresh/status');
+        const status = res.data;
+        setProtonRefreshStatus(status);
+        if (!status.isRefreshing) {
+          stopProtonPolling();
+          setProtonRefreshing(false);
+          const msg = status.error
+            ? `✗ Error: ${status.error}`
+            : `✓ ProtonDB refresh complete — ${status.updated} updated, ${status.skipped} skipped`;
+          setProtonRefreshResult({ success: !status.error, message: msg });
+        }
+      } catch {
+        stopProtonPolling();
+        setProtonRefreshing(false);
+      }
+    }, 1500);
+  };
+
+  const handleRefreshProtonDb = async () => {
+    setProtonRefreshing(true);
+    setProtonRefreshResult(null);
+    setProtonRefreshStatus(null);
+    try {
+      await apiClient.post('/protondb/refresh');
+      startProtonPolling();
+    } catch (error: unknown) {
+      setProtonRefreshResult({ success: false, message: `✗ ${t('error')}: ${getErrorMessage(error)}` });
+      setProtonRefreshing(false);
+    }
+  };
+
+  const handleCancelProtonRefresh = async () => {
+    try {
+      await apiClient.post('/protondb/refresh/cancel');
+    } catch { /* ignore */ }
+  };
+
   useEffect(() => {
-    // Resume polling if a sync is already running (e.g. navigated away and back)
+    // Resume polling if a sync/refresh is already running (e.g. navigated away and back)
     apiClient.get<SteamSyncStatus>('/settings/steam/sync/status').then(res => {
       const status = res.data;
       if (status.isSyncing) {
@@ -156,7 +211,19 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
       }
     }).catch(() => { /* ignore */ });
 
-    return () => stopSteamSyncPolling();
+    apiClient.get<ProtonDbRefreshStatus>('/protondb/refresh/status').then(res => {
+      const status = res.data;
+      if (status.isRefreshing) {
+        setProtonRefreshing(true);
+        setProtonRefreshStatus(status);
+        startProtonPolling();
+      }
+    }).catch(() => { /* ignore */ });
+
+    return () => {
+      stopSteamSyncPolling();
+      stopProtonPolling();
+    };
   }, []);
 
   const handleDisconnectSteam = async () => {
@@ -348,6 +415,45 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
             <div className={`test-result ${steamSyncResult.success ? 'success' : 'error'}`}>{steamSyncResult.message}</div>
           )}
         </form>
+
+        {/* ProtonDB Refresh Section */}
+        <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--ctp-surface1)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+            <span style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--ctp-text)' }}>ProtonDB</span>
+            <span style={{ fontSize: '0.8rem', color: 'var(--ctp-subtext0)' }}>Linux / Steam Deck Compatibility</span>
+          </div>
+          <p style={{ fontSize: '0.85rem', color: 'var(--ctp-subtext1)', marginBottom: '10px' }}>
+            Fetch ProtonDB compatibility ratings for all Steam games in your library. Shows Platinum, Gold, Silver, Bronze, or Borked status.
+          </p>
+          <div className="button-group">
+            <button type="button" className="btn-secondary" onClick={handleRefreshProtonDb} disabled={protonRefreshing || !steamConfigured}>
+              {protonRefreshing ? 'Refreshing...' : 'Refresh ProtonDB Ratings'}
+            </button>
+            {protonRefreshing && (
+              <button type="button" className="btn-delete" onClick={handleCancelProtonRefresh} style={{ marginLeft: '6px' }}>
+                ✕ Cancel
+              </button>
+            )}
+          </div>
+          {protonRefreshing && protonRefreshStatus && protonRefreshStatus.total > 0 && (
+            <div style={{ marginTop: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '4px', color: 'var(--ctp-subtext0)' }}>
+                <span>{protonRefreshStatus.currentGame || '...'}</span>
+                <span>{protonRefreshStatus.progress}/{protonRefreshStatus.total}</span>
+              </div>
+              <div style={{ width: '100%', height: '8px', backgroundColor: 'var(--ctp-surface0)', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{ width: `${(protonRefreshStatus.progress / protonRefreshStatus.total) * 100}%`, height: '100%', backgroundColor: 'var(--ctp-green)', borderRadius: '4px', transition: 'width 0.3s ease' }} />
+              </div>
+              <div style={{ display: 'flex', gap: '12px', fontSize: '0.8rem', marginTop: '4px', color: 'var(--ctp-subtext1)' }}>
+                <span>✓ {protonRefreshStatus.updated} updated</span>
+                <span>⏭ {protonRefreshStatus.skipped} skipped</span>
+              </div>
+            </div>
+          )}
+          {protonRefreshResult && (
+            <div className={`test-result ${protonRefreshResult.success ? 'success' : 'error'}`}>{protonRefreshResult.message}</div>
+          )}
+        </div>
       </div>
 
       <div className="settings-section">

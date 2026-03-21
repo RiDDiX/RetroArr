@@ -6,6 +6,7 @@ import PlatformIcon from './PlatformIcon';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faStar } from '@fortawesome/free-solid-svg-icons';
 import RegionFlag from './RegionFlag';
+import ProtonDbBadge from './ProtonDbBadge';
 import './GameCard.css';
 
 interface Game {
@@ -31,6 +32,7 @@ interface Game {
   region?: string;
   languages?: string;
   revision?: string;
+  protonDbTier?: string;
 }
 
 interface ReviewData {
@@ -160,7 +162,7 @@ const GameCard: React.FC<GameCardProps> = ({ game, reviewData, onClick, onContex
           </div>
         )}
         <div className="game-card-overlay">
-          {(game.region || game.languages || game.revision) && (
+          {(game.region || game.languages || game.revision || game.protonDbTier) && (
             <div className="game-card-region" style={{ position: 'absolute', bottom: '8px', left: '8px', zIndex: 10, display: 'flex', alignItems: 'center', gap: '4px' }}>
               {(game.region || game.languages) && (
                 <RegionFlag region={game.region} languages={game.languages} size="small" />
@@ -175,6 +177,9 @@ const GameCard: React.FC<GameCardProps> = ({ game, reviewData, onClick, onContex
                   borderRadius: '3px',
                   whiteSpace: 'nowrap'
                 }}>{game.revision}</span>
+              )}
+              {game.protonDbTier && (
+                <ProtonDbBadge tier={game.protonDbTier} size="small" />
               )}
             </div>
           )}

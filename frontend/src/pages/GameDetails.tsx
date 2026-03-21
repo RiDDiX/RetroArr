@@ -11,6 +11,7 @@ import { faSearch, faPen, faDownload, faGamepad, faMagnet, faSpinner, faSort, fa
 import EmulatorPlayer from '../components/EmulatorPlayer';
 import ScoreCircle from '../components/ScoreCircle';
 import RegionFlag from '../components/RegionFlag';
+import ProtonDbBadge from '../components/ProtonDbBadge';
 import './GameDetails.css';
 
 interface Game {
@@ -44,6 +45,7 @@ interface Game {
   region?: string;
   languages?: string;
   revision?: string;
+  protonDbTier?: string;
 }
 
 interface TorrentResult {
@@ -1321,6 +1323,29 @@ const GameDetails: React.FC = () => {
                   }}
                 >
                   <span>🎮</span> Steam ID: {game.steamId}
+                </a>
+              )}
+              {game.steamId && game.protonDbTier && (
+                <a
+                  href={`https://www.protondb.com/app/${game.steamId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    backgroundColor: 'var(--ctp-crust)',
+                    padding: '4px 10px',
+                    borderRadius: '4px',
+                    fontSize: '0.75rem',
+                    color: 'var(--ctp-subtext0)',
+                    textDecoration: 'none',
+                    border: '1px solid var(--ctp-surface2)'
+                  }}
+                  title="View on ProtonDB"
+                >
+                  <ProtonDbBadge tier={game.protonDbTier} size="medium" showLabel />
+                  <span style={{ color: 'var(--ctp-subtext1)', fontSize: '0.7rem' }}>ProtonDB</span>
                 </a>
               )}
               {game.gogId && (

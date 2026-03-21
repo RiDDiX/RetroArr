@@ -358,6 +358,19 @@ namespace RetroArr.Api.V3.Settings
                                     // Enrichment failure is non-fatal; game is still added without metadata
                                 }
 
+                                // Enrich with ProtonDB tier
+                                try
+                                {
+                                    var protonClient = new ProtonDbClient();
+                                    var tier = await protonClient.GetTierAsync(steamGame.AppId);
+                                    if (!string.IsNullOrEmpty(tier))
+                                        newGame.ProtonDbTier = tier;
+                                }
+                                catch (Exception)
+                                {
+                                    // ProtonDB enrichment failure is non-fatal
+                                }
+
                                 await gameRepository.AddAsync(newGame);
                                 _steamSyncAdded++;
                             }

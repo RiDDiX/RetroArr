@@ -71,7 +71,8 @@ namespace RetroArr.Core.Games
                     Region = g.Region,
                     Languages = g.Languages,
                     Revision = g.Revision,
-                    IgdbId = g.IgdbId
+                    IgdbId = g.IgdbId,
+                    ProtonDbTier = g.ProtonDbTier
                 })
                 .ToListAsync();
 
