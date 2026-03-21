@@ -1,3 +1,8 @@
+## v1.0.94 (2026-03-21)
+
+### Changes
+- feat: ProtonDB compatibility ratings for Steam games (3e9678c)
+
 ## v1.0.93 (2026-03-20)
 
 ### Changes
