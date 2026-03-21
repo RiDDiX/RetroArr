@@ -179,7 +179,7 @@ const GameCard: React.FC<GameCardProps> = ({ game, reviewData, onClick, onContex
                 }}>{game.revision}</span>
               )}
               {game.protonDbTier && (
-                <ProtonDbBadge tier={game.protonDbTier} size="small" />
+                <ProtonDbBadge tier={game.protonDbTier} size="medium" showLabel />
               )}
             </div>
           )}

@@ -256,6 +256,7 @@ namespace RetroArr.Api.V3.Games
                 game.Region,
                 game.Languages,
                 game.Revision,
+                game.ProtonDbTier,
                 uninstallerPath,
                 downloadPath = downloadPathHint,
                 canPlay = canPlay // Explicit property name

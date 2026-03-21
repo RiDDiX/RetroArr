@@ -1282,6 +1282,17 @@ const GameDetails: React.FC = () => {
                 label="YOU"
               />
             )}
+            {game.protonDbTier && (
+              <a
+                href={game.steamId ? `https://www.protondb.com/app/${game.steamId}` : '#'}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ textDecoration: 'none' }}
+                title="View on ProtonDB"
+              >
+                <ProtonDbBadge tier={game.protonDbTier} size="large" showLabel />
+              </a>
+            )}
           </div>
 
           {game.availablePlatforms && game.availablePlatforms.length > 0 && (

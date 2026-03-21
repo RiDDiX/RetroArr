@@ -21,8 +21,8 @@ const ProtonDbBadge: React.FC<ProtonDbBadgeProps> = ({ tier, size = 'small', sho
 
   const config = tierConfig[tier.toLowerCase()] || tierConfig.pending;
   
-  const fontSize = size === 'large' ? '13px' : size === 'medium' ? '11px' : '9px';
-  const padding = size === 'large' ? '3px 8px' : size === 'medium' ? '2px 6px' : '1px 5px';
+  const fontSize = size === 'large' ? '14px' : size === 'medium' ? '12px' : '10px';
+  const padding = size === 'large' ? '4px 10px' : size === 'medium' ? '3px 8px' : '2px 6px';
 
   return (
     <span
