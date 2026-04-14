@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { useTranslation } from '../../i18n/translations';
 import { useUI } from '../../context/UIContext';
+import apiClient from '../../api/client';
 import { progressHub, type ConnState } from '../../api/progressHub';
 import appLogo from '../../assets/app_logo.png';
 import './Sidebar.css';
@@ -23,9 +24,9 @@ export function Sidebar() {
 
   useEffect(() => {
     const pull = () => {
-      fetch('/api/v3/downloadclient/counts')
-        .then(r => r.json())
-        .then(d => {
+      apiClient
+        .get<{ active?: number; failed?: number; unmapped?: number }>('/downloadclient/counts')
+        .then(({ data: d }) => {
           const active = d.active || 0;
           const total  = active + (d.failed || 0) + (d.unmapped || 0);
           setActiveBadge(total);

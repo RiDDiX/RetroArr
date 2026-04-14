@@ -118,11 +118,20 @@ namespace RetroArr.Core.Games
             if (existing == null) return null;
 
             context.Entry(existing).CurrentValues.SetValues(game);
-            
-            // Handle lists and owned types separately
             existing.Genres = game.Genres;
-            existing.Images = game.Images;
-            
+
+            // GameImages is OwnsOne (flattened into the Games table). Replacing
+            // the reference makes EF mark the old entity as Deleted + insert a
+            // new one — which blows up because there's no separate table to
+            // delete from. Copy the values into the tracked instance instead.
+            if (game.Images != null)
+            {
+                existing.Images ??= new GameImages();
+                context.Entry(existing.Images).CurrentValues.SetValues(game.Images);
+                existing.Images.Screenshots = game.Images.Screenshots;
+                existing.Images.Artworks = game.Images.Artworks;
+            }
+
             await context.SaveChangesAsync();
             return existing;
         }

@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using RetroArr.Core.Configuration;
 using StackExchange.Redis;
@@ -10,6 +11,15 @@ namespace RetroArr.Core.Cache
     public class RedisCacheService : ICacheService, IDisposable
     {
         private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(Logging.AppLoggerService.General);
+
+        // Game ↔ GameFiles has a back-reference cycle; IgnoreCycles lets the
+        // serializer skip the second visit instead of throwing.
+        private static readonly JsonSerializerOptions _json = new()
+        {
+            ReferenceHandler = ReferenceHandler.IgnoreCycles,
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        };
+
         private readonly ConnectionMultiplexer _redis;
         private readonly IDatabase _db;
         private readonly CacheSettings _settings;
@@ -31,7 +41,7 @@ namespace RetroArr.Core.Cache
             {
                 var value = await _db.StringGetAsync(key);
                 if (value.IsNullOrEmpty) return null;
-                return JsonSerializer.Deserialize<T>((string)value!);
+                return JsonSerializer.Deserialize<T>((string)value!, _json);
             }
             catch (Exception ex)
             {
@@ -44,7 +54,7 @@ namespace RetroArr.Core.Cache
         {
             try
             {
-                var json = JsonSerializer.Serialize(value);
+                var json = JsonSerializer.Serialize(value, _json);
                 await _db.StringSetAsync(key, json, ttl);
             }
             catch (Exception ex)
