@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <IsPackable>false</IsPackable>
+    <!-- Tests follow whatever dotnet runtime is installed on the dev host. Production
+         assemblies stay on net8.0; this override only affects the test runner. -->
+    <TargetFramework>$(DOTNET_TEST_TARGET_FRAMEWORK)</TargetFramework>
+    <TargetFramework Condition="'$(TargetFramework)' == ''">net8.0</TargetFramework>
   </PropertyGroup>
 
   <ItemGroup>

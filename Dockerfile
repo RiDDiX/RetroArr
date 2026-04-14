@@ -88,11 +88,12 @@ RUN --mount=type=cache,target=/root/.nuget/packages \
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
 
-# Install runtime dependencies for Switch USB support (Python + libusb)
+# Install runtime dependencies for Switch USB support (Python + libusb) and healthcheck (curl)
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     libusb-1.0-0 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install pyusb
@@ -112,12 +113,20 @@ COPY CHANGELOG.md /app/CHANGELOG.md
 # Copy EmulatorJS assets (pre-downloaded during build)
 COPY --from=emulatorjs /emulatorjs/data /app/config/emulatorjs
 
-# Create config and media directories
-RUN mkdir -p /app/config /media
+# Create config, media and savestate directories; non-root user
+RUN mkdir -p /app/config /app/savestates /media && \
+    groupadd -g 1000 retroarr && \
+    useradd -u 1000 -g retroarr -s /usr/sbin/nologin -M retroarr && \
+    chown -R retroarr:retroarr /app /media
+
+USER retroarr
 
 # Expose port 2727
 EXPOSE 2727
 ENV ASPNETCORE_URLS=http://+:2727
 ENV DOTNET_RUNNING_IN_CONTAINER=true
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:2727/api/v3/system/status > /dev/null || exit 1
 
 ENTRYPOINT ["dotnet", "RetroArr.Host.dll"]

@@ -30,9 +30,13 @@ namespace RetroArr.Core.Configuration
         private readonly string _databaseConfigFile;
         private readonly string _loggingConfigFile;
         private readonly string _cacheConfigFile;
+        private readonly SecretProtector? _secretProtector;
 
-        public ConfigurationService(string contentRoot)
+        public ConfigurationService(string contentRoot) : this(contentRoot, (SecretProtector?)null) { }
+
+        public ConfigurationService(string contentRoot, SecretProtector? secretProtector)
         {
+            _secretProtector = secretProtector;
             var localConfig = Path.Combine(contentRoot, "config");
             
             if (Directory.Exists(localConfig))
@@ -79,6 +83,78 @@ namespace RetroArr.Core.Configuration
 
         public string GetConfigDirectory() => _configDirectory;
 
+        private string Protect(string? value) => _secretProtector?.Protect(value) ?? value ?? string.Empty;
+        private string Unprotect(string? value) => _secretProtector?.Unprotect(value) ?? value ?? string.Empty;
+
+        private ProwlarrSettings UnprotectProwlarr(ProwlarrSettings s)
+        {
+            s.ApiKey = Unprotect(s.ApiKey);
+            return s;
+        }
+
+        private JackettSettings UnprotectJackett(JackettSettings s)
+        {
+            s.ApiKey = Unprotect(s.ApiKey);
+            return s;
+        }
+
+        private IgdbSettings UnprotectIgdb(IgdbSettings s)
+        {
+            s.ClientSecret = Unprotect(s.ClientSecret);
+            return s;
+        }
+
+        private SteamSettings UnprotectSteam(SteamSettings s)
+        {
+            s.ApiKey = Unprotect(s.ApiKey);
+            return s;
+        }
+
+        private ScreenScraperSettings UnprotectScreenScraper(ScreenScraperSettings s)
+        {
+            s.Password = Unprotect(s.Password);
+            s.DevPassword = Unprotect(s.DevPassword);
+            return s;
+        }
+
+        private GogSettings UnprotectGog(GogSettings s)
+        {
+            s.RefreshToken = Unprotect(s.RefreshToken);
+            s.AccessToken = Unprotect(s.AccessToken);
+            return s;
+        }
+
+        private GogOAuthSettings UnprotectGogOAuth(GogOAuthSettings s)
+        {
+            s.ClientSecret = Unprotect(s.ClientSecret);
+            return s;
+        }
+
+        private void UnprotectDownloadClients(IList<RetroArr.Core.Download.DownloadClient> clients)
+        {
+            foreach (var c in clients)
+            {
+                if (!string.IsNullOrEmpty(c.Password)) c.Password = Unprotect(c.Password);
+                if (!string.IsNullOrEmpty(c.ApiKey)) c.ApiKey = Unprotect(c.ApiKey);
+            }
+        }
+
+        private void WriteEncryptedJson<T>(string path, T obj, Action<T> protectSecrets)
+        {
+            if (_secretProtector != null)
+            {
+                // Clone via round-trip serialization so we don't mutate the caller's instance.
+                var raw = JsonSerializer.Serialize(obj);
+                var clone = JsonSerializer.Deserialize<T>(raw)!;
+                protectSecrets(clone);
+                File.WriteAllText(path, JsonSerializer.Serialize(clone, new JsonSerializerOptions { WriteIndented = true }));
+            }
+            else
+            {
+                File.WriteAllText(path, JsonSerializer.Serialize(obj, new JsonSerializerOptions { WriteIndented = true }));
+            }
+        }
+
         public ProwlarrSettings LoadProwlarrSettings()
         {
             if (File.Exists(_prowlarrConfigFile))
@@ -86,7 +162,8 @@ namespace RetroArr.Core.Configuration
                 try
                 {
                     var json = File.ReadAllText(_prowlarrConfigFile);
-                    return JsonSerializer.Deserialize<ProwlarrSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new ProwlarrSettings { Url = string.Empty };
+                    var loaded = JsonSerializer.Deserialize<ProwlarrSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new ProwlarrSettings { Url = string.Empty };
+                    return UnprotectProwlarr(loaded);
                 }
                 catch (Exception ex) { _logger.Error($"Error loading Prowlarr settings: {ex.Message}"); }
             }
@@ -95,7 +172,7 @@ namespace RetroArr.Core.Configuration
 
         public void SaveProwlarrSettings(ProwlarrSettings settings)
         {
-            try { File.WriteAllText(_prowlarrConfigFile, JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true })); }
+            try { WriteEncryptedJson(_prowlarrConfigFile, settings, s => s.ApiKey = Protect(s.ApiKey)); }
             catch (Exception ex) { _logger.Error($"Error saving Prowlarr settings: {ex.Message}"); }
         }
 
@@ -106,7 +183,8 @@ namespace RetroArr.Core.Configuration
                 try
                 {
                     var json = File.ReadAllText(_jackettConfigFile);
-                    return JsonSerializer.Deserialize<JackettSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new JackettSettings { Url = string.Empty };
+                    var loaded = JsonSerializer.Deserialize<JackettSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new JackettSettings { Url = string.Empty };
+                    return UnprotectJackett(loaded);
                 }
                 catch (Exception ex) { _logger.Error($"Error loading Jackett settings: {ex.Message}"); }
             }
@@ -115,7 +193,7 @@ namespace RetroArr.Core.Configuration
 
         public void SaveJackettSettings(JackettSettings settings)
         {
-            try { File.WriteAllText(_jackettConfigFile, JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true })); }
+            try { WriteEncryptedJson(_jackettConfigFile, settings, s => s.ApiKey = Protect(s.ApiKey)); }
             catch (Exception ex) { _logger.Error($"Error saving Jackett settings: {ex.Message}"); }
         }
 
@@ -126,7 +204,8 @@ namespace RetroArr.Core.Configuration
                 try
                 {
                     var json = File.ReadAllText(_igdbConfigFile);
-                    return JsonSerializer.Deserialize<IgdbSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new IgdbSettings();
+                    var loaded = JsonSerializer.Deserialize<IgdbSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new IgdbSettings();
+                    return UnprotectIgdb(loaded);
                 }
                 catch (Exception ex) { _logger.Error($"Error loading IGDB settings: {ex.Message}"); }
             }
@@ -135,7 +214,7 @@ namespace RetroArr.Core.Configuration
 
         public void SaveIgdbSettings(IgdbSettings settings)
         {
-            try { File.WriteAllText(_igdbConfigFile, JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true })); }
+            try { WriteEncryptedJson(_igdbConfigFile, settings, s => s.ClientSecret = Protect(s.ClientSecret)); }
             catch (Exception ex) { _logger.Error($"Error saving IGDB settings: {ex.Message}"); }
         }
 
@@ -146,7 +225,9 @@ namespace RetroArr.Core.Configuration
                 try
                 {
                     var json = File.ReadAllText(_downloadClientsConfigFile);
-                    return JsonSerializer.Deserialize<List<RetroArr.Core.Download.DownloadClient>>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new List<RetroArr.Core.Download.DownloadClient>();
+                    var loaded = JsonSerializer.Deserialize<List<RetroArr.Core.Download.DownloadClient>>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new List<RetroArr.Core.Download.DownloadClient>();
+                    UnprotectDownloadClients(loaded);
+                    return loaded;
                 }
                 catch (Exception ex) { _logger.Error($"Error loading download clients: {ex.Message}"); }
             }
@@ -155,7 +236,17 @@ namespace RetroArr.Core.Configuration
 
         public void SaveDownloadClients(List<RetroArr.Core.Download.DownloadClient> clients)
         {
-            try { File.WriteAllText(_downloadClientsConfigFile, JsonSerializer.Serialize(clients, new JsonSerializerOptions { WriteIndented = true })); }
+            try
+            {
+                WriteEncryptedJson(_downloadClientsConfigFile, clients, list =>
+                {
+                    foreach (var c in list)
+                    {
+                        if (!string.IsNullOrEmpty(c.Password)) c.Password = Protect(c.Password);
+                        if (!string.IsNullOrEmpty(c.ApiKey)) c.ApiKey = Protect(c.ApiKey);
+                    }
+                });
+            }
             catch (Exception ex) { _logger.Error($"Error saving download clients: {ex.Message}"); }
         }
 
@@ -187,6 +278,7 @@ namespace RetroArr.Core.Configuration
             if (string.IsNullOrWhiteSpace(settings.DownloadPath)) settings.DownloadPath = defaultDownloadPath;
             if (string.IsNullOrWhiteSpace(settings.DestinationPath)) settings.DestinationPath = defaultLibraryPath;
             if (string.IsNullOrWhiteSpace(settings.FolderPath)) settings.FolderPath = defaultGamesPath;
+            if (string.IsNullOrWhiteSpace(settings.BiosPath)) settings.BiosPath = Path.Combine(_configDirectory, "bios");
             
             // Create directories if they don't exist (UX convenience)
             try 
@@ -216,7 +308,8 @@ namespace RetroArr.Core.Configuration
                 try
                 {
                     var json = File.ReadAllText(_steamConfigFile);
-                    return JsonSerializer.Deserialize<SteamSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new SteamSettings();
+                    var loaded = JsonSerializer.Deserialize<SteamSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new SteamSettings();
+                    return UnprotectSteam(loaded);
                 }
                 catch (Exception ex) { _logger.Error($"Error loading Steam settings: {ex.Message}"); }
             }
@@ -225,7 +318,7 @@ namespace RetroArr.Core.Configuration
 
         public void SaveSteamSettings(SteamSettings settings)
         {
-            try { File.WriteAllText(_steamConfigFile, JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true })); }
+            try { WriteEncryptedJson(_steamConfigFile, settings, s => s.ApiKey = Protect(s.ApiKey)); }
             catch (Exception ex) { _logger.Error($"Error saving Steam settings: {ex.Message}"); }
         }
 
@@ -278,6 +371,7 @@ namespace RetroArr.Core.Configuration
                 {
                     var json = File.ReadAllText(_screenScraperConfigFile);
                     settings = JsonSerializer.Deserialize<ScreenScraperSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new ScreenScraperSettings();
+                    UnprotectScreenScraper(settings);
                 }
                 catch (Exception ex)
                 {
@@ -307,7 +401,14 @@ namespace RetroArr.Core.Configuration
 
         public void SaveScreenScraperSettings(ScreenScraperSettings settings)
         {
-            try { File.WriteAllText(_screenScraperConfigFile, JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true })); }
+            try
+            {
+                WriteEncryptedJson(_screenScraperConfigFile, settings, s =>
+                {
+                    s.Password = Protect(s.Password);
+                    s.DevPassword = Protect(s.DevPassword);
+                });
+            }
             catch (Exception ex) { _logger.Error($"Error saving ScreenScraper settings: {ex.Message}"); }
         }
 
@@ -318,7 +419,8 @@ namespace RetroArr.Core.Configuration
                 try
                 {
                     var json = File.ReadAllText(_gogConfigFile);
-                    return JsonSerializer.Deserialize<GogSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new GogSettings();
+                    var loaded = JsonSerializer.Deserialize<GogSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new GogSettings();
+                    return UnprotectGog(loaded);
                 }
                 catch (Exception ex) { _logger.Error($"Error loading GOG settings: {ex.Message}"); }
             }
@@ -327,7 +429,14 @@ namespace RetroArr.Core.Configuration
 
         public void SaveGogSettings(GogSettings settings)
         {
-            try { File.WriteAllText(_gogConfigFile, JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true })); }
+            try
+            {
+                WriteEncryptedJson(_gogConfigFile, settings, s =>
+                {
+                    s.RefreshToken = Protect(s.RefreshToken);
+                    s.AccessToken = Protect(s.AccessToken);
+                });
+            }
             catch (Exception ex) { _logger.Error($"Error saving GOG settings: {ex.Message}"); }
         }
 

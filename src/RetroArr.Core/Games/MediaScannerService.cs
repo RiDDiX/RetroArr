@@ -1814,6 +1814,19 @@ namespace RetroArr.Core.Games
 
         private async Task<bool> MergeMetadataIntoExisting(Game existing, Game freshData, string? platformKey)
         {
+            if (existing.MetadataConfirmedByUser)
+            {
+                Log($"[Scanner] Skip metadata overwrite for '{existing.Title}' (user-confirmed match — backfilling paths only).");
+                if (string.IsNullOrEmpty(existing.Path) && !string.IsNullOrEmpty(freshData.Path))
+                    existing.Path = freshData.Path;
+                if (string.IsNullOrEmpty(existing.ExecutablePath) && !string.IsNullOrEmpty(freshData.ExecutablePath))
+                    existing.ExecutablePath = freshData.ExecutablePath;
+                existing.IsExternal = freshData.IsExternal;
+                await _gameRepository.UpdateAsync(existing.Id, existing);
+                await SyncGameFilesFromDisk(existing.Id, existing.Path);
+                return true;
+            }
+
             existing.Title = freshData.Title;
             existing.Overview = freshData.Overview;
             existing.Year = freshData.Year;

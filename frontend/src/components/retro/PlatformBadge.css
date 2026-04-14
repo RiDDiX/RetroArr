@@ -1,0 +1,30 @@
+.platform-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: var(--r-chip);
+  background: color-mix(in srgb, var(--platform-accent) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--platform-accent) 45%, transparent);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--text-primary);
+}
+
+.platform-badge--md {
+  padding: 5px 10px;
+  font-size: 11px;
+}
+
+.platform-badge__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--platform-accent);
+  box-shadow: 0 0 6px var(--platform-accent);
+  flex: 0 0 auto;
+}
+
+.platform-badge__text {
+  letter-spacing: 0.08em;
+}

@@ -1067,8 +1067,13 @@ const GameDetails: React.FC = () => {
     return isSwitchFile || isSwitchPlatform;
   })();
 
+  const platformClass = (() => {
+    const raw = (game.platform?.slug || game.platform?.name || '').toLowerCase();
+    return raw ? 'plat-' + raw.replace(/[^a-z0-9]+/g, '') : 'plat-default';
+  })();
+
   return (
-    <div className="game-details">
+    <div className={`game-details ${platformClass}`}>
       {/* Hero Banner with Dynamic Background */}
       {(game.images.backgroundUrl || game.images.screenshots?.[0]) && (
         <div className="game-hero-banner">

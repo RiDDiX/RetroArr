@@ -8,12 +8,12 @@ import EmulatorJsSettings from '../components/EmulatorJsSettings';
 import ThemeEditor from '../components/ThemeEditor';
 import DatabaseSettings from '../components/DatabaseSettings';
 import CacheSettings from '../components/CacheSettings';
-import { MediaTab, PlatformsTab, ConnectionsTab, IndexersTab, ImportExportTab, LoggingTab } from '../components/settings';
+import { MediaTab, PlatformsTab, ConnectionsTab, IndexersTab, ImportExportTab, LoggingTab, WebhooksTab, ApiAccessTab } from '../components/settings';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faFolderOpen, faLayerGroup, faPlug, faSearch, faGamepad,
   faPalette, faGlobe, faFileImport, faTerminal, faDatabase,
-  faMemory, faClipboardList
+  faMemory, faClipboardList, faBell, faKey
 } from '@fortawesome/free-solid-svg-icons';
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 
@@ -54,6 +54,8 @@ const Settings: React.FC = () => {
     { id: 'database',     label: t('settingsDatabase') || 'Database',        icon: faDatabase,      group: 'system' },
     { id: 'cache',        label: t('settingsCache') || 'Cache',              icon: faMemory,        group: 'system' },
     { id: 'logging',      label: t('logging') || 'Logging',                  icon: faClipboardList, group: 'system' },
+    { id: 'webhooks',     label: t('webhooks') || 'Webhooks',                icon: faBell,          group: 'system' },
+    { id: 'apiaccess',    label: t('apiAccess') || 'API access',             icon: faKey,           group: 'system' },
     { id: 'debug',        label: 'Debug',                                    icon: faTerminal,      group: 'system' },
   ];
 
@@ -164,6 +166,14 @@ const Settings: React.FC = () => {
 
         {currentTab === 'cache' && (
           <CacheSettings />
+        )}
+
+        {currentTab === 'webhooks' && (
+          <WebhooksTab language={language} t={t} />
+        )}
+
+        {currentTab === 'apiaccess' && (
+          <ApiAccessTab language={language} t={t} />
         )}
       </div>
     </div>

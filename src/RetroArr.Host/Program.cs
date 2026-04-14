@@ -164,9 +164,22 @@ namespace RetroArr.Host
                 }
             }
             
+            // DataProtection-backed secret protector for credentials-at-rest.
+            // Key material is kept in the same config directory so the same user/container owns it.
+            var bootstrapConfig = new ConfigurationService(exePath);
+            var keyDir = Path.Combine(bootstrapConfig.GetConfigDirectory(), "keys");
+            SecretProtector? secretProtector = null;
+            try { secretProtector = new SecretProtector(keyDir); }
+            catch (Exception ex) { Log($"[Startup] Warning: could not initialize SecretProtector — secrets will stay plaintext: {ex.Message}"); }
+
             // Note: ConfigurationService adds "/config" to the path passed to it
-            var configService = new ConfigurationService(exePath);
+            var configService = new ConfigurationService(exePath, secretProtector);
             builder.Services.AddSingleton(configService);
+            if (secretProtector != null) builder.Services.AddSingleton(secretProtector);
+
+            // API key (persisted under configDir/apikey.json; generated on first boot)
+            var apiKeyService = new ApiKeyService(configService);
+            builder.Services.AddSingleton(apiKeyService);
 
             // Initialize Log Path
             _logPath = Path.Combine(configService.GetConfigDirectory(), "RetroArr.log");
@@ -217,6 +230,10 @@ namespace RetroArr.Host
             builder.Services.AddSingleton<RetroArr.Core.Debug.DebugLogService>();
             builder.Services.AddSingleton<TitleCleanerService>();
             builder.Services.AddSingleton<MediaScannerService>();
+
+            // SignalR progress hub + notifier
+            builder.Services.AddSignalR();
+            builder.Services.AddSingleton<RetroArr.SignalR.IProgressNotifier, RetroArr.SignalR.ProgressNotifier>();
             
             // IO Services
             builder.Services.AddSingleton<RetroArr.Core.IO.IFileMoverService, RetroArr.Core.IO.FileMoverService>();
@@ -476,6 +493,9 @@ namespace RetroArr.Host
             app.UseRouting();
             app.UseAuthorization();
 
+            // API key gate for non-loopback requests.
+            app.UseMiddleware<RetroArr.Api.V3.Auth.ApiKeyAuthMiddleware>();
+
             // Correlation ID + structured request logging
             app.UseMiddleware<CorrelationIdMiddleware>();
             app.UseMiddleware<RequestLoggingMiddleware>();
@@ -490,6 +510,26 @@ namespace RetroArr.Host
             });
 
             app.MapControllers();
+            app.MapHub<RetroArr.SignalR.ProgressHub>("/hubs/progress");
+
+            var progressNotifier = app.Services.GetRequiredService<RetroArr.SignalR.IProgressNotifier>();
+            var scannerForHub = app.Services.GetRequiredService<MediaScannerService>();
+
+            void Fire(System.Threading.Tasks.Task task, string label)
+            {
+                task.ContinueWith(
+                    t => Log($"[SignalR] {label} notify failed: {t.Exception?.GetBaseException().Message}"),
+                    System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted
+                    | System.Threading.Tasks.TaskContinuationOptions.ExecuteSynchronously);
+            }
+
+            scannerForHub.OnScanStarted += () => Fire(progressNotifier.ScanStartedAsync(), "scanStarted");
+            scannerForHub.OnScanFinished += gamesAdded =>
+            {
+                Fire(progressNotifier.ScanFinishedAsync(gamesAdded), "scanFinished");
+                Fire(progressNotifier.LibraryUpdatedAsync(), "libraryUpdated");
+            };
+            scannerForHub.OnGameAdded += game => Fire(progressNotifier.LibraryUpdatedAsync(), "libraryUpdated");
 
             // Serve frontend - fallback to index.html for SPA routing
             if (Directory.Exists(uiPath))
@@ -560,22 +600,28 @@ namespace RetroArr.Host
             if (address.Contains("127.0.0.1")) address = address.Replace("127.0.0.1", "localhost");
             if (address.Contains("[::1]")) address = address.Replace("[::1]", "localhost");
 
-            // PRO-CHECK: Wait for the server to actually be ALIVE and serving content
+            // Wait for the server to actually be alive and serving content before
+            // we hand off to Photino / wait-for-shutdown. GetAwaiter().GetResult()
+            // makes the sync-over-async intent explicit (deadlock-free here:
+            // we're on the main console thread, no SynchronizationContext).
             Log($"[Startup] Waiting for backend at {internalAddress}...");
-            try 
+            try
             {
                 using (var client = new System.Net.Http.HttpClient())
                 {
-                    client.Timeout = TimeSpan.FromSeconds(5);
-                    for (int i = 0; i < 30; i++) // Try for up to 3 seconds
+                    client.Timeout = TimeSpan.FromSeconds(1);
+                    for (int i = 0; i < 30; i++)
                     {
-                        try {
-                            var response = client.GetAsync(internalAddress).Result;
-                            if (response.IsSuccessStatusCode) {
+                        try
+                        {
+                            var response = client.GetAsync(internalAddress).GetAwaiter().GetResult();
+                            if (response.IsSuccessStatusCode)
+                            {
                                 Log($"[Startup] Backend is ALIVE on {internalAddress}");
                                 break;
                             }
-                        } catch { }
+                        }
+                        catch { }
                         System.Threading.Thread.Sleep(100);
                     }
                 }

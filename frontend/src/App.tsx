@@ -15,7 +15,11 @@ const Problems = React.lazy(() => import('./pages/Problems'));
 const LibraryResort = React.lazy(() => import('./pages/LibraryResort'));
 const MetadataReview = React.lazy(() => import('./pages/MetadataReview'));
 const ReviewImport = React.lazy(() => import('./pages/ReviewImport'));
-import Navigation from './components/Navigation';
+const SaveStates = React.lazy(() => import('./pages/SaveStates'));
+const Platforms = React.lazy(() => import('./pages/Platforms'));
+const NotFound = React.lazy(() => import('./pages/NotFound'));
+import { AppShell } from './components/layout/AppShell';
+import { BootScreen } from './components/retro';
 import ScannerStatus from './components/ScannerStatus';
 import { UIProvider } from './context/UIContext';
 import { ThemeProvider } from './context/ThemeContext';
@@ -38,17 +42,17 @@ function App() {
     <ThemeProvider>
     <UIProvider>
       <Router>
-        <div className="app">
-          <KofiOverlay />
-          <ScannerStatus />
-          <LanguageSwitcher />
-          <Navigation />
-          <main id="main-content" className="main-content">
-            <Suspense fallback={<div className="page-loading"><div className="loading-spinner" /></div>}>
+        <BootScreen />
+        <KofiOverlay />
+        <ScannerStatus />
+        <LanguageSwitcher />
+        <AppShell>
+          <Suspense fallback={<div className="page-loading"><div className="loading-spinner" /></div>}>
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/library" element={<Library />} />
+              <Route path="/platforms" element={<Platforms />} />
               <Route path="/statistics" element={<Statistics />} />
               <Route path="/status" element={<Status />} />
               <Route path="/problems" element={<Problems />} />
@@ -57,13 +61,14 @@ function App() {
               <Route path="/review-import" element={<ReviewImport />} />
               <Route path="/user" element={<User />} />
               <Route path="/game/:id" element={<GameDetails />} />
+              <Route path="/game/:id/saves" element={<SaveStates />} />
               <Route path="/collections" element={<Collections />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/about" element={<About />} />
+              <Route path="*" element={<NotFound />} />
             </Routes>
-            </Suspense>
-          </main>
-        </div>
+          </Suspense>
+        </AppShell>
       </Router>
     </UIProvider>
     </ThemeProvider>

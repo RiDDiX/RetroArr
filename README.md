@@ -63,18 +63,26 @@ Open `http://your-ip:2727`, then go to **Settings → Metadata** and add your [I
 - Executable discovery for installed PC games (Windows, macOS, Linux)
 - Linux: automatic Proton/Wine detection, per-game runner selection, Lutris export, Steam Deck shortcuts, XDG `.desktop` generation
 - macOS: Whisky / CrossOver delegation
-- Built-in browser-based retro emulator via [EmulatorJS](https://emulatorjs.org/) for supported platforms — play directly from the web UI with save state support (Docker: `/app/savestates`)
+- Built-in browser-based retro emulator via [EmulatorJS](https://emulatorjs.org/) for supported platforms — play directly from the web UI
+- Save states: 8 slots per game, upload/download/delete from the UI, stored under `/app/savestates`
+- BIOS support: drop core BIOS files into a configurable folder (default `/app/config/bios`); whitelisted names served to EmulatorJS on demand
 
 **More**
+- Retro-themed UI: CRT boot screen, platform-accent color tinting (NES red, Game Boy green, PS1 blue, …), keyboard d-pad navigation in the library grid
 - Multi-language UI (EN, DE, ES, FR, RU, ZH, JA)
 - Review import gate for unidentified files
 - Plugin system (process-isolated, language-agnostic, circuit breaker)
-- Webhook notifications for library events
+- Webhook notifications for library events (with UI to add / edit / test)
 - Nintendo Switch USB transfer (DBI protocol)
 - Database: SQLite (default), PostgreSQL, MariaDB with built-in migration
 - Optional Redis cache layer
 - Structured logging with per-feature files, rotation, and diagnostics export
-- Real-time scan/download progress via SignalR
+- Real-time scan / download / connection status via SignalR (LIVE indicator in the sidebar)
+
+**Security**
+- Credentials (IGDB, ScreenScraper, download clients, Steam, Prowlarr / Jackett, GOG) encrypted at rest with ASP.NET Data Protection — transparent plaintext migration on first save
+- API key gate: loopback requests stay unauthenticated; LAN / remote clients must present `X-Api-Key` (key visible + rotatable in Settings → API access)
+- Docker image runs as non-root with `HEALTHCHECK`
 
 See also: [Linux Gaming](docs/LINUX_GAMING.md) · [Plugins](docs/PLUGIN_GUIDE.md) · [Scanner Logic](docs/SCANNING_LOGIC.md) · [Updates & DLC](docs/UPDATES_DLC_GUIDE.md) · [Launcher Specs](docs/LAUNCHER_SPECS.md) · [Installer Logic](docs/INSTALLER_LOGIC.md)
 

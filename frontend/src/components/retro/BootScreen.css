@@ -1,0 +1,84 @@
+.boot {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: var(--bg-sunken);
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+/* CRT gradient rises during the "crt" phase */
+.boot__crt {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in srgb, var(--accent-primary) 8%, transparent) 0%,
+    transparent 55%
+  );
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-power-on);
+}
+.boot--crt .boot__crt,
+.boot--logo .boot__crt {
+  opacity: 1;
+}
+
+/* Logo fades + grows a hair — no big motion. */
+.boot__logo {
+  font-family: var(--font-display);
+  font-size: var(--fs-hero);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  display: flex;
+  gap: 0.5ch;
+  opacity: 0;
+  transform: scale(.92);
+  transition:
+    opacity   var(--duration-normal) var(--ease-power-on),
+    transform var(--duration-normal) var(--ease-power-on);
+}
+.boot--logo .boot__logo {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.boot__mark {
+  color: var(--text-primary);
+}
+.boot__mark--accent {
+  color: var(--accent-primary);
+  text-shadow:
+    0 0 18px var(--accent-primary),
+    0 0 34px color-mix(in srgb, var(--accent-primary) 55%, transparent);
+}
+
+/* Whisper of scanlines only during the logo phase. */
+.boot__scanlines {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent 0,
+    transparent 2px,
+    rgba(255, 255, 255, 0.04) 2px,
+    rgba(255, 255, 255, 0.04) 3px
+  );
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-power-on);
+  mix-blend-mode: overlay;
+  pointer-events: none;
+}
+.boot--logo .boot__scanlines {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boot { display: none; }
+}
+
+/* Tighter hero on narrow screens so the wordmark still fits. */
+@media (max-width: 480px) {
+  .boot__logo { font-size: 2.5rem; }
+}

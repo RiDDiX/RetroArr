@@ -1,17 +1,42 @@
 .game-card {
+  --tilt-x: 0deg;
+  --tilt-y: 0deg;
+  --tilt-lift: 0;
+
   background: var(--surface-1);
   border-radius: var(--radius-lg);
   overflow: hidden;
   cursor: pointer;
-  transition: all var(--transition-normal);
   position: relative;
   border: 1px solid var(--border);
+  transform-style: preserve-3d;
+  transform:
+    perspective(900px)
+    rotateX(var(--tilt-x))
+    rotateY(var(--tilt-y))
+    translateZ(calc(var(--tilt-lift) * 6px));
+  transition:
+    transform    var(--duration-fast, 180ms) var(--ease-cartridge, cubic-bezier(.6, .05, .2, 1.2)),
+    box-shadow   var(--duration-fast, 180ms) var(--ease-cartridge, cubic-bezier(.6, .05, .2, 1.2)),
+    border-color var(--duration-fast, 180ms) var(--ease-menu,      cubic-bezier(.25, .8, .25, 1));
 }
 
-.game-card:hover {
-  transform: translateY(-6px);
-  box-shadow: var(--shadow-lg), 0 4px 20px color-mix(in srgb, var(--accent) 12%, transparent), 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+/* Only promote the card to its own compositor layer while the user is
+   actually interacting with it — otherwise a 200-card grid would eat
+   memory for nothing. */
+.game-card:hover,
+.game-card:focus-within {
+  will-change: transform, box-shadow;
+  box-shadow:
+    0 22px 48px rgba(0, 0, 0, .55),
+    0 0 0 1px var(--platform-accent),
+    0 0 24px color-mix(in srgb, var(--platform-accent) 55%, transparent);
+  border-color: color-mix(in srgb, var(--platform-accent) 40%, transparent);
+}
+
+.game-card:focus-visible {
+  outline: 2px solid var(--platform-accent);
+  outline-offset: 2px;
 }
 
 .game-card:hover .game-card-poster img {

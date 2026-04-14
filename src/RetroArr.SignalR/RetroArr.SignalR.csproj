@@ -5,9 +5,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\RetroArr.Common\RetroArr.Common.csproj" />
+    <ProjectReference Include="..\RetroArr.Core\RetroArr.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Core" Version="1.1.0" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 </Project>
