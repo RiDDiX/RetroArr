@@ -1,0 +1,57 @@
+.app-shell {
+  min-height: 100dvh;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 768px) {
+  .app-shell {
+    grid-template-columns: 240px 1fr;
+  }
+}
+
+.app-shell__main {
+  min-width: 0; /* lets grid children actually shrink */
+  padding: var(--s-5) var(--s-4) calc(var(--s-7) + env(safe-area-inset-bottom));
+}
+
+@media (min-width: 768px) {
+  .app-shell__main {
+    padding: var(--s-6) var(--s-6) var(--s-6);
+  }
+}
+
+/* Page-level root so individual pages can opt into scanline/grain
+   without each one inventing the wrapper. */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+}
+.page-header h1 {
+  font-size: var(--fs-2xl);
+  font-weight: 700;
+  margin: 0;
+}
+.page-header__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+/* View transitions: if the browser supports startViewTransition, these
+   hooks fade the main region across navigations. No fallback needed —
+   browsers without support just skip straight to the new tree. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 320ms;
+}

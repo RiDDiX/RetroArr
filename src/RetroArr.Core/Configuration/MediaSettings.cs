@@ -9,6 +9,7 @@ namespace RetroArr.Core.Configuration
         public string DownloadPath { get; set; } = string.Empty;
         public string DestinationPath { get; set; } = string.Empty;
         public string WinePrefixPath { get; set; } = string.Empty;
+        public string BiosPath { get; set; } = string.Empty;
         public string Platform { get; set; } = "default";
         
         /// <summary>

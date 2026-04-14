@@ -110,7 +110,7 @@ namespace RetroArr.Core.Download
 
         public Task<bool> AddTorrentAsync(string url, string? category = null)
         {
-            return Task.FromResult(false); // Not supported
+            throw new NotSupportedException("NZBGet does not handle torrent downloads. Configure qBittorrent, Transmission or Deluge as a torrent client.");
         }
 
         public async Task<bool> AddNzbAsync(string nzbUrl, string? category = null)

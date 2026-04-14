@@ -3,12 +3,12 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import apiClient, { gamesApi, reviewsApi, mediaApi, MetadataRescanStatus, GameListDto, BulkReviewData, ProtonDbRefreshStatus } from '../api/client';
 import GameCard from '../components/GameCard';
 import ContextMenu from '../components/ContextMenu';
+import { EmptyState } from '../components/retro';
+import { useGridNavigation } from '../hooks/useGridNavigation';
 import { Modal, ConfirmDialog } from '../components/ui';
 import PlatformIcon from '../components/PlatformIcon';
 import { t, getLanguage } from '../i18n/translations';
-import appLogo from '../assets/app_logo.png';
 import './Library.css';
-import { useUI } from '../context/UIContext';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faTrash, faThLarge, faBars, faGlobe, faGamepad, faSync, faSearch, faChevronDown, faChevronRight, faFolderOpen, faDatabase } from '@fortawesome/free-solid-svg-icons';
 
@@ -58,8 +58,9 @@ interface Platform {
 }
 
 const Library: React.FC = () => {
-  const { toggleKofi } = useUI();
   const navigate = useNavigate();
+  const gridRef = useRef<HTMLDivElement>(null);
+  useGridNavigation(gridRef);
   const [searchParams, setSearchParams] = useSearchParams();
   const [platforms, setPlatforms] = useState<Platform[]>([]);
   const [selectedPlatform, setSelectedPlatform] = useState(searchParams.get('platform') || '');
@@ -923,40 +924,41 @@ const Library: React.FC = () => {
 
       {
         pagedGames.length === 0 ? (
-          <div className="empty-library">
-            <div className="empty-icon" onClick={toggleKofi} style={{ cursor: 'pointer' }}>
-              <img src={appLogo} alt="RetroArr" className="empty-lib-logo" />
-            </div>
-            {selectedPlatformData ? (
-              <>
-                <h3>{t('noGamesForPlatform') || 'No games found for this platform'}</h3>
-                <p>{t('scanPlatformHint') || 'Use "Scan Platform" above to scan for games in this folder.'}</p>
-                <button
-                  className="platform-action-btn scan-btn"
-                  style={{ marginTop: '1rem' }}
-                  onClick={() => handlePlatformScan(selectedPlatformData.slug)}
-                  disabled={platformScanning}
-                >
-                  <FontAwesomeIcon icon={faFolderOpen} spin={platformScanning} />
-                  {platformScanning ? (t('scanning') || 'Scanning...') : (t('scanPlatform') || 'Scan Platform')}
-                </button>
-              </>
-            ) : (
-              <>
-                <h3>
-                  {searchQuery
-                    ? t('noGamesFound')
-                    : (!isIgdbConfigured ? t('configureIgdbToStart') : t('noGamesInLibrary'))
-                  }
-                </h3>
-                <p>
-                  {searchQuery ? '' : (isIgdbConfigured ? t('useSearchBar') : '')}
-                </p>
-              </>
-            )}
-          </div>
+          selectedPlatformData ? (
+            <EmptyState
+              sprite="unplugged"
+              title={t('noGamesForPlatform') || 'No games found for this platform'}
+              body={t('scanPlatformHint') || 'Run a platform scan to pick up ROMs from that folder.'}
+              primary={{
+                label: platformScanning
+                  ? (t('scanning') || 'Scanning…')
+                  : (t('scanPlatform') || 'Scan Platform'),
+                onClick: () => handlePlatformScan(selectedPlatformData.slug),
+              }}
+            />
+          ) : searchQuery ? (
+            <EmptyState
+              sprite="gameover"
+              title={t('noGamesFound') || 'Game Over — no matches'}
+              body={t('tryDifferentSearch') || 'Try a different search term.'}
+            />
+          ) : !isIgdbConfigured ? (
+            <EmptyState
+              sprite="disc"
+              title={t('configureIgdbToStart') || 'Configure IGDB to start'}
+              body={t('igdbSetupHint') || 'Add your IGDB client ID and secret in Settings → Connections.'}
+              primary={{ label: t('openSettings') || 'Open Settings', href: '/settings#connections' }}
+            />
+          ) : (
+            <EmptyState
+              sprite="cartridge"
+              title={t('noGamesInLibrary') || 'No cartridges yet'}
+              body={t('useSearchBar') || 'Add a library folder in Settings and run a scan to populate the shelf.'}
+              primary={{ label: t('openSettings') || 'Open Settings', href: '/settings#media' }}
+            />
+          )
         ) : viewMode === 'grid' ? (
-          <div className="game-grid">
+          <div className="game-grid" ref={gridRef} role="grid" aria-label={t('library') || 'Library'}>
             {pagedGames.map((dto: GameListDto) => {
               const game = dtoToCardGame(dto);
               return (

@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 
 namespace RetroArr.Api.V3.IO
 {
@@ -9,18 +11,31 @@ namespace RetroArr.Api.V3.IO
     [Route("api/v3/[controller]")]
     public class FilesystemController : ControllerBase
     {
+        private static readonly string[] _unixBlockedPrefixes = new[]
+        {
+            "/proc", "/sys", "/dev", "/run", "/boot",
+            "/etc/ssh", "/etc/shadow", "/etc/sudoers",
+            "/root", "/var/log", "/var/lib/docker"
+        };
+
+        private static readonly string[] _windowsBlockedPrefixes = new[]
+        {
+            @"C:\Windows\System32\config",
+            @"C:\Windows\System32\LogFiles",
+            @"C:\Windows\Temp"
+        };
+
         [HttpGet]
         public ActionResult<List<FilesystemItem>> List([FromQuery] string? path = null)
         {
             var currentPath = string.IsNullOrEmpty(path) ? "/" : path;
-            
-            // On Windows, handle root listing if path is "/" or empty
-            if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
                 if (currentPath == "/")
                 {
-                    return Ok(DriveInfo.GetDrives().Select(d => new FilesystemItem 
-                    { 
+                    return Ok(DriveInfo.GetDrives().Select(d => new FilesystemItem
+                    {
                         Name = d.Name,
                         Path = d.Name,
                         Type = "drive"
@@ -29,73 +44,103 @@ namespace RetroArr.Api.V3.IO
             }
             else
             {
-                 // Mac/Linux root
-                 if (currentPath == "") currentPath = "/";
+                if (currentPath == "") currentPath = "/";
             }
 
-            if (!Directory.Exists(currentPath))
+            string normalized;
+            try
             {
-                 return NotFound("Path not found");
+                normalized = Path.GetFullPath(currentPath);
+            }
+            catch (Exception)
+            {
+                return BadRequest("Invalid path.");
+            }
+
+            if (IsBlockedPath(normalized))
+            {
+                return Forbid();
+            }
+
+            if (!Directory.Exists(normalized))
+            {
+                return NotFound("Path not found");
             }
 
             try
             {
                 var response = new List<FilesystemItem>();
-                
-                // Add parent directory option
-                var parent = Directory.GetParent(currentPath);
+
+                var parent = Directory.GetParent(normalized);
                 if (parent != null)
                 {
-                    response.Add(new FilesystemItem 
-                    { 
-                        Name = "..", 
-                        Path = parent.FullName, 
-                        Type = "directory" 
+                    response.Add(new FilesystemItem
+                    {
+                        Name = "..",
+                        Path = parent.FullName,
+                        Type = "directory"
                     });
                 }
 
-                var dirs = Directory.GetDirectories(currentPath);
-                foreach (var dir in dirs)
+                foreach (var dir in Directory.GetDirectories(normalized))
                 {
-                    response.Add(new FilesystemItem 
-                    { 
-                        Name = Path.GetFileName(dir), 
-                        Path = dir, 
-                        Type = "directory" 
+                    if (IsBlockedPath(dir)) continue;
+                    response.Add(new FilesystemItem
+                    {
+                        Name = Path.GetFileName(dir),
+                        Path = dir,
+                        Type = "directory"
                     });
                 }
 
-                // We are primarily looking for Installers (folders) or Executables/ISOs
-                var files = Directory.GetFiles(currentPath);
-                var relevantExtensions = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase) 
-                { 
-                    ".exe", ".iso", ".bin", ".dmg", ".pkg", ".sh", ".bat", ".cmd" 
+                var relevantExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ".exe", ".iso", ".bin", ".dmg", ".pkg", ".sh", ".bat", ".cmd"
                 };
 
-                foreach (var file in files)
+                foreach (var file in Directory.GetFiles(normalized))
                 {
-                     var ext = Path.GetExtension(file);
-                     if (relevantExtensions.Contains(ext))
-                     {
+                    var ext = Path.GetExtension(file);
+                    if (relevantExtensions.Contains(ext))
+                    {
                         response.Add(new FilesystemItem
                         {
                             Name = Path.GetFileName(file),
                             Path = file,
                             Type = "file"
                         });
-                     }
+                    }
                 }
-                
+
                 return Ok(response.OrderByDescending(x => x.Type == "directory").ThenBy(x => x.Name));
             }
-            catch (System.UnauthorizedAccessException)
+            catch (UnauthorizedAccessException)
             {
                 return Forbid();
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 return StatusCode(500, ex.Message);
             }
+        }
+
+        private static bool IsBlockedPath(string fullPath)
+        {
+            if (string.IsNullOrEmpty(fullPath)) return true;
+
+            var prefixes = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                ? _windowsBlockedPrefixes
+                : _unixBlockedPrefixes;
+            var comparison = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+
+            foreach (var prefix in prefixes)
+            {
+                if (fullPath.Equals(prefix, comparison)) return true;
+                if (fullPath.StartsWith(prefix + Path.DirectorySeparatorChar, comparison)) return true;
+            }
+            return false;
         }
     }
 
@@ -103,6 +148,6 @@ namespace RetroArr.Api.V3.IO
     {
         public string Name { get; set; } = string.Empty;
         public string Path { get; set; } = string.Empty;
-        public string Type { get; set; } = "file"; // drive, directory, file
+        public string Type { get; set; } = "file";
     }
 }

@@ -440,6 +440,9 @@ namespace RetroArr.Core.Games
 
             PersistPlan(plan);
 
+            var bulkSettings = _configService.LoadMediaSettings();
+            var bulkLibraryRoot = ResolveLibraryRoot(bulkSettings);
+
             foreach (var op in plan.Operations)
             {
                 if (ct.IsCancellationRequested)
@@ -456,7 +459,7 @@ namespace RetroArr.Core.Games
 
                 try
                 {
-                    await ExecuteOperation(op);
+                    await ExecuteOperation(op, bulkLibraryRoot);
                 }
                 catch (Exception ex)
                 {
@@ -509,8 +512,41 @@ namespace RetroArr.Core.Games
 
         // ── PRIVATE: Execution ──────────────────────────────────────────
 
-        private async Task ExecuteOperation(StructureOperation op)
+        private async Task ExecuteOperation(StructureOperation op, string? cachedLibraryRoot = null)
         {
+            if (op.Type == OperationType.MoveGameFolder
+                || op.Type == OperationType.RenameGameFolder
+                || op.Type == OperationType.MoveFile
+                || op.Type == OperationType.MoveFileSet)
+            {
+                var libraryRoot = cachedLibraryRoot;
+                if (string.IsNullOrEmpty(libraryRoot))
+                {
+                    var settings = _configService.LoadMediaSettings();
+                    libraryRoot = ResolveLibraryRoot(settings);
+                }
+                if (string.IsNullOrEmpty(libraryRoot))
+                {
+                    op.Status = OperationStatus.Failed;
+                    op.ErrorMessage = "Library root is not configured.";
+                    return;
+                }
+                if (!IsPathWithinRoot(op.SourcePath, libraryRoot) || !IsPathWithinRoot(op.TargetPath, libraryRoot))
+                {
+                    op.Status = OperationStatus.Failed;
+                    op.ErrorMessage = "Refused: operation would leave the library root.";
+                    _logger.Warn($"[Resort] Refused {op.Type}: {op.SourcePath} -> {op.TargetPath} (escape from {libraryRoot})");
+                    return;
+                }
+                if (IsSymlink(op.SourcePath))
+                {
+                    op.Status = OperationStatus.Failed;
+                    op.ErrorMessage = "Refused: source is a symlink or reparse point.";
+                    _logger.Warn($"[Resort] Refused {op.Type} on symlinked source: {op.SourcePath}");
+                    return;
+                }
+            }
+
             // Idempotency: if source is gone and target exists, it's already done
             bool sourceExists = Directory.Exists(op.SourcePath) || File.Exists(op.SourcePath);
             bool targetExists = Directory.Exists(op.TargetPath) || File.Exists(op.TargetPath);
@@ -702,15 +738,61 @@ namespace RetroArr.Core.Games
 
         private static string ExtractPlatformFolder(string gamePath, string libraryRoot)
         {
-            var normalizedLib = NormalizePath(libraryRoot) + Path.DirectorySeparatorChar;
-            var normalizedGame = NormalizePath(gamePath);
-
-            if (!normalizedGame.StartsWith(normalizedLib, PathComparison))
+            if (string.IsNullOrEmpty(gamePath) || string.IsNullOrEmpty(libraryRoot))
                 return string.Empty;
 
-            var relative = normalizedGame.Substring(normalizedLib.Length);
+            string fullLib, fullGame;
+            try
+            {
+                fullLib = Path.GetFullPath(libraryRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                fullGame = Path.GetFullPath(gamePath);
+            }
+            catch
+            {
+                return string.Empty;
+            }
+
+            if (!fullGame.StartsWith(fullLib, PathComparison))
+                return string.Empty;
+
+            var relative = fullGame.Substring(fullLib.Length);
             var sepIndex = relative.IndexOf(Path.DirectorySeparatorChar);
             return sepIndex >= 0 ? relative.Substring(0, sepIndex) : relative;
+        }
+
+        private static bool IsPathWithinRoot(string candidate, string root)
+        {
+            if (string.IsNullOrEmpty(candidate) || string.IsNullOrEmpty(root))
+                return false;
+            try
+            {
+                var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                var fullPath = Path.GetFullPath(candidate);
+                return fullPath.StartsWith(fullRoot, PathComparison) || fullPath.Equals(fullRoot.TrimEnd(Path.DirectorySeparatorChar), PathComparison);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsSymlink(string path)
+        {
+            try
+            {
+                if (Directory.Exists(path))
+                {
+                    var di = new DirectoryInfo(path);
+                    return (di.Attributes & FileAttributes.ReparsePoint) == FileAttributes.ReparsePoint;
+                }
+                if (File.Exists(path))
+                {
+                    var fi = new FileInfo(path);
+                    return (fi.Attributes & FileAttributes.ReparsePoint) == FileAttributes.ReparsePoint;
+                }
+            }
+            catch { }
+            return false;
         }
 
         private static IEnumerable<string> GetAllFolderNames(Platform platform)

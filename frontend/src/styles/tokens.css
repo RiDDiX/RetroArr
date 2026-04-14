@@ -1,0 +1,146 @@
+/* Design tokens for the retro redesign. Sits ON TOP of the existing
+   Catppuccin theme — reuses the runtime theme variables (--accent,
+   --text-primary, --background, …) so ThemeEditor keeps working.
+   New tokens added here are used by the new retro components; older
+   components continue to consume the old names until they're migrated. */
+
+:root {
+  /* Background layers — alias onto the existing --background set */
+  --bg-primary:   var(--background);
+  --bg-secondary: var(--surface-1);
+  --bg-elevated:  var(--surface-2);
+  --bg-sunken:    var(--surface-0);
+
+  /* Accent aliases so new code can say --accent-primary while
+     ThemeContext still drives --accent. */
+  --accent-primary: var(--accent);
+  --accent-success: var(--success);
+  --accent-warning: var(--warning);
+  --accent-danger:  var(--error);
+  --accent-info:    var(--info);
+
+  /* Platform accent — overridden by .plat-<slug> wrappers.
+     Fallback = whatever the user's theme accent currently is. */
+  --platform-accent: var(--accent);
+
+  /* Retro FX knobs */
+  --glow-color:        color-mix(in srgb, var(--platform-accent) 55%, transparent);
+  --scanline-opacity:  0.045;
+  --scanline-color:    rgba(255, 255, 255, var(--scanline-opacity));
+  --crt-curve:         8px;
+  --noise-opacity:     0.025;
+  --vignette-strength: 0.55;
+
+  /* Motion */
+  --duration-instant: 90ms;
+  --duration-fast:    180ms;
+  --duration-normal:  320ms;
+  --duration-slow:    620ms;
+
+  --ease-power-on:  cubic-bezier(.2, .9, .3, 1);
+  --ease-cartridge: cubic-bezier(.6, .05, .2, 1.2);
+  --ease-menu:      cubic-bezier(.25, .8, .25, 1);
+  --ease-press:     cubic-bezier(.65, 0, .35, 1);
+
+  /* 4px spacing grid */
+  --s-1:  4px;
+  --s-2:  8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 64px;
+
+  /* Radii — new scale, coexists with legacy --radius-* */
+  --r-sharp: 2px;
+  --r-card:  10px;
+  --r-panel: 14px;
+  --r-chip:  999px;
+
+  /* Shadows tuned for the new card depth */
+  --shadow-flat:     0 1px 0 rgba(0, 0, 0, .4);
+  --shadow-card:     0 8px 28px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .03);
+  --shadow-lift:     0 22px 48px rgba(0, 0, 0, .55), 0 0 0 1px var(--platform-accent);
+  --shadow-glow-sm:  0 0 14px var(--glow-color);
+  --shadow-glow:     0 0 24px var(--glow-color);
+  --shadow-recessed: inset 0 1px 2px rgba(0, 0, 0, .6), inset 0 -1px 0 rgba(255, 255, 255, .02);
+
+  /* Fonts */
+  --font-display: 'Oxanium', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-body:    'Lexend', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-pixel:   'Silkscreen', 'Courier New', monospace;
+
+  /* Type scale */
+  --fs-xs:   0.75rem;
+  --fs-sm:   0.875rem;
+  --fs-md:   1rem;
+  --fs-lg:   1.25rem;
+  --fs-xl:   1.75rem;
+  --fs-2xl:  2.5rem;
+  --fs-hero: 4rem;
+}
+
+/* Respect OS reduced-motion preference — zero out everything. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-instant: 0ms;
+    --duration-fast:    0ms;
+    --duration-normal:  0ms;
+    --duration-slow:    0ms;
+  }
+}
+
+/* Per-platform accents. Only slugs that have a meaningful hardware color
+   are listed; everything else falls through to --accent-primary. */
+.plat-nes       { --platform-accent: #e60012; }
+.plat-snes      { --platform-accent: #6b4fa4; }
+.plat-n64       { --platform-accent: #1f7a3a; }
+.plat-gcn       { --platform-accent: #6a3db8; }
+.plat-wii       { --platform-accent: #4aa3ff; }
+.plat-wiiu      { --platform-accent: #00a0e9; }
+.plat-switch    { --platform-accent: #e4000f; }
+.plat-switch2   { --platform-accent: #00c3e3; }
+.plat-gameboy   { --platform-accent: #9bbc0f; }
+.plat-gbc       { --platform-accent: #d88a29; }
+.plat-gba       { --platform-accent: #4b0082; }
+.plat-nds       { --platform-accent: #c6001f; }
+.plat-3ds       { --platform-accent: #2a67b1; }
+.plat-ps1       { --platform-accent: #003791; }
+.plat-ps2       { --platform-accent: #0070d1; }
+.plat-ps3       { --platform-accent: #6a6a6a; }
+.plat-ps4       { --platform-accent: #003087; }
+.plat-ps5       { --platform-accent: #0071ce; }
+.plat-psp       { --platform-accent: #60b4ff; }
+.plat-vita      { --platform-accent: #4cd8ff; }
+.plat-xbox      { --platform-accent: #107c10; }
+.plat-xbox360   { --platform-accent: #84bd00; }
+.plat-xboxone   { --platform-accent: #107c10; }
+.plat-xboxseries{ --platform-accent: #0e7a0d; }
+.plat-genesis   { --platform-accent: #cf2e2e; }
+.plat-megadrive { --platform-accent: #cf2e2e; }
+.plat-segacd    { --platform-accent: #d94141; }
+.plat-saturn    { --platform-accent: #b3b3b3; }
+.plat-dreamcast { --platform-accent: #ff6900; }
+.plat-gamegear  { --platform-accent: #0071bc; }
+.plat-mastersystem { --platform-accent: #4b4b4b; }
+.plat-atari2600 { --platform-accent: #c1272d; }
+.plat-atari5200 { --platform-accent: #c1272d; }
+.plat-atari7800 { --platform-accent: #c1272d; }
+.plat-jaguar    { --platform-accent: #f26522; }
+.plat-lynx      { --platform-accent: #6e4a1f; }
+.plat-neogeo    { --platform-accent: #ffd100; }
+.plat-pcengine  { --platform-accent: #fff; }
+.plat-turbografx16 { --platform-accent: #fff; }
+.plat-steam     { --platform-accent: #66c0f4; }
+.plat-gog       { --platform-accent: #a068fd; }
+.plat-arcade    { --platform-accent: #ffae00; }
+.plat-mame      { --platform-accent: #ffae00; }
+.plat-dos       { --platform-accent: #6dbb6d; }
+.plat-dosbox    { --platform-accent: #6dbb6d; }
+.plat-scummvm   { --platform-accent: #f9a825; }
+.plat-amiga     { --platform-accent: #df4242; }
+.plat-c64       { --platform-accent: #7a68d8; }
+.plat-zxspectrum{ --platform-accent: #ff1a1a; }
+.plat-msx      { --platform-accent: #1a69c8; }

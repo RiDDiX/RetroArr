@@ -17,9 +17,11 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
   const [useDestinationPattern, setUseDestinationPattern] = useState(true);
   const [folderNamingMode, setFolderNamingMode] = useState('native');
   const [winePrefixPath, setWinePrefixPath] = useState('');
+  const [biosPath, setBiosPath] = useState('');
+  const [biosFiles, setBiosFiles] = useState<{ filename: string; present: boolean }[]>([]);
   const [scanning, setScanning] = useState(false);
   const [showFolderExplorer, setShowFolderExplorer] = useState(false);
-  const [activeFolderField, setActiveFolderField] = useState<'media' | 'download' | 'destination' | 'wine'>('media');
+  const [activeFolderField, setActiveFolderField] = useState<'media' | 'download' | 'destination' | 'wine' | 'bios'>('media');
 
   const [postDownloadSettings, setPostDownloadSettings] = useState({
     enableAutoMove: true,
@@ -79,13 +81,22 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
       setUseDestinationPattern(mediaRes.data.useDestinationPattern !== false);
       setFolderNamingMode(mediaRes.data.folderNamingMode || 'native');
       setWinePrefixPath(mediaRes.data.winePrefixPath || '');
+      setBiosPath(mediaRes.data.biosPath || '');
       setPostDownloadSettings(postDownloadRes.data);
+
+      try {
+        const biosRes = await apiClient.get('/emulator/bios');
+        setBiosFiles(biosRes.data?.files ?? []);
+        if (!mediaRes.data.biosPath && biosRes.data?.biosDirectory) {
+          setBiosPath(biosRes.data.biosDirectory);
+        }
+      } catch { /* non-fatal */ }
     } catch (error) {
       console.error('Error loading media settings:', error);
     }
   };
 
-  const saveMediaConfig = async (overrides?: { folderPath?: string; downloadPath?: string; destinationPath?: string; destinationPathPattern?: string; useDestinationPattern?: boolean; folderNamingMode?: string; winePrefixPath?: string }) => {
+  const saveMediaConfig = async (overrides?: { folderPath?: string; downloadPath?: string; destinationPath?: string; destinationPathPattern?: string; useDestinationPattern?: boolean; folderNamingMode?: string; winePrefixPath?: string; biosPath?: string }) => {
     try {
       await apiClient.post('/media', {
         FolderPath: overrides?.folderPath ?? folderPath,
@@ -95,6 +106,7 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
         UseDestinationPattern: overrides?.useDestinationPattern ?? useDestinationPattern,
         FolderNamingMode: overrides?.folderNamingMode ?? folderNamingMode,
         WinePrefixPath: overrides?.winePrefixPath ?? winePrefixPath,
+        BiosPath: overrides?.biosPath ?? biosPath,
         Platform: 'default'
       });
     } catch (error: unknown) {
@@ -265,6 +277,39 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
 
           <div className="form-group" style={{ marginTop: '20px', borderTop: '1px solid #444', paddingTop: '15px' }}>
             <div className="section-header-with-logo">
+              <h4>{t('biosTitle') || 'BIOS files'}</h4>
+            </div>
+            <p className="settings-description-sm" style={{ fontSize: '0.85em', color: 'var(--ctp-subtext0)' }}>
+              {t('biosPathDesc') || 'Drop core-specific BIOS files (e.g. scph1001.bin for PS1, saturn_bios.bin) into this folder. RetroArr serves them to EmulatorJS when a game requires them.'}
+            </p>
+            <label htmlFor="bios-path">{t('biosPath') || 'BIOS folder'}</label>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <input
+                id="bios-path"
+                type="text"
+                value={biosPath}
+                onChange={(e) => setBiosPath(e.target.value)}
+                onBlur={() => saveMediaConfig({ biosPath })}
+                placeholder="/app/config/bios"
+                style={{ flex: 1 }}
+              />
+              <button type="button" className="btn-secondary" onClick={() => { setActiveFolderField('bios'); setShowFolderExplorer(true); }} title={t('selectFolder')}>
+                <FontAwesomeIcon icon={faFolderOpen} />
+              </button>
+            </div>
+            {biosFiles.length > 0 && (
+              <ul style={{ marginTop: '10px', fontSize: '0.85em', columns: 2 }}>
+                {biosFiles.map((f) => (
+                  <li key={f.filename} style={{ color: f.present ? 'var(--success, #4ade80)' : 'var(--muted, #888)' }}>
+                    {f.present ? '✓' : '○'} {f.filename}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="form-group" style={{ marginTop: '20px', borderTop: '1px solid #444', paddingTop: '15px' }}>
+            <div className="section-header-with-logo">
               <h4>{t('wineIntegration')}</h4>
             </div>
             <p className="settings-description-sm" style={{ fontSize: '0.85em', color: 'var(--ctp-subtext0)' }}>{t('winePrefixPathDesc')}</p>
@@ -326,12 +371,14 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
             activeFolderField === 'media' ? folderPath :
             activeFolderField === 'download' ? downloadPath :
             activeFolderField === 'destination' ? destinationPath :
+            activeFolderField === 'bios' ? biosPath :
             winePrefixPath
           }
           onSelect={(path) => {
             if (activeFolderField === 'media') { setFolderPath(path); saveMediaConfig({ folderPath: path }); }
             else if (activeFolderField === 'download') { setDownloadPath(path); saveMediaConfig({ downloadPath: path }); }
             else if (activeFolderField === 'destination') { setDestinationPath(path); saveMediaConfig({ destinationPath: path }); }
+            else if (activeFolderField === 'bios') { setBiosPath(path); saveMediaConfig({ biosPath: path }); }
             else if (activeFolderField === 'wine') { setWinePrefixPath(path); saveMediaConfig({ winePrefixPath: path }); }
             setShowFolderExplorer(false);
           }}

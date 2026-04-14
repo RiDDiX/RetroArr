@@ -1,0 +1,34 @@
+.not-found {
+  min-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-6);
+  position: relative;
+}
+
+.not-found__marquee {
+  font-size: clamp(3rem, 12vw, 6rem);
+  letter-spacing: 0.15em;
+  color: color-mix(in srgb, var(--accent-danger) 75%, transparent);
+  text-shadow:
+    0 0 16px var(--accent-danger),
+    0 0 38px color-mix(in srgb, var(--accent-danger) 45%, transparent);
+  opacity: 0.9;
+  animation: not-found-flicker 2.8s ease-in-out infinite;
+  user-select: none;
+}
+
+@keyframes not-found-flicker {
+  0%, 100% { opacity: .92; }
+  47%      { opacity: .92; }
+  48%      { opacity: .4;  }
+  49%      { opacity: .92; }
+  50%      { opacity: .35; }
+  51%      { opacity: .92; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .not-found__marquee { animation: none; }
+}

@@ -62,19 +62,17 @@ namespace RetroArr.Core.Prowlarr
 
         public async Task<List<SearchResult>> SearchAsync(string query, int[]? indexerIds = null, int[]? categories = null)
         {
-            // NOTE: We intentionally DON'T filter by categories in the API call
-            // Many indexers don't properly tag game categories, causing empty results
-            // Instead, we search all and let the frontend filter by keywords/extensions
-            // Categories are kept for potential future use but not applied to query
-            
             _logger.Info($"[Prowlarr] SearchAsync called with query='{query}', categories={string.Join(",", categories ?? Array.Empty<int>())}");
-            _logger.Info($"[Prowlarr] NOTE: Category filtering disabled - searching all categories for better results");
 
-            var indexerQuery = indexerIds != null && indexerIds.Length > 0 
-                ? "&" + string.Join("&", indexerIds.Select(id => $"indexerIds={id}")) 
+            var indexerQuery = indexerIds != null && indexerIds.Length > 0
+                ? "&" + string.Join("&", indexerIds.Select(id => $"indexerIds={id}"))
                 : "";
-                
-            var fullUrl = $"/api/v1/search?query={Uri.EscapeDataString(query)}&limit=100&offset=0{indexerQuery}";
+
+            var categoryQuery = categories != null && categories.Length > 0
+                ? "&" + string.Join("&", categories.Select(id => $"categories={id}"))
+                : "";
+
+            var fullUrl = $"/api/v1/search?query={Uri.EscapeDataString(query)}&limit=100&offset=0{indexerQuery}{categoryQuery}";
             
             _logger.Info($"[Prowlarr] Search URL: {fullUrl}");
             
