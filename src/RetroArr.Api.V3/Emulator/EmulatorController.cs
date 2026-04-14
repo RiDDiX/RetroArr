@@ -6,8 +6,10 @@ using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using RetroArr.Core.Configuration;
 using RetroArr.Core.Data;
 using RetroArr.Core.Games;
 
@@ -72,9 +74,83 @@ namespace RetroArr.Api.V3.Emulator
             { 90, "pce" },      // PC Engine / TurboGrafx-16 (PlatformDefinitions.Id=90)
         };
 
-        public EmulatorController(RetroArrDbContext context)
+        private readonly ConfigurationService _configService;
+
+        // Whitelist of BIOS filenames that can be served. Anything else is rejected.
+        private static readonly HashSet<string> KnownBiosFiles = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "scph5500.bin", "scph5501.bin", "scph5502.bin", "scph7001.bin", "scph1001.bin", "ps1_rom.bin",
+            "bios_CD_U.bin", "bios_CD_E.bin", "bios_CD_J.bin",
+            "gba_bios.bin", "gb_bios.bin", "gbc_bios.bin", "sgb_bios.bin",
+            "saturn_bios.bin", "mpr-17933.bin", "mpr-18811-mx1.bin", "mpr-19367-mx1.bin",
+            "3do_bios.bin", "PSP_bios.bin", "disksys.rom", "lynxboot.img",
+            "neogeo.zip", "pcfx.rom", "pce-cd-bios.bin"
+        };
+
+        public EmulatorController(RetroArrDbContext context, ConfigurationService configService)
         {
             _context = context;
+            _configService = configService;
+        }
+
+        [HttpGet("bios")]
+        public ActionResult ListBios()
+        {
+            var mediaSettings = _configService.LoadMediaSettings();
+            var biosDir = string.IsNullOrWhiteSpace(mediaSettings.BiosPath)
+                ? Path.Combine(_configService.GetConfigDirectory(), "bios")
+                : mediaSettings.BiosPath;
+
+            try { Directory.CreateDirectory(biosDir); } catch { }
+
+            var items = KnownBiosFiles
+                .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+                .Select(filename => new
+                {
+                    filename,
+                    present = System.IO.File.Exists(Path.Combine(biosDir, filename))
+                })
+                .ToList();
+
+            return Ok(new { biosDirectory = biosDir, files = items });
+        }
+
+        [HttpGet("bios/{filename}")]
+        public ActionResult GetBios(string filename)
+        {
+            if (string.IsNullOrWhiteSpace(filename) || !KnownBiosFiles.Contains(filename))
+            {
+                return NotFound(new { message = "Unknown BIOS filename." });
+            }
+
+            var mediaSettings = _configService.LoadMediaSettings();
+            var biosDir = string.IsNullOrWhiteSpace(mediaSettings.BiosPath)
+                ? Path.Combine(_configService.GetConfigDirectory(), "bios")
+                : mediaSettings.BiosPath;
+
+            string biosDirFull, candidate;
+            try
+            {
+                biosDirFull = Path.GetFullPath(biosDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                candidate = Path.GetFullPath(Path.Combine(biosDirFull, filename));
+            }
+            catch
+            {
+                return BadRequest(new { message = "Invalid BIOS path configuration." });
+            }
+
+            if (!candidate.StartsWith(biosDirFull, StringComparison.Ordinal))
+            {
+                return BadRequest(new { message = "Path traversal rejected." });
+            }
+
+            if (!System.IO.File.Exists(candidate))
+            {
+                return NotFound(new { message = "BIOS file not present in configured folder.", biosDirectory = biosDir });
+            }
+
+            var stream = new FileStream(candidate, FileMode.Open, FileAccess.Read, FileShare.Read);
+            return File(stream, "application/octet-stream", filename);
         }
 
         /// <summary>
@@ -301,17 +377,137 @@ namespace RetroArr.Api.V3.Emulator
             {
                 Directory.CreateDirectory(SaveStatesPath);
                 var savePath = Path.Combine(SaveStatesPath, $"{gameId}.sav");
-                
+
                 using var memoryStream = new MemoryStream();
                 await Request.Body.CopyToAsync(memoryStream);
                 await System.IO.File.WriteAllBytesAsync(savePath, memoryStream.ToArray());
-                
+
                 return Ok(new { message = "Save stored", path = savePath });
             }
             catch (Exception ex)
             {
                 return StatusCode(500, new { error = $"Failed to save: {ex.Message}" });
             }
+        }
+
+        // ── Multi-slot save state management ───────────────────────────────
+
+        private static bool IsValidSlot(int slot) => slot >= 0 && slot <= 32;
+
+        private bool TryGetSlotPath(int gameId, int slot, out string fullPath)
+        {
+            fullPath = string.Empty;
+            if (gameId <= 0 || !IsValidSlot(slot)) return false;
+
+            string rootFull;
+            try
+            {
+                Directory.CreateDirectory(SaveStatesPath);
+                rootFull = Path.GetFullPath(SaveStatesPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                fullPath = Path.GetFullPath(Path.Combine(rootFull, $"{gameId}_slot{slot}.state"));
+            }
+            catch
+            {
+                return false;
+            }
+            return fullPath.StartsWith(rootFull, StringComparison.Ordinal);
+        }
+
+        [HttpGet("{gameId}/states")]
+        public ActionResult ListSaveStates(int gameId)
+        {
+            if (gameId <= 0) return BadRequest(new { error = "Invalid game id." });
+
+            try { Directory.CreateDirectory(SaveStatesPath); } catch { }
+
+            var entries = new List<object>();
+            if (Directory.Exists(SaveStatesPath))
+            {
+                var pattern = $"{gameId}_slot*.state";
+                foreach (var file in Directory.EnumerateFiles(SaveStatesPath, pattern))
+                {
+                    var name = Path.GetFileNameWithoutExtension(file);
+                    var slotToken = name.Substring(name.IndexOf("_slot", StringComparison.Ordinal) + 5);
+                    if (!int.TryParse(slotToken, out var slot)) continue;
+
+                    var info = new FileInfo(file);
+                    entries.Add(new
+                    {
+                        slot,
+                        size = info.Length,
+                        modified = info.LastWriteTimeUtc
+                    });
+                }
+            }
+
+            return Ok(entries.OrderBy(e => ((dynamic)e).slot));
+        }
+
+        [HttpGet("{gameId}/states/{slot:int}")]
+        public ActionResult GetSaveStateSlot(int gameId, int slot)
+        {
+            if (!TryGetSlotPath(gameId, slot, out var savePath))
+                return BadRequest(new { error = "Invalid slot or path." });
+            if (!System.IO.File.Exists(savePath))
+                return NotFound(new { error = "Slot is empty." });
+
+            var stream = new FileStream(savePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            return File(stream, "application/octet-stream", Path.GetFileName(savePath));
+        }
+
+        // Save states from modern cores (PS2, Dreamcast) can push past Kestrel's
+        // 30 MB default. 128 MB covers everything realistic without opening
+        // the endpoint to abuse.
+        private const long SaveStateMaxBytes = 128L * 1024 * 1024;
+
+        [HttpPost("{gameId}/states/{slot:int}")]
+        [RequestSizeLimit(SaveStateMaxBytes)]
+        public async Task<ActionResult> PutSaveStateSlot(int gameId, int slot)
+        {
+            if (!TryGetSlotPath(gameId, slot, out var savePath))
+                return BadRequest(new { error = "Invalid slot or path." });
+
+            if (Request.ContentLength is long cl && cl > SaveStateMaxBytes)
+            {
+                return StatusCode(StatusCodes.Status413PayloadTooLarge, new
+                {
+                    error = $"Save state exceeds {SaveStateMaxBytes / (1024 * 1024)} MB limit.",
+                    maxBytes = SaveStateMaxBytes,
+                });
+            }
+
+            try
+            {
+                Directory.CreateDirectory(SaveStatesPath);
+                using var memoryStream = new MemoryStream();
+                await Request.Body.CopyToAsync(memoryStream);
+                await System.IO.File.WriteAllBytesAsync(savePath, memoryStream.ToArray());
+                return Ok(new { slot, size = memoryStream.Length });
+            }
+            catch (BadHttpRequestException ex) when (ex.StatusCode == StatusCodes.Status413PayloadTooLarge)
+            {
+                return StatusCode(StatusCodes.Status413PayloadTooLarge, new
+                {
+                    error = $"Save state exceeds {SaveStateMaxBytes / (1024 * 1024)} MB limit.",
+                    maxBytes = SaveStateMaxBytes,
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { error = $"Failed to save slot: {ex.Message}" });
+            }
+        }
+
+        [HttpDelete("{gameId}/states/{slot:int}")]
+        public ActionResult DeleteSaveStateSlot(int gameId, int slot)
+        {
+            if (!TryGetSlotPath(gameId, slot, out var savePath))
+                return BadRequest(new { error = "Invalid slot or path." });
+            if (!System.IO.File.Exists(savePath))
+                return NotFound(new { error = "Slot is empty." });
+
+            try { System.IO.File.Delete(savePath); return NoContent(); }
+            catch (Exception ex) { return StatusCode(500, new { error = ex.Message }); }
         }
 
         private bool IsGamePlayable(Game game)

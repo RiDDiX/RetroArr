@@ -1,38 +1,135 @@
+## v1.0.94 (2026-03-21)
+
+### Changes
+- feat: ProtonDB compatibility ratings for Steam games (3e9678c)
+
+## v1.0.93 (2026-03-20)
+
+### Changes
+- fix: resume Steam sync progress on ConnectionsTab remount (e791beb)
+
+## v1.0.92 (2026-03-20)
+
+### Changes
+- fix: Steam sync timeout for large libraries (7477e9e)
+- perf: server-side pagination, bulk reviews, response compression, PlatformId index (d0734b7)
+- chore: bump version to v1.0.91 [skip ci] (2027cfc)
+
 ## v1.0.91 (2026-03-20)
 
 ### Changes
-- README: add PlayStation serial number detection to features list (2fa5f49)
-- Fix platform icons: replace IGDB-based ID map with RetroArr internal IDs (5314352)
-- chore: bump version to v1.0.70 [skip ci] (f347632)
+
 
 ## v1.0.90 (2026-03-20)
 
 ### Changes
-- Fix platform icons: replace IGDB-based ID map with RetroArr internal IDs (5314352)
+
+
+## v1.0.89 (2026-03-20)
+
+### Changes
+- security: mask credentials in API responses, extend log redaction (2bfa355)
 - README: add PlayStation serial number detection to features list (2fa5f49)
+- Fix platform icons: replace IGDB-based ID map with RetroArr internal IDs (5314352)
+
+## v1.0.88 (2026-03-20)
+
+### Changes
 - Fix PSX serial prefix not stripped from game titles (3058a54)
+
+## v1.0.87 (2026-03-20)
+
+### Changes
 - Fix invisible scraper modal: replace raw divs with Modal component (942ba04)
+
+## v1.0.86 (2026-03-20)
+
+### Changes
 - Fix dead rescan buttons: remove disabled guard, let backend be authority (11077ed)
+
+## v1.0.85 (2026-03-20)
+
+### Changes
 - Fix lint: replace catch(err: any) with catch(err: unknown) (a2f8a16)
 - Fix rescan buttons: add cancel endpoint, visible error feedback, stuck detection (2f78d8c)
+
+## v1.0.84 (2026-03-20)
+
+### Changes
 - Fix metadata rescan replacement, persistent progress, library performance (6f468cf)
+
+## v1.0.83 (2026-03-20)
+
+### Changes
 - Add per-platform metadata source selection (IGDB/ScreenScraper) (239ddcd)
+
+## v1.0.82 (2026-03-20)
+
+### Changes
 - Fix platform rules: PS Vita, PS3, PS4, PSP, PSX, Switch extensions + RetroBat aliases (100f814)
+
+## v1.0.81 (2026-03-20)
+
+### Changes
 - Fix GOG patch downloads missing extensions + scanner creating duplicates (c8d254f)
+
+## v1.0.80 (2026-03-19)
+
+### Changes
 - Fix GOG downloads missing file extensions (198c250)
+
+## v1.0.79 (2026-03-19)
+
+### Changes
 - Render game description as HTML instead of raw text (823167f)
 - Show GOG downloads in Downloads page with progress tracking (9e1e82c)
+
+## v1.0.78 (2026-03-19)
+
+### Changes
 - Fix GOG download: use embed.gog.com API + redirect handling + token refresh (b5bb7df)
+
+## v1.0.77 (2026-03-19)
+
+### Changes
 - Fix GOG downloads parser: handle nested language-wrapped format (ba60aae)
+
+## v1.0.76 (2026-03-19)
+
+### Changes
 - Fix UNIQUE constraint crash in MetadataReview ConfirmMatch (7fb4a90)
+
+## v1.0.75 (2026-03-19)
+
+### Changes
 - Fix scan regression: library root /media blocked + platform detection never used (e0a7957)
+
+## v1.0.74 (2026-03-19)
+
+### Changes
 - Fix scanner randomly stopping + missing platforms with loose files (bcad635)
+
+## v1.0.73 (2026-03-19)
+
+### Changes
 - Auto-export metadata images/videos to platform folders (RetroBat/Batocera/ES convention) (9eb543e)
 - Add local media support: images + videos from RetroBat/Batocera folder convention (e017162)
 - Fix ScreenScraper returning only cover: fetch full details via jeuInfos after search (795f623)
+
+## v1.0.72 (2026-03-19)
+
+### Changes
 - Add scraper choice dialog for metadata rescan + dual-source candidates in metadata review (21a04d6)
+
+## v1.0.71 (2026-03-19)
+
+### Changes
 - Fix ScreenScraper metadata not applied when selecting search results in Edit Game modal (773ac71)
+- chore: bump version to v1.0.70 [skip ci] (d78b4c7)
 - Add diagnostic logging to ScreenScraper search + lookup controller (6be3016)
+- Fix ScreenScraper API: correct base URL, pass dev credentials to test endpoint, add error logging (a760128)
+- chore: bump version to v1.0.69 [skip ci] (e8aa7ad)
+- Initial commit (bec24f8)
 
 ## v1.0.70 (2026-03-19)
 

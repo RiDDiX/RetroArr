@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import apiClient, { getErrorMessage } from '../../api/client';
+import React, { useState, useEffect, useRef } from 'react';
+import apiClient, { getErrorMessage, SteamSyncStatus, ProtonDbRefreshStatus } from '../../api/client';
 import igdbLogo from '../../assets/igdb_logo.png';
 import steamLogo from '../../assets/steam_logo.png';
 
@@ -12,14 +12,24 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
   // Steam
   const [steamApiKey, setSteamApiKey] = useState('');
   const [steamId, setSteamId] = useState('');
+  const [steamConfigured, setSteamConfigured] = useState(false);
   const [steamTesting, setSteamTesting] = useState(false);
   const [steamTestResult, setSteamTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [steamSyncing, setSteamSyncing] = useState(false);
   const [steamSyncResult, setSteamSyncResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [steamSyncStatus, setSteamSyncStatus] = useState<SteamSyncStatus | null>(null);
+  const steamSyncPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ProtonDB
+  const [protonRefreshing, setProtonRefreshing] = useState(false);
+  const [protonRefreshStatus, setProtonRefreshStatus] = useState<ProtonDbRefreshStatus | null>(null);
+  const [protonRefreshResult, setProtonRefreshResult] = useState<{ success: boolean; message: string } | null>(null);
+  const protonPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // IGDB
   const [igdbClientId, setIgdbClientId] = useState('');
   const [igdbClientSecret, setIgdbClientSecret] = useState('');
+  const [igdbConfigured, setIgdbConfigured] = useState(false);
 
   // GOG
   const [gogAuthCode, setGogAuthCode] = useState('');
@@ -33,6 +43,7 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
   const [screenScraperUsername, setScreenScraperUsername] = useState('');
   const [screenScraperPassword, setScreenScraperPassword] = useState('');
   const [screenScraperEnabled, setScreenScraperEnabled] = useState(true);
+  const [screenScraperConfigured, setScreenScraperConfigured] = useState(false);
   const [screenScraperTesting, setScreenScraperTesting] = useState(false);
   const [screenScraperTestResult, setScreenScraperTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -46,10 +57,10 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
         apiClient.get('/settings/igdb'),
         apiClient.get('/settings/steam'),
       ]);
-      setIgdbClientId(igdbRes.data.clientId);
-      setIgdbClientSecret(igdbRes.data.clientSecret);
-      setSteamApiKey(steamRes.data.apiKey);
-      setSteamId(steamRes.data.steamId);
+      setIgdbClientId(igdbRes.data.clientId || '');
+      setIgdbConfigured(igdbRes.data.isConfigured === true);
+      setSteamId(steamRes.data.steamId || '');
+      setSteamConfigured(steamRes.data.isConfigured === true);
 
       try {
         const gogRes = await apiClient.get('/gog/settings');
@@ -60,8 +71,8 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
       try {
         const ssRes = await apiClient.get('/settings/screenscraper');
         setScreenScraperUsername(ssRes.data.username || '');
-        setScreenScraperPassword(ssRes.data.password || '');
         setScreenScraperEnabled(ssRes.data.enabled !== false);
+        setScreenScraperConfigured(ssRes.data.isConfigured === true);
       } catch { /* ScreenScraper not available */ }
     } catch (error) {
       console.error('Error loading connection settings:', error);
@@ -92,18 +103,128 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
     }
   };
 
+  const stopSteamSyncPolling = () => {
+    if (steamSyncPollRef.current) {
+      clearInterval(steamSyncPollRef.current);
+      steamSyncPollRef.current = null;
+    }
+  };
+
+  const startSteamSyncPolling = () => {
+    stopSteamSyncPolling();
+    steamSyncPollRef.current = setInterval(async () => {
+      try {
+        const res = await apiClient.get<SteamSyncStatus>('/settings/steam/sync/status');
+        const status = res.data;
+        setSteamSyncStatus(status);
+        if (!status.isSyncing) {
+          stopSteamSyncPolling();
+          setSteamSyncing(false);
+          const msg = status.error
+            ? `✗ Error: ${status.error}`
+            : `✓ Sync complete — ${status.added} added, ${status.linked} linked, ${status.skipped} skipped${status.failed > 0 ? `, ${status.failed} failed` : ''}`;
+          setSteamSyncResult({ success: !status.error, message: msg });
+        }
+      } catch {
+        stopSteamSyncPolling();
+        setSteamSyncing(false);
+      }
+    }, 1500);
+  };
+
   const handleSyncSteam = async () => {
     setSteamSyncing(true);
     setSteamSyncResult(null);
+    setSteamSyncStatus(null);
     try {
-      const response = await apiClient.post('/settings/steam/sync');
-      setSteamSyncResult({ success: response.data.success, message: response.data.message });
+      await apiClient.post('/settings/steam/sync');
+      startSteamSyncPolling();
     } catch (error: unknown) {
       setSteamSyncResult({ success: false, message: `✗ ${t('error')}: ${getErrorMessage(error)}` });
-    } finally {
       setSteamSyncing(false);
     }
   };
+
+  const handleCancelSteamSync = async () => {
+    try {
+      await apiClient.post('/settings/steam/sync/cancel');
+    } catch { /* ignore */ }
+  };
+
+  // ProtonDB refresh handlers
+  const stopProtonPolling = () => {
+    if (protonPollRef.current) {
+      clearInterval(protonPollRef.current);
+      protonPollRef.current = null;
+    }
+  };
+
+  const startProtonPolling = () => {
+    stopProtonPolling();
+    protonPollRef.current = setInterval(async () => {
+      try {
+        const res = await apiClient.get<ProtonDbRefreshStatus>('/protondb/refresh/status');
+        const status = res.data;
+        setProtonRefreshStatus(status);
+        if (!status.isRefreshing) {
+          stopProtonPolling();
+          setProtonRefreshing(false);
+          const msg = status.error
+            ? `✗ Error: ${status.error}`
+            : `✓ ProtonDB refresh complete — ${status.updated} updated, ${status.skipped} skipped`;
+          setProtonRefreshResult({ success: !status.error, message: msg });
+        }
+      } catch {
+        stopProtonPolling();
+        setProtonRefreshing(false);
+      }
+    }, 1500);
+  };
+
+  const handleRefreshProtonDb = async () => {
+    setProtonRefreshing(true);
+    setProtonRefreshResult(null);
+    setProtonRefreshStatus(null);
+    try {
+      await apiClient.post('/protondb/refresh');
+      startProtonPolling();
+    } catch (error: unknown) {
+      setProtonRefreshResult({ success: false, message: `✗ ${t('error')}: ${getErrorMessage(error)}` });
+      setProtonRefreshing(false);
+    }
+  };
+
+  const handleCancelProtonRefresh = async () => {
+    try {
+      await apiClient.post('/protondb/refresh/cancel');
+    } catch { /* ignore */ }
+  };
+
+  useEffect(() => {
+    // Resume polling if a sync/refresh is already running (e.g. navigated away and back)
+    apiClient.get<SteamSyncStatus>('/settings/steam/sync/status').then(res => {
+      const status = res.data;
+      if (status.isSyncing) {
+        setSteamSyncing(true);
+        setSteamSyncStatus(status);
+        startSteamSyncPolling();
+      }
+    }).catch(() => { /* ignore */ });
+
+    apiClient.get<ProtonDbRefreshStatus>('/protondb/refresh/status').then(res => {
+      const status = res.data;
+      if (status.isRefreshing) {
+        setProtonRefreshing(true);
+        setProtonRefreshStatus(status);
+        startProtonPolling();
+      }
+    }).catch(() => { /* ignore */ });
+
+    return () => {
+      stopSteamSyncPolling();
+      stopProtonPolling();
+    };
+  }, []);
 
   const handleDisconnectSteam = async () => {
     if (!window.confirm(t('disconnectConfirm'))) return;
@@ -111,6 +232,7 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
       await apiClient.delete('/settings/steam');
       setSteamApiKey('');
       setSteamId('');
+      setSteamConfigured(false);
       alert(t('steamSettingsSaved'));
     } catch (error: unknown) {
       alert(`${t('error')}: ${getErrorMessage(error)}`);
@@ -134,6 +256,7 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
       await apiClient.delete('/settings/igdb');
       setIgdbClientId('');
       setIgdbClientSecret('');
+      setIgdbConfigured(false);
       alert(t('igdbSettingsSaved'));
     } catch (error: unknown) {
       alert(`${t('error')}: ${getErrorMessage(error)}`);
@@ -226,6 +349,7 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
       setScreenScraperUsername('');
       setScreenScraperPassword('');
       setScreenScraperEnabled(false);
+      setScreenScraperConfigured(false);
     } catch (error: unknown) {
       console.error('Error disconnecting ScreenScraper:', error);
     }
@@ -241,7 +365,7 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
         <form onSubmit={handleSaveSteam}>
           <div className="form-group">
             <label htmlFor="steam-api-key">{t('steamApiKey')}</label>
-            <input type="password" id="steam-api-key" placeholder={t('steamApiKey')} value={steamApiKey} onChange={(e) => setSteamApiKey(e.target.value)} />
+            <input type="password" id="steam-api-key" placeholder={steamConfigured ? '••••••••' : t('steamApiKey')} value={steamApiKey} onChange={(e) => setSteamApiKey(e.target.value)} />
             <small>{t('steamApiKeyHelp')} <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noopener noreferrer">{t('steamDevPage')}</a></small>
           </div>
           <div className="form-group">
@@ -249,14 +373,19 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
             <input type="text" id="steam-id" placeholder={t('steamId')} value={steamId} onChange={(e) => setSteamId(e.target.value)} />
           </div>
           <div className="button-group">
-            <button type="button" className="btn-secondary" onClick={handleTestSteam} disabled={steamTesting || !steamApiKey || !steamId}>
+            <button type="button" className="btn-secondary" onClick={handleTestSteam} disabled={steamTesting || (!steamApiKey && !steamConfigured) || !steamId}>
               {steamTesting ? t('testing') : t('testConnection')}
             </button>
-            <button type="button" className="btn-secondary" onClick={handleSyncSteam} disabled={steamSyncing || !steamApiKey || !steamId}>
+            <button type="button" className="btn-secondary" onClick={handleSyncSteam} disabled={steamSyncing || (!steamApiKey && !steamConfigured) || !steamId}>
               {steamSyncing ? t('syncing') : t('syncLibrary')}
             </button>
+            {steamSyncing && (
+              <button type="button" className="btn-delete" onClick={handleCancelSteamSync} style={{ marginLeft: '6px' }}>
+                ✕ Cancel
+              </button>
+            )}
             <button type="submit" className="btn-primary">{t('saveSteam')}</button>
-            {steamApiKey && (
+            {(steamApiKey || steamConfigured) && (
               <button type="button" className="btn-delete" onClick={handleDisconnectSteam} style={{ marginLeft: '10px' }}>
                 {t('disconnect')}
               </button>
@@ -265,10 +394,66 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
           {steamTestResult && (
             <div className={`test-result ${steamTestResult.success ? 'success' : 'error'}`}>{steamTestResult.message}</div>
           )}
+          {steamSyncing && steamSyncStatus && steamSyncStatus.total > 0 && (
+            <div style={{ marginTop: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '4px', color: 'var(--ctp-subtext0)' }}>
+                <span>{steamSyncStatus.currentGame || '...'}</span>
+                <span>{steamSyncStatus.progress}/{steamSyncStatus.total}</span>
+              </div>
+              <div style={{ width: '100%', height: '8px', backgroundColor: 'var(--ctp-surface0)', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{ width: `${(steamSyncStatus.progress / steamSyncStatus.total) * 100}%`, height: '100%', backgroundColor: 'var(--ctp-blue)', borderRadius: '4px', transition: 'width 0.3s ease' }} />
+              </div>
+              <div style={{ display: 'flex', gap: '12px', fontSize: '0.8rem', marginTop: '4px', color: 'var(--ctp-subtext1)' }}>
+                <span>✓ {steamSyncStatus.added} added</span>
+                <span>🔗 {steamSyncStatus.linked} linked</span>
+                <span>⏭ {steamSyncStatus.skipped} skipped</span>
+                {steamSyncStatus.failed > 0 && <span style={{ color: 'var(--ctp-red)' }}>✗ {steamSyncStatus.failed} failed</span>}
+              </div>
+            </div>
+          )}
           {steamSyncResult && (
             <div className={`test-result ${steamSyncResult.success ? 'success' : 'error'}`}>{steamSyncResult.message}</div>
           )}
         </form>
+
+        {/* ProtonDB Refresh Section */}
+        <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--ctp-surface1)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+            <span style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--ctp-text)' }}>ProtonDB</span>
+            <span style={{ fontSize: '0.8rem', color: 'var(--ctp-subtext0)' }}>Linux / Steam Deck Compatibility</span>
+          </div>
+          <p style={{ fontSize: '0.85rem', color: 'var(--ctp-subtext1)', marginBottom: '10px' }}>
+            Fetch ProtonDB compatibility ratings for all Steam games in your library. Shows Platinum, Gold, Silver, Bronze, or Borked status.
+          </p>
+          <div className="button-group">
+            <button type="button" className="btn-secondary" onClick={handleRefreshProtonDb} disabled={protonRefreshing || !steamConfigured}>
+              {protonRefreshing ? 'Refreshing...' : 'Refresh ProtonDB Ratings'}
+            </button>
+            {protonRefreshing && (
+              <button type="button" className="btn-delete" onClick={handleCancelProtonRefresh} style={{ marginLeft: '6px' }}>
+                ✕ Cancel
+              </button>
+            )}
+          </div>
+          {protonRefreshing && protonRefreshStatus && protonRefreshStatus.total > 0 && (
+            <div style={{ marginTop: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '4px', color: 'var(--ctp-subtext0)' }}>
+                <span>{protonRefreshStatus.currentGame || '...'}</span>
+                <span>{protonRefreshStatus.progress}/{protonRefreshStatus.total}</span>
+              </div>
+              <div style={{ width: '100%', height: '8px', backgroundColor: 'var(--ctp-surface0)', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{ width: `${(protonRefreshStatus.progress / protonRefreshStatus.total) * 100}%`, height: '100%', backgroundColor: 'var(--ctp-green)', borderRadius: '4px', transition: 'width 0.3s ease' }} />
+              </div>
+              <div style={{ display: 'flex', gap: '12px', fontSize: '0.8rem', marginTop: '4px', color: 'var(--ctp-subtext1)' }}>
+                <span>✓ {protonRefreshStatus.updated} updated</span>
+                <span>⏭ {protonRefreshStatus.skipped} skipped</span>
+              </div>
+            </div>
+          )}
+          {protonRefreshResult && (
+            <div className={`test-result ${protonRefreshResult.success ? 'success' : 'error'}`}>{protonRefreshResult.message}</div>
+          )}
+        </div>
       </div>
 
       <div className="settings-section">
@@ -284,11 +469,11 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
           </div>
           <div className="form-group">
             <label htmlFor="igdb-client-secret">{t('igdbClientSecret')}</label>
-            <input type="password" id="igdb-client-secret" placeholder={t('igdbClientSecret')} value={igdbClientSecret} onChange={(e) => setIgdbClientSecret(e.target.value)} />
+            <input type="password" id="igdb-client-secret" placeholder={igdbConfigured ? '••••••••' : t('igdbClientSecret')} value={igdbClientSecret} onChange={(e) => setIgdbClientSecret(e.target.value)} />
           </div>
           <div className="button-group">
             <button type="submit" className="btn-primary">{t('saveMetadata')}</button>
-            {igdbClientId && (
+            {(igdbClientId || igdbConfigured) && (
               <button type="button" className="btn-delete" onClick={handleDisconnectIgdb} style={{ marginLeft: '10px' }}>
                 {t('disconnect')}
               </button>
@@ -392,7 +577,7 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
           </div>
           <div className="form-group">
             <label htmlFor="screenscraper-password">{t('password') || 'Password'}</label>
-            <input type="password" id="screenscraper-password" placeholder={t('password') || 'Password'} value={screenScraperPassword} onChange={(e) => setScreenScraperPassword(e.target.value)} />
+            <input type="password" id="screenscraper-password" placeholder={screenScraperConfigured ? '••••••••' : (t('password') || 'Password')} value={screenScraperPassword} onChange={(e) => setScreenScraperPassword(e.target.value)} />
           </div>
           <div className="form-group">
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -401,11 +586,11 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
             </label>
           </div>
           <div className="button-group">
-            <button type="button" className="btn-secondary" onClick={handleTestScreenScraper} disabled={screenScraperTesting || !screenScraperUsername || !screenScraperPassword}>
+            <button type="button" className="btn-secondary" onClick={handleTestScreenScraper} disabled={screenScraperTesting || !screenScraperUsername || (!screenScraperPassword && !screenScraperConfigured)}>
               {screenScraperTesting ? t('testing') : t('testConnection')}
             </button>
             <button type="submit" className="btn-primary">{t('save')}</button>
-            {screenScraperUsername && (
+            {(screenScraperUsername || screenScraperConfigured) && (
               <button type="button" className="btn-delete" onClick={handleDisconnectScreenScraper} style={{ marginLeft: '10px' }}>
                 {t('disconnect')}
               </button>

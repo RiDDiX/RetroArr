@@ -448,7 +448,7 @@ namespace RetroArr.Core.Download
 
         public Task<bool> AddNzbAsync(string url, string? category = null)
         {
-            return Task.FromResult(false); 
+            throw new NotSupportedException("Deluge does not handle NZB downloads. Configure SABnzbd or NZBGet as a Usenet client.");
         }
 
         public async Task<bool> RemoveDownloadAsync(string id)

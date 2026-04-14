@@ -70,6 +70,9 @@ namespace RetroArr.Core.Games
         
         // Linux runner preference (wine, proton, native). Null = auto-detect.
         public string? PreferredRunner { get; set; }
+        
+        // ProtonDB compatibility tier (platinum, gold, silver, bronze, borked, native, pending)
+        public string? ProtonDbTier { get; set; }
 
         [System.ComponentModel.DataAnnotations.Schema.NotMapped]
         public bool IsOwned { get; set; }

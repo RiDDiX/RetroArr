@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { mediaApi, ScanStatus } from '../api/client';
+import { progressHub } from '../api/progressHub';
 import { useTranslation, t } from '../i18n/translations';
 import './ScannerStatus.css';
 
@@ -46,13 +47,33 @@ const ScannerStatus: React.FC = () => {
     };
 
     useEffect(() => {
-        // Adaptive polling: 3s when scanning, 15s when idle
-        const pollMs = status.isScanning ? 3000 : 15000;
-        const interval = setInterval(fetchStatus, pollMs);
-        fetchStatus(); // Initial fetch
+        // Prefer push updates via SignalR; keep a slow poll (30s) as a safety net
+        // for transient disconnects.
+        const interval = setInterval(fetchStatus, 30000);
+        fetchStatus();
 
-        return () => clearInterval(interval);
-    }, [status.isScanning]);
+        const offStarted = progressHub.on('scanStarted', () => {
+            prevIsScanning.current = true;
+            setShowFinished(false);
+            fetchStatus();
+        });
+        const offFinished = progressHub.on('scanFinished', () => {
+            setShowFinished(true);
+            setTimeout(() => setShowFinished(false), 10000);
+            fetchStatus();
+        });
+        const offLibrary = progressHub.on('libraryUpdated', () => {
+            window.dispatchEvent(new Event('LIBRARY_UPDATED_EVENT'));
+            fetchStatus();
+        });
+
+        return () => {
+            clearInterval(interval);
+            offStarted();
+            offFinished();
+            offLibrary();
+        };
+    }, []);
 
     const handleBannerClick = async () => {
         if (showFinished) {

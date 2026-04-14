@@ -1,9 +1,14 @@
 using System.Collections.Generic;
+using System.Linq;
 
 namespace RetroArr.Core.Games
 {
     public static class PlatformDefinitions
     {
+        private static Dictionary<int, Platform>? _platformDict;
+        public static Dictionary<int, Platform> PlatformDictionary =>
+            _platformDict ??= AllPlatforms.ToDictionary(p => p.Id);
+
         public static readonly List<Platform> AllPlatforms = new()
         {
             // ========== PC / Computer ==========

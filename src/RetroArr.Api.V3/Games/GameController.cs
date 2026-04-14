@@ -48,13 +48,13 @@ namespace RetroArr.Api.V3.Games
             {
                 var games = await _repository.GetAllLightAsync();
                 
-                // Populate Platform from PlatformDefinitions for each game
+                var platformLookup = PlatformDefinitions.PlatformDictionary;
                 foreach (var game in games)
                 {
                     if (game.PlatformId > 0 && game.Platform == null)
                     {
-                        game.Platform = PlatformDefinitions.AllPlatforms
-                            .FirstOrDefault(p => p.Id == game.PlatformId);
+                        if (platformLookup.TryGetValue(game.PlatformId, out var plat))
+                            game.Platform = plat;
                     }
                 }
                 
@@ -66,6 +66,22 @@ namespace RetroArr.Api.V3.Games
                 _logger.Error($"[API] Error in GetAll: {ex.Message} - {ex.StackTrace}");
                 throw;
             }
+        }
+
+        [HttpGet("paged")]
+        public async Task<ActionResult<PagedResult<GameListDto>>> GetPaged(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 50,
+            [FromQuery] int? platformId = null,
+            [FromQuery] string? search = null,
+            [FromQuery] string sortOrder = "asc")
+        {
+            if (page < 1) page = 1;
+            if (pageSize < 1) pageSize = 50;
+            if (pageSize > 1000) pageSize = 1000;
+
+            var result = await _repository.GetAllPagedAsync(page, pageSize, platformId, search, sortOrder);
+            return Ok(result);
         }
 
         [HttpGet("problems")]
@@ -240,6 +256,7 @@ namespace RetroArr.Api.V3.Games
                 game.Region,
                 game.Languages,
                 game.Revision,
+                game.ProtonDbTier,
                 uninstallerPath,
                 downloadPath = downloadPathHint,
                 canPlay = canPlay // Explicit property name

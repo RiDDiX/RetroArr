@@ -352,9 +352,18 @@ namespace RetroArr.Api.V3.Search
         {
             try
             {
+                // Resolve masked API key from saved config
+                var apiKey = request.ApiKey;
+                if (IsMaskedOrEmpty(apiKey))
+                {
+                    apiKey = request.Type == "jackett"
+                        ? _configurationService.LoadJackettSettings().ApiKey
+                        : _configurationService.LoadProwlarrSettings().ApiKey;
+                }
+
                 if (request.Type == "jackett")
                 {
-                    var jackettClient = new JackettClient(request.Url, request.ApiKey);
+                    var jackettClient = new JackettClient(request.Url, apiKey);
                     var isConnected = await jackettClient.TestConnectionAsync();
                     return Ok(new { 
                         connected = isConnected, 
@@ -363,7 +372,7 @@ namespace RetroArr.Api.V3.Search
                 }
                 else
                 {
-                    var prowlarrClient = new ProwlarrClient(request.Url, request.ApiKey);
+                    var prowlarrClient = new ProwlarrClient(request.Url, apiKey);
                     var isConnected = await prowlarrClient.TestConnectionAsync();
                     return Ok(new { 
                         connected = isConnected, 
@@ -378,6 +387,13 @@ namespace RetroArr.Api.V3.Search
                     message = $"Connection error: {ex.Message}" 
                 });
             }
+        }
+
+        private const string MaskedPlaceholder = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
+
+        private static bool IsMaskedOrEmpty(string? value)
+        {
+            return string.IsNullOrWhiteSpace(value) || value.Contains(MaskedPlaceholder);
         }
 
         /// <summary>

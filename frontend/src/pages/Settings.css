@@ -22,11 +22,11 @@
 
 .sidebar-group-label {
   padding: 0.5rem 1.25rem 0.35rem;
-  font-size: 0.7rem;
-  font-weight: 700;
+  font-family: var(--font-pixel);
+  font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--ctp-overlay0);
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
 }
 
 .sidebar-tab {
@@ -51,9 +51,9 @@
 }
 
 .sidebar-tab.active {
-  background-color: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent);
-  border-right: 3px solid var(--accent);
+  background-color: color-mix(in srgb, var(--platform-accent) 18%, transparent);
+  color: var(--text-primary);
+  box-shadow: inset 3px 0 0 var(--platform-accent);
 }
 
 .sidebar-tab-icon {
@@ -117,7 +117,8 @@
 
   .sidebar-tab.active {
     border-right: none;
-    border-bottom: 2px solid var(--accent);
+    border-bottom: 2px solid var(--platform-accent);
+    box-shadow: none;
   }
 
   .settings-content {
@@ -126,17 +127,22 @@
 }
 
 .settings-section {
-  background-color: var(--ctp-mantle);
+  background-color: var(--bg-secondary);
   padding: 2rem;
-  border-radius: 8px;
+  border-radius: var(--r-panel);
   margin-bottom: 2rem;
   border: 1px solid var(--ctp-surface0);
+  border-left: 3px solid color-mix(in srgb, var(--platform-accent) 55%, transparent);
+  position: relative;
 }
 
+.settings-section h2,
 .settings-section h3 {
-  font-size: 1.25rem;
-  color: var(--ctp-text);
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  color: var(--text-primary);
   margin: 0 0 0.5rem 0;
+  letter-spacing: 0.01em;
 }
 
 .settings-description {

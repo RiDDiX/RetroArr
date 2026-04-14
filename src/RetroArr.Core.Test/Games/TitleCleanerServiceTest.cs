@@ -315,6 +315,46 @@ namespace RetroArr.Core.Test.Games
             Assert.That(info.FileType, Is.EqualTo("DLC"));
         }
 
+        [Test]
+        public void Classify_SwitchBase_BaseTitleIdMatchesTitleId()
+        {
+            var info = _sut.ClassifySupplementaryContent("Bayonetta 2 [01004A4000B3A000][v0].nsp");
+            Assert.That(info.BaseTitleId, Is.EqualTo("01004A4000B3A000"));
+        }
+
+        [Test]
+        public void Classify_SwitchPatch_BaseTitleIdClearsLower13Bits()
+        {
+            var info = _sut.ClassifySupplementaryContent("Bayonetta 2 [01004A4000B3A800][v65536].nsp");
+            Assert.That(info.BaseTitleId, Is.EqualTo("01004A4000B3A000"));
+        }
+
+        [Test]
+        public void Classify_SwitchDLC_BaseTitleIdClearsLower13Bits()
+        {
+            var info = _sut.ClassifySupplementaryContent("Bayonetta 2 DLC [01004A4000B3B001][v0].nsp");
+            Assert.That(info.BaseTitleId, Is.EqualTo("01004A4000B3A000"));
+        }
+
+        [TestCase("0100ABC001234000", "0100ABC001234000")]
+        [TestCase("0100ABC001234800", "0100ABC001234000")]
+        [TestCase("0100ABC001235000", "0100ABC001234000")]
+        [TestCase("0100ABC001235FFF", "0100ABC001234000")]
+        public void ExtractBaseSwitchTitleId_MasksLower13Bits(string input, string expected)
+        {
+            Assert.That(TitleCleanerService.ExtractBaseSwitchTitleId(input), Is.EqualTo(expected));
+        }
+
+        [TestCase(null)]
+        [TestCase("")]
+        [TestCase("NOT_HEX_000000000")]
+        [TestCase("0100ABC001234")]       // too short
+        [TestCase("0100ABC0012340000")]   // too long
+        public void ExtractBaseSwitchTitleId_InvalidInput_ReturnsNull(string? input)
+        {
+            Assert.That(TitleCleanerService.ExtractBaseSwitchTitleId(input), Is.Null);
+        }
+
         // --- PS Vita serial extraction ---
 
         [Test]

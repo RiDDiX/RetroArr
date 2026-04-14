@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using RetroArr.Core.Data;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -27,6 +28,71 @@ namespace RetroArr.Core.Games
         {
             using var context = await _contextFactory.CreateDbContextAsync();
             return await context.Games.ToListAsync();
+        }
+
+        public async Task<PagedResult<GameListDto>> GetAllPagedAsync(int page, int pageSize, int? platformId = null, string? search = null, string sortOrder = "asc")
+        {
+            using var context = await _contextFactory.CreateDbContextAsync();
+
+            IQueryable<Game> query = context.Games.AsNoTracking();
+
+            if (platformId.HasValue && platformId.Value > 0)
+                query = query.Where(g => g.PlatformId == platformId.Value);
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var term = search.Trim().ToLower();
+                query = query.Where(g => g.Title.ToLower().Contains(term));
+            }
+
+            var totalItems = await query.CountAsync();
+
+            query = sortOrder == "desc"
+                ? query.OrderByDescending(g => g.Title)
+                : query.OrderBy(g => g.Title);
+
+            var platformLookup = PlatformDefinitions.PlatformDictionary;
+
+            var items = await query
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(g => new GameListDto
+                {
+                    Id = g.Id,
+                    Title = g.Title,
+                    Year = g.Year,
+                    CoverUrl = g.Images.CoverUrl,
+                    Rating = g.Rating,
+                    Genres = g.Genres,
+                    PlatformId = g.PlatformId,
+                    Status = g.Status,
+                    SteamId = g.SteamId,
+                    Path = g.Path,
+                    Region = g.Region,
+                    Languages = g.Languages,
+                    Revision = g.Revision,
+                    IgdbId = g.IgdbId,
+                    ProtonDbTier = g.ProtonDbTier
+                })
+                .ToListAsync();
+
+            foreach (var item in items)
+            {
+                if (platformLookup.TryGetValue(item.PlatformId, out var plat))
+                {
+                    item.PlatformName = plat.Name;
+                    item.PlatformSlug = plat.Slug;
+                }
+            }
+
+            return new PagedResult<GameListDto>
+            {
+                Items = items,
+                Page = page,
+                PageSize = pageSize,
+                TotalItems = totalItems,
+                TotalPages = (int)Math.Ceiling((double)totalItems / pageSize)
+            };
         }
 
         public async Task<Game?> GetByIdAsync(int id)

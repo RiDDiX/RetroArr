@@ -11,6 +11,7 @@ import { faSearch, faPen, faDownload, faGamepad, faMagnet, faSpinner, faSort, fa
 import EmulatorPlayer from '../components/EmulatorPlayer';
 import ScoreCircle from '../components/ScoreCircle';
 import RegionFlag from '../components/RegionFlag';
+import ProtonDbBadge from '../components/ProtonDbBadge';
 import './GameDetails.css';
 
 interface Game {
@@ -44,6 +45,7 @@ interface Game {
   region?: string;
   languages?: string;
   revision?: string;
+  protonDbTier?: string;
 }
 
 interface TorrentResult {
@@ -1065,8 +1067,13 @@ const GameDetails: React.FC = () => {
     return isSwitchFile || isSwitchPlatform;
   })();
 
+  const platformClass = (() => {
+    const raw = (game.platform?.slug || game.platform?.name || '').toLowerCase();
+    return raw ? 'plat-' + raw.replace(/[^a-z0-9]+/g, '') : 'plat-default';
+  })();
+
   return (
-    <div className="game-details">
+    <div className={`game-details ${platformClass}`}>
       {/* Hero Banner with Dynamic Background */}
       {(game.images.backgroundUrl || game.images.screenshots?.[0]) && (
         <div className="game-hero-banner">
@@ -1280,6 +1287,17 @@ const GameDetails: React.FC = () => {
                 label="YOU"
               />
             )}
+            {game.protonDbTier && (
+              <a
+                href={game.steamId ? `https://www.protondb.com/app/${game.steamId}` : '#'}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ textDecoration: 'none' }}
+                title="View on ProtonDB"
+              >
+                <ProtonDbBadge tier={game.protonDbTier} size="large" showLabel />
+              </a>
+            )}
           </div>
 
           {game.availablePlatforms && game.availablePlatforms.length > 0 && (
@@ -1321,6 +1339,29 @@ const GameDetails: React.FC = () => {
                   }}
                 >
                   <span>🎮</span> Steam ID: {game.steamId}
+                </a>
+              )}
+              {game.steamId && game.protonDbTier && (
+                <a
+                  href={`https://www.protondb.com/app/${game.steamId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    backgroundColor: 'var(--ctp-crust)',
+                    padding: '4px 10px',
+                    borderRadius: '4px',
+                    fontSize: '0.75rem',
+                    color: 'var(--ctp-subtext0)',
+                    textDecoration: 'none',
+                    border: '1px solid var(--ctp-surface2)'
+                  }}
+                  title="View on ProtonDB"
+                >
+                  <ProtonDbBadge tier={game.protonDbTier} size="medium" showLabel />
+                  <span style={{ color: 'var(--ctp-subtext1)', fontSize: '0.7rem' }}>ProtonDB</span>
                 </a>
               )}
               {game.gogId && (

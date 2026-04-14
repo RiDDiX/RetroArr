@@ -55,6 +55,13 @@ namespace RetroArr.Api.V3.Settings
         [HttpPost("prowlarr")]
         public IActionResult SaveProwlarrSettings([FromBody] ProwlarrSettings request)
         {
+            // Merge: keep existing secret if the request sends the masked placeholder
+            if (IsMaskedOrEmpty(request.ApiKey))
+            {
+                var existing = _configService.LoadProwlarrSettings();
+                request.ApiKey = existing.ApiKey;
+            }
+
             // Update the injected singleton so other services see the change immediately
             _prowlarrSettings.Url = request.Url;
             _prowlarrSettings.ApiKey = request.ApiKey;
@@ -69,15 +76,28 @@ namespace RetroArr.Api.V3.Settings
         }
 
         [HttpGet("prowlarr")]
-        public ActionResult<ProwlarrSettings> GetProwlarrSettings()
+        public ActionResult GetProwlarrSettings()
         {
-            // Load directly from disk to ensure persistence is verified
-            return Ok(_configService.LoadProwlarrSettings());
+            var settings = _configService.LoadProwlarrSettings();
+            return Ok(new
+            {
+                settings.Url,
+                ApiKey = MaskSecret(settings.ApiKey),
+                settings.Enabled,
+                settings.IsConfigured
+            });
         }
 
         [HttpPost("jackett")]
         public IActionResult SaveJackettSettings([FromBody] JackettSettings request)
         {
+            // Merge: keep existing secret if the request sends the masked placeholder
+            if (IsMaskedOrEmpty(request.ApiKey))
+            {
+                var existing = _configService.LoadJackettSettings();
+                request.ApiKey = existing.ApiKey;
+            }
+
             // Update the injected singleton so other services see the change immediately
             _jackettSettings.Url = request.Url;
             _jackettSettings.ApiKey = request.ApiKey;
@@ -92,15 +112,28 @@ namespace RetroArr.Api.V3.Settings
         }
 
         [HttpGet("jackett")]
-        public ActionResult<JackettSettings> GetJackettSettings()
+        public ActionResult GetJackettSettings()
         {
-            // Load directly from disk to ensure persistence is verified
-            return Ok(_configService.LoadJackettSettings());
+            var settings = _configService.LoadJackettSettings();
+            return Ok(new
+            {
+                settings.Url,
+                ApiKey = MaskSecret(settings.ApiKey),
+                settings.Enabled,
+                settings.IsConfigured
+            });
         }
 
         [HttpPost("/api/v3/metadata/igdb")]
         public IActionResult SaveIgdbSettings([FromBody] IgdbSettings request)
         {
+            // Merge: keep existing secret if the request sends the masked placeholder
+            if (IsMaskedOrEmpty(request.ClientSecret))
+            {
+                var existing = _configService.LoadIgdbSettings();
+                request.ClientSecret = existing.ClientSecret;
+            }
+
             // Save to persistent storage
             _configService.SaveIgdbSettings(request);
             
@@ -111,15 +144,27 @@ namespace RetroArr.Api.V3.Settings
         }
 
         [HttpGet("igdb")]
-        public ActionResult<IgdbSettings> GetIgdbSettings()
+        public ActionResult GetIgdbSettings()
         {
             var settings = _configService.LoadIgdbSettings();
-            return Ok(settings);
+            return Ok(new
+            {
+                settings.ClientId,
+                ClientSecret = MaskSecret(settings.ClientSecret),
+                settings.IsConfigured
+            });
         }
 
         [HttpPost("steam")]
         public IActionResult SaveSteamSettings([FromBody] SteamSettings request)
         {
+            // Merge: keep existing secret if the request sends the masked placeholder
+            if (IsMaskedOrEmpty(request.ApiKey))
+            {
+                var existing = _configService.LoadSteamSettings();
+                request.ApiKey = existing.ApiKey;
+            }
+
             // Save to persistent storage
             _configService.SaveSteamSettings(request);
             
@@ -127,10 +172,15 @@ namespace RetroArr.Api.V3.Settings
         }
 
         [HttpGet("steam")]
-        public ActionResult<SteamSettings> GetSteamSettings()
+        public ActionResult GetSteamSettings()
         {
             var settings = _configService.LoadSteamSettings();
-            return Ok(settings);
+            return Ok(new
+            {
+                ApiKey = MaskSecret(settings.ApiKey),
+                settings.SteamId,
+                settings.IsConfigured
+            });
         }
 
         [HttpDelete("steam")]
@@ -155,12 +205,16 @@ namespace RetroArr.Api.V3.Settings
         [HttpPost("steam/test")]
         public async Task<IActionResult> TestSteamSettings([FromBody] SteamSettings request)
         {
-            _configService.SaveSteamSettings(request);
+            // Resolve masked API key from saved config
+            var apiKey = request.ApiKey;
+            if (IsMaskedOrEmpty(apiKey))
+            {
+                apiKey = _configService.LoadSteamSettings().ApiKey;
+            }
 
             try
             {
-                // Create a temporary client with the provided credentials to verify them
-                var tempClient = new SteamClient(request.ApiKey);
+                var tempClient = new SteamClient(apiKey);
                 var profile = await tempClient.GetPlayerProfileAsync(request.SteamId);
                 
                 if (profile == null)
@@ -177,99 +231,225 @@ namespace RetroArr.Api.V3.Settings
             }
         }
 
+        // ==================== Steam Sync (background job) ====================
+
+        private static volatile bool _isSyncingSteam;
+        private static volatile bool _steamSyncCancellationRequested;
+        private static int _steamSyncTotal;
+        private static int _steamSyncProgress;
+        private static int _steamSyncAdded;
+        private static int _steamSyncLinked;
+        private static int _steamSyncSkipped;
+        private static int _steamSyncFailed;
+        private static string? _steamSyncCurrentGame;
+        private static string? _steamSyncError;
+
         [HttpPost("steam/sync")]
         public async Task<IActionResult> SyncSteamLibrary()
         {
+            if (_isSyncingSteam)
+                return Conflict(new { success = false, message = "A Steam sync is already in progress." });
+
+            var settings = _configService.LoadSteamSettings();
+            if (!settings.IsConfigured)
+                return BadRequest(new { success = false, message = "Steam not configured" });
+
+            // Pre-fetch Steam library (fast, single API call) before going background
+            List<SteamUserGame> steamGames;
             try
             {
-                var settings = _configService.LoadSteamSettings();
-                if (!settings.IsConfigured)
-                    return BadRequest(new { success = false, message = "Steam not configured" });
-
-                // Use a fresh client with the correct key (avoid DI stale key issues)
                 var client = new SteamClient(settings.ApiKey);
-                var steamGames = await client.GetOwnedGamesAsync(settings.SteamId);
-                var existingGames = await _gameRepository.GetAllAsync();
-                
-                int addedCount = 0;
-                var metadataService = _metadataServiceFactory.CreateService();
-
-                foreach (var steamGame in steamGames)
-                {
-                    var existingGame = existingGames.FirstOrDefault(g => g.SteamId == steamGame.AppId || 
-                                                (g.Title.Equals(steamGame.Name, StringComparison.OrdinalIgnoreCase)));
-
-                    if (existingGame != null)
-                    {
-                        // Update existing game if it doesn't have the SteamId
-                        if (!existingGame.SteamId.HasValue || existingGame.SteamId != steamGame.AppId)
-                        {
-                            existingGame.SteamId = steamGame.AppId;
-                            // Optionally update other fields if needed, but for now just link it
-                            await _gameRepository.UpdateAsync(existingGame.Id, existingGame);
-                            _logger.Info($"[SteamSync] Linked '{existingGame.Title}' to Steam AppID: {steamGame.AppId}");
-                        }
-                    }
-                    else
-                    {
-                        var newGame = new Game
-                        {
-                            Title = steamGame.Name,
-                            SteamId = steamGame.AppId,
-                            Added = DateTime.UtcNow,
-                            Status = GameStatus.Announced, 
-                            Monitored = true,
-                            PlatformId = 125, // Steam platform
-                            IsExternal = true // Mark as external launcher game
-                        };
-
-                        // Enrich with IGDB Metadata
-                        try 
-                        {
-                            var searchResults = await metadataService.SearchGamesAsync(steamGame.Name);
-                            var match = searchResults.FirstOrDefault();
-                            
-                            if (match != null)
-                            {
-                                newGame.IgdbId = match.IgdbId;
-                                newGame.Overview = match.Overview;
-                                newGame.Images = match.Images;
-                                newGame.Genres = match.Genres;
-                                newGame.Developer = match.Developer;
-                                newGame.Publisher = match.Publisher;
-                                newGame.ReleaseDate = match.ReleaseDate;
-                                newGame.Year = match.Year;
-                                newGame.Rating = match.Rating;
-                            }
-                        }
-                        catch (Exception)
-                        {
-                            // Ignore enrichment failures
-                        }
-
-                        await _gameRepository.AddAsync(newGame);
-                        addedCount++;
-                    }
-                }
-
-                return Ok(new { success = true, message = $"Synced {steamGames.Count} games. Added {addedCount} new games.", count = addedCount });
+                steamGames = await client.GetOwnedGamesAsync(settings.SteamId);
             }
             catch (Exception ex)
             {
-                return BadRequest(new { success = false, message = ex.Message });
+                return BadRequest(new { success = false, message = $"Failed to fetch Steam library: {ex.Message}" });
             }
+
+            if (steamGames.Count == 0)
+                return Ok(new { success = true, message = "Steam library is empty. Nothing to sync.", count = 0 });
+
+            // Reset progress and start background processing
+            _isSyncingSteam = true;
+            _steamSyncCancellationRequested = false;
+            _steamSyncTotal = steamGames.Count;
+            _steamSyncProgress = 0;
+            _steamSyncAdded = 0;
+            _steamSyncLinked = 0;
+            _steamSyncSkipped = 0;
+            _steamSyncFailed = 0;
+            _steamSyncCurrentGame = null;
+            _steamSyncError = null;
+
+            // Capture references for the background task
+            var gameRepository = _gameRepository;
+            var metadataServiceFactory = _metadataServiceFactory;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var existingGames = await gameRepository.GetAllAsync();
+                    var metadataService = metadataServiceFactory.CreateService();
+
+                    foreach (var steamGame in steamGames)
+                    {
+                        if (_steamSyncCancellationRequested)
+                        {
+                            _logger.Info("[SteamSync] Cancelled by user.");
+                            break;
+                        }
+
+                        _steamSyncProgress++;
+                        _steamSyncCurrentGame = steamGame.Name;
+
+                        try
+                        {
+                            var existingGame = existingGames.FirstOrDefault(g => g.SteamId == steamGame.AppId ||
+                                (g.Title.Equals(steamGame.Name, StringComparison.OrdinalIgnoreCase)));
+
+                            if (existingGame != null)
+                            {
+                                if (!existingGame.SteamId.HasValue || existingGame.SteamId != steamGame.AppId)
+                                {
+                                    existingGame.SteamId = steamGame.AppId;
+                                    await gameRepository.UpdateAsync(existingGame.Id, existingGame);
+                                    _steamSyncLinked++;
+                                    _logger.Info($"[SteamSync] Linked '{existingGame.Title}' to Steam AppID: {steamGame.AppId}");
+                                }
+                                else
+                                {
+                                    _steamSyncSkipped++;
+                                }
+                            }
+                            else
+                            {
+                                var newGame = new Game
+                                {
+                                    Title = steamGame.Name,
+                                    SteamId = steamGame.AppId,
+                                    Added = DateTime.UtcNow,
+                                    Status = GameStatus.Announced,
+                                    Monitored = true,
+                                    PlatformId = 125,
+                                    IsExternal = true
+                                };
+
+                                try
+                                {
+                                    var searchResults = await metadataService.SearchGamesAsync(steamGame.Name);
+                                    var match = searchResults.FirstOrDefault();
+                                    if (match != null)
+                                    {
+                                        newGame.IgdbId = match.IgdbId;
+                                        newGame.Overview = match.Overview;
+                                        newGame.Images = match.Images;
+                                        newGame.Genres = match.Genres;
+                                        newGame.Developer = match.Developer;
+                                        newGame.Publisher = match.Publisher;
+                                        newGame.ReleaseDate = match.ReleaseDate;
+                                        newGame.Year = match.Year;
+                                        newGame.Rating = match.Rating;
+                                    }
+                                    await Task.Delay(150);
+                                }
+                                catch (Exception)
+                                {
+                                    // Enrichment failure is non-fatal; game is still added without metadata
+                                }
+
+                                // Enrich with ProtonDB tier
+                                try
+                                {
+                                    var protonClient = new ProtonDbClient();
+                                    var tier = await protonClient.GetTierAsync(steamGame.AppId);
+                                    if (!string.IsNullOrEmpty(tier))
+                                        newGame.ProtonDbTier = tier;
+                                }
+                                catch (Exception)
+                                {
+                                    // ProtonDB enrichment failure is non-fatal
+                                }
+
+                                await gameRepository.AddAsync(newGame);
+                                _steamSyncAdded++;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _steamSyncFailed++;
+                            _logger.Error($"[SteamSync] Error processing '{steamGame.Name}': {ex.Message}");
+                        }
+                    }
+
+                    _logger.Info($"[SteamSync] Complete. Total: {steamGames.Count}, Added: {_steamSyncAdded}, Linked: {_steamSyncLinked}, Skipped: {_steamSyncSkipped}, Failed: {_steamSyncFailed}");
+                }
+                catch (Exception ex)
+                {
+                    _steamSyncError = ex.Message;
+                    _logger.Error($"[SteamSync] Fatal error: {ex}");
+                }
+                finally
+                {
+                    _isSyncingSteam = false;
+                }
+            });
+
+            return Ok(new { success = true, message = $"Steam sync started for {steamGames.Count} games. Check status for progress." });
+        }
+
+        [HttpGet("steam/sync/status")]
+        public IActionResult GetSteamSyncStatus()
+        {
+            return Ok(new
+            {
+                isSyncing = _isSyncingSteam,
+                total = _steamSyncTotal,
+                progress = _steamSyncProgress,
+                added = _steamSyncAdded,
+                linked = _steamSyncLinked,
+                skipped = _steamSyncSkipped,
+                failed = _steamSyncFailed,
+                currentGame = _steamSyncCurrentGame,
+                error = _steamSyncError
+            });
+        }
+
+        [HttpPost("steam/sync/cancel")]
+        public IActionResult CancelSteamSync()
+        {
+            if (!_isSyncingSteam)
+                return Ok(new { message = "No Steam sync is running." });
+
+            _steamSyncCancellationRequested = true;
+            _logger.Info("[SteamSync] Cancellation requested.");
+            return Ok(new { message = "Cancellation requested." });
         }
 
         [HttpGet("screenscraper")]
-        public ActionResult<ScreenScraperSettings> GetScreenScraperSettings()
+        public ActionResult GetScreenScraperSettings()
         {
             var settings = _configService.LoadScreenScraperSettings();
-            return Ok(settings);
+            return Ok(new
+            {
+                settings.Username,
+                Password = MaskSecret(settings.Password),
+                settings.Enabled,
+                settings.IsConfigured
+            });
         }
 
         [HttpPost("screenscraper")]
         public IActionResult SaveScreenScraperSettings([FromBody] ScreenScraperSettings request)
         {
+            // Merge: keep existing secret if the request sends the masked placeholder
+            var existing = _configService.LoadScreenScraperSettings();
+            if (IsMaskedOrEmpty(request.Password)) request.Password = existing.Password;
+
+            // Dev credentials are app-level — never accept from frontend, always keep existing/env values
+            request.DevId = existing.DevId;
+            request.DevPassword = existing.DevPassword;
+
             _configService.SaveScreenScraperSettings(request);
             _logger.Info($"[Settings] Saving ScreenScraper Settings. ENABLED = {request.Enabled}");
             return Ok(new { success = true, message = "ScreenScraper settings saved." });
@@ -281,12 +461,13 @@ namespace RetroArr.Api.V3.Settings
             try
             {
                 var existingSettings = _configService.LoadScreenScraperSettings();
-                var devId = !string.IsNullOrWhiteSpace(request.DevId) ? request.DevId : existingSettings.DevId;
-                var devPassword = !string.IsNullOrWhiteSpace(request.DevPassword) ? request.DevPassword : existingSettings.DevPassword;
+                var devId = existingSettings.DevId;
+                var devPassword = existingSettings.DevPassword;
+                var password = IsMaskedOrEmpty(request.Password) ? existingSettings.Password : request.Password;
 
                 using var httpClient = new System.Net.Http.HttpClient();
                 var client = new RetroArr.Core.MetadataSource.ScreenScraper.ScreenScraperClient(
-                    httpClient, request.Username, request.Password, devId, devPassword);
+                    httpClient, request.Username, password, devId, devPassword);
                 
                 var results = await client.SearchGamesByNameAsync("Super Mario World", 4); // SNES system ID
                 
@@ -316,15 +497,32 @@ namespace RetroArr.Api.V3.Settings
         // ==================== GOG Settings ====================
 
         [HttpGet("gog")]
-        public ActionResult<GogSettings> GetGogSettings()
+        public ActionResult GetGogSettings()
         {
             var settings = _configService.LoadGogSettings();
-            return Ok(settings);
+            return Ok(new
+            {
+                settings.UserId,
+                settings.Username,
+                settings.IsConfigured,
+                IsAuthenticated = !string.IsNullOrWhiteSpace(settings.RefreshToken)
+            });
         }
 
         [HttpPost("gog")]
         public IActionResult SaveGogSettings([FromBody] GogSettings request)
         {
+            // Merge: if tokens are not provided, keep existing values
+            var existing = _configService.LoadGogSettings();
+            if (string.IsNullOrWhiteSpace(request.RefreshToken) && request.RefreshToken != null)
+                request.RefreshToken = null; // Explicit clear
+            else if (request.RefreshToken == null)
+                request.RefreshToken = existing.RefreshToken;
+            if (string.IsNullOrWhiteSpace(request.AccessToken) && request.AccessToken != null)
+                request.AccessToken = null;
+            else if (request.AccessToken == null)
+                request.AccessToken = existing.AccessToken;
+
             _configService.SaveGogSettings(request);
             return Ok(new { success = true, message = "GOG settings saved." });
         }
@@ -698,6 +896,20 @@ namespace RetroArr.Api.V3.Settings
         {
             _gogDownloadTracker.Remove(trackId);
             return Ok(new { message = "Removed" });
+        }
+
+        private const string MaskedPlaceholder = "••••••••";
+
+        private static string MaskSecret(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+            if (value.Length <= 4) return MaskedPlaceholder;
+            return value[..2] + MaskedPlaceholder + value[^2..];
+        }
+
+        private static bool IsMaskedOrEmpty(string? value)
+        {
+            return string.IsNullOrWhiteSpace(value) || value.Contains(MaskedPlaceholder);
         }
     }
 

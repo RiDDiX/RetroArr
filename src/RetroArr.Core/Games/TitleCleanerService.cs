@@ -633,10 +633,24 @@ namespace RetroArr.Core.Games
             public string FileType { get; set; } = "Main"; // "Main", "Patch", or "DLC"
             public string? Serial { get; set; }
             public string? TitleId { get; set; }
+            public string? BaseTitleId { get; set; } // Base game TitleId derived from update/DLC mask
             public string? Version { get; set; }
             public string? ContentName { get; set; }
             public string? CleanParentTitle { get; set; }
             public bool IsGeneric { get; set; }
+        }
+
+        public static string? ExtractBaseSwitchTitleId(string? titleId)
+        {
+            if (string.IsNullOrEmpty(titleId) || titleId.Length != 16) return null;
+            if (!ulong.TryParse(titleId, System.Globalization.NumberStyles.HexNumber,
+                System.Globalization.CultureInfo.InvariantCulture, out var value))
+            {
+                return null;
+            }
+            const ulong BaseMask = 0xFFFFFFFFFFFFE000UL;
+            var baseId = value & BaseMask;
+            return baseId.ToString("X16", System.Globalization.CultureInfo.InvariantCulture);
         }
 
         // Keywords indicating DLC content
@@ -762,6 +776,15 @@ namespace RetroArr.Core.Games
                         result.FileType = "Patch";
                     else if (isDLC)
                         result.FileType = "DLC";
+
+                    if (isPatch || isDLC)
+                    {
+                        result.BaseTitleId = ExtractBaseSwitchTitleId(result.TitleId);
+                    }
+                    else
+                    {
+                        result.BaseTitleId = result.TitleId;
+                    }
                 }
             }
 

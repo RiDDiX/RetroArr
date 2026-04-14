@@ -8,6 +8,7 @@
   <ItemGroup>
     <ProjectReference Include="..\RetroArr.Core\RetroArr.Core.csproj" />
     <ProjectReference Include="..\RetroArr.Api.V3\RetroArr.Api.V3.csproj" />
+    <ProjectReference Include="..\RetroArr.SignalR\RetroArr.SignalR.csproj" />
   </ItemGroup>
 
   <ItemGroup>

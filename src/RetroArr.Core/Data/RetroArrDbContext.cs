@@ -90,6 +90,9 @@ namespace RetroArr.Core.Data
                     .IsUnique()
                     .HasFilter("[IgdbId] IS NOT NULL")
                     .HasDatabaseName("IX_Games_IgdbId_PlatformId");
+
+                entity.HasIndex(e => e.PlatformId)
+                    .HasDatabaseName("IX_Games_PlatformId");
             });
 
             modelBuilder.Entity<Platform>(entity =>

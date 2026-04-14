@@ -1,8 +1,10 @@
 using System;
 using System.IO;
+using System.Net;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using Microsoft.AspNetCore.Mvc;
+using RetroArr.Core.Configuration;
 
 namespace RetroArr.Api.V3.SystemInfo
 {
@@ -11,6 +13,31 @@ namespace RetroArr.Api.V3.SystemInfo
     [SuppressMessage("Microsoft.Design", "CA1031:DoNotCatchGeneralExceptionTypes")]
     public class SystemController : ControllerBase
     {
+        private readonly ApiKeyService _apiKeyService;
+
+        public SystemController(ApiKeyService apiKeyService)
+        {
+            _apiKeyService = apiKeyService;
+        }
+
+        [HttpGet("apikey/bootstrap")]
+        public ActionResult BootstrapApiKey()
+        {
+            var ip = HttpContext.Connection.RemoteIpAddress;
+            if (ip != null && !IPAddress.IsLoopback(ip))
+            {
+                return NotFound();
+            }
+            return Ok(new { apiKey = _apiKeyService.GetApiKey() });
+        }
+
+        [HttpPost("apikey/rotate")]
+        public ActionResult RotateApiKey()
+        {
+            var newKey = _apiKeyService.Regenerate();
+            return Ok(new { apiKey = newKey });
+        }
+
         [HttpGet("status")]
         public ActionResult GetStatus()
         {

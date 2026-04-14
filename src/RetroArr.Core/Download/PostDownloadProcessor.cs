@@ -58,9 +58,15 @@ namespace RetroArr.Core.Download
             _logger.Info($"[PostDownload] Processing completed download: {download.Name} at {download.DownloadPath}");
 
             // 1. Auto-Extract
+            List<string>? extractionFailures = null;
             if (settings.EnableAutoExtract && Directory.Exists(download.DownloadPath))
             {
-                ExtractArchives(download.DownloadPath);
+                extractionFailures = ExtractArchives(download.DownloadPath);
+                if (extractionFailures.Count > 0 && !settings.EnableAutoMove)
+                {
+                    var failedList = string.Join(", ", extractionFailures.Select(Path.GetFileName));
+                    return PostDownloadResult.Fail($"Extraction failed after retries: {failedList}");
+                }
             }
 
             // 2. Deep Clean
@@ -78,30 +84,55 @@ namespace RetroArr.Core.Download
             return PostDownloadResult.Fail("Auto-move is disabled in post-download settings.");
         }
 
-        private void ExtractArchives(string path)
+        private List<string> ExtractArchives(string path)
         {
+            var failed = new List<string>();
             var archives = Directory.EnumerateFiles(path, "*.*", SearchOption.AllDirectories)
                 .Where(f => _archiveService.IsArchive(f))
                 .ToList();
 
+            const int maxAttempts = 3;
+
             foreach (var archivePath in archives)
             {
-                try
-                {
-                    // Check if it's a multi-part archive and skip if not the first part
-                    if (IsMultiPartNotFirst(archivePath)) continue;
+                if (IsMultiPartNotFirst(archivePath)) continue;
 
-                    if (_archiveService.Extract(archivePath, path))
+                bool success = false;
+                for (int attempt = 1; attempt <= maxAttempts && !success; attempt++)
+                {
+                    try
                     {
-                        _logger.Info($"[PostDownload] Extraction successful. Deleting archive: {archivePath}");
-                        File.Delete(archivePath);
+                        if (_archiveService.Extract(archivePath, path))
+                        {
+                            _logger.Info($"[PostDownload] Extraction successful on attempt {attempt}. Deleting archive: {archivePath}");
+                            try { File.Delete(archivePath); } catch { }
+                            success = true;
+                        }
+                        else
+                        {
+                            _logger.Warn($"[PostDownload] Extraction returned false for {archivePath} (attempt {attempt}/{maxAttempts})");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Warn($"[PostDownload] Extract attempt {attempt}/{maxAttempts} failed for {archivePath}: {ex.Message}");
+                    }
+
+                    if (!success && attempt < maxAttempts)
+                    {
+                        var delayMs = 500 * (1 << (attempt - 1));
+                        System.Threading.Thread.Sleep(delayMs);
                     }
                 }
-                catch (Exception ex)
+
+                if (!success)
                 {
-                    _logger.Error($"[PostDownload] Scan/Extract failed for {archivePath}: {ex.Message}");
+                    _logger.Error($"[PostDownload] Extraction failed after {maxAttempts} attempts for {archivePath} — leaving archive in place for manual recovery.");
+                    failed.Add(archivePath);
                 }
             }
+
+            return failed;
         }
 
         private bool IsMultiPartNotFirst(string path)

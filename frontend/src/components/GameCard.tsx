@@ -1,12 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { reviewsApi } from '../api/client';
 import { useTranslation } from '../i18n/translations';
+import { useCardTilt } from '../hooks/useCardTilt';
 import steamLogo from '../assets/steam_logo.png';
 import PlatformIcon from './PlatformIcon';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faStar } from '@fortawesome/free-solid-svg-icons';
 import RegionFlag from './RegionFlag';
+import ProtonDbBadge from './ProtonDbBadge';
 import './GameCard.css';
+
+// Derive a platform slug for --platform-accent tinting. Accepts the explicit
+// slug, then falls back to a sanitised name, then 'default'.
+function platClass(p?: { slug?: string; name?: string }): string {
+  const raw = (p?.slug || p?.name || '').toLowerCase();
+  if (!raw) return 'plat-default';
+  return 'plat-' + raw.replace(/[^a-z0-9]+/g, '');
+}
 
 interface Game {
   id: number;
@@ -31,6 +41,7 @@ interface Game {
   region?: string;
   languages?: string;
   revision?: string;
+  protonDbTier?: string;
 }
 
 interface ReviewData {
@@ -53,6 +64,7 @@ const pendingRequests = new Map<number, Promise<ReviewData | null>>();
 
 const GameCard: React.FC<GameCardProps> = ({ game, reviewData, onClick, onContextMenu, onDelete }) => {
   const { t } = useTranslation();
+  const tiltRef = useCardTilt<HTMLDivElement>(4);
   const [review, setReview] = useState<ReviewData | null>(reviewData ?? reviewCache.get(game.id) ?? null);
 
   // Sync from parent-provided reviewData prop
@@ -113,8 +125,24 @@ const GameCard: React.FC<GameCardProps> = ({ game, reviewData, onClick, onContex
 
   const isSteamGame = !!game.steamId;
 
+  const handleKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onClick?.();
+    }
+  };
+
   return (
-    <div className="game-card" onClick={onClick} onContextMenu={onContextMenu}>
+    <div
+      ref={tiltRef}
+      className={`game-card ${platClass(game.platform)}`}
+      role="button"
+      tabIndex={0}
+      aria-label={`${game.title}${game.platform?.name ? ' — ' + game.platform.name : ''}`}
+      onClick={onClick}
+      onContextMenu={onContextMenu}
+      onKeyDown={handleKey}
+    >
       <div className="game-card-poster">
         {game.images.coverUrl ? (
           <img src={game.images.coverUrl} alt={game.title} />
@@ -160,7 +188,7 @@ const GameCard: React.FC<GameCardProps> = ({ game, reviewData, onClick, onContex
           </div>
         )}
         <div className="game-card-overlay">
-          {(game.region || game.languages || game.revision) && (
+          {(game.region || game.languages || game.revision || game.protonDbTier) && (
             <div className="game-card-region" style={{ position: 'absolute', bottom: '8px', left: '8px', zIndex: 10, display: 'flex', alignItems: 'center', gap: '4px' }}>
               {(game.region || game.languages) && (
                 <RegionFlag region={game.region} languages={game.languages} size="small" />
@@ -175,6 +203,9 @@ const GameCard: React.FC<GameCardProps> = ({ game, reviewData, onClick, onContex
                   borderRadius: '3px',
                   whiteSpace: 'nowrap'
                 }}>{game.revision}</span>
+              )}
+              {game.protonDbTier && (
+                <ProtonDbBadge tier={game.protonDbTier} size="medium" showLabel />
               )}
             </div>
           )}

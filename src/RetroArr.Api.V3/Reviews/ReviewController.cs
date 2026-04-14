@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
@@ -17,6 +18,41 @@ namespace RetroArr.Api.V3.Reviews
         public ReviewController(RetroArrDbContext context)
         {
             _context = context;
+        }
+
+        [HttpGet("bulk")]
+        public async Task<ActionResult> GetBulk([FromQuery] string gameIds)
+        {
+            if (string.IsNullOrWhiteSpace(gameIds))
+                return Ok(new Dictionary<string, object>());
+
+            var ids = gameIds.Split(',')
+                .Select(s => int.TryParse(s.Trim(), out var id) ? id : (int?)null)
+                .Where(id => id.HasValue)
+                .Select(id => id!.Value)
+                .Distinct()
+                .ToList();
+
+            if (ids.Count == 0)
+                return Ok(new Dictionary<string, object>());
+
+            var reviews = await _context.GameReviews
+                .AsNoTracking()
+                .Where(r => ids.Contains(r.GameId))
+                .Select(r => new
+                {
+                    r.GameId,
+                    r.UserRating,
+                    r.MetacriticScore,
+                    r.OpenCriticScore
+                })
+                .ToListAsync();
+
+            var result = reviews.ToDictionary(
+                r => r.GameId,
+                r => new { r.UserRating, r.MetacriticScore, r.OpenCriticScore });
+
+            return Ok(result);
         }
 
         [HttpGet("game/{gameId}")]
