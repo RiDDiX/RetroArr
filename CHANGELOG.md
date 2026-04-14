@@ -1,3 +1,8 @@
+## v1.0.102 (2026-04-14)
+
+### Changes
+- stamp media urls with api key so img and video load on lan (da50f8f)
+
 ## v1.0.101 (2026-04-14)
 
 ### Changes
