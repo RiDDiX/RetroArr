@@ -1,3 +1,8 @@
+## v1.0.98 (2026-04-14)
+
+### Changes
+- fix game update 500, sidebar 401 on lan, cache serializer cycle (6820779)
+
 ## v1.0.97 (2026-04-14)
 
 ### Changes
