@@ -1,3 +1,8 @@
+## v1.0.101 (2026-04-14)
+
+### Changes
+- metadata updates stop choking on region-variant duplicates (3615a52)
+
 ## v1.0.100 (2026-04-14)
 
 ### Changes
