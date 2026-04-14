@@ -230,6 +230,8 @@ namespace RetroArr.Host
             builder.Services.AddSingleton<RetroArr.Core.Debug.DebugLogService>();
             builder.Services.AddSingleton<TitleCleanerService>();
             builder.Services.AddSingleton<MediaScannerService>();
+            builder.Services.AddSingleton<TrashService>();
+            builder.Services.AddHostedService<TrashPurgeService>();
 
             // SignalR progress hub + notifier
             builder.Services.AddSignalR();

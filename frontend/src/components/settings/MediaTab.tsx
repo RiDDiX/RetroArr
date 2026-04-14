@@ -19,6 +19,8 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
   const [winePrefixPath, setWinePrefixPath] = useState('');
   const [biosPath, setBiosPath] = useState('');
   const [biosFiles, setBiosFiles] = useState<{ filename: string; present: boolean }[]>([]);
+  const [trashPath, setTrashPath] = useState('');
+  const [trashRetentionDays, setTrashRetentionDays] = useState(14);
   const [scanning, setScanning] = useState(false);
   const [showFolderExplorer, setShowFolderExplorer] = useState(false);
   const [activeFolderField, setActiveFolderField] = useState<'media' | 'download' | 'destination' | 'wine' | 'bios'>('media');
@@ -82,6 +84,8 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
       setFolderNamingMode(mediaRes.data.folderNamingMode || 'native');
       setWinePrefixPath(mediaRes.data.winePrefixPath || '');
       setBiosPath(mediaRes.data.biosPath || '');
+      setTrashPath(mediaRes.data.trashPath || '');
+      setTrashRetentionDays(typeof mediaRes.data.trashRetentionDays === 'number' ? mediaRes.data.trashRetentionDays : 14);
       setPostDownloadSettings(postDownloadRes.data);
 
       try {
@@ -96,7 +100,7 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
     }
   };
 
-  const saveMediaConfig = async (overrides?: { folderPath?: string; downloadPath?: string; destinationPath?: string; destinationPathPattern?: string; useDestinationPattern?: boolean; folderNamingMode?: string; winePrefixPath?: string; biosPath?: string }) => {
+  const saveMediaConfig = async (overrides?: { folderPath?: string; downloadPath?: string; destinationPath?: string; destinationPathPattern?: string; useDestinationPattern?: boolean; folderNamingMode?: string; winePrefixPath?: string; biosPath?: string; trashPath?: string; trashRetentionDays?: number }) => {
     try {
       await apiClient.post('/media', {
         FolderPath: overrides?.folderPath ?? folderPath,
@@ -107,6 +111,8 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
         FolderNamingMode: overrides?.folderNamingMode ?? folderNamingMode,
         WinePrefixPath: overrides?.winePrefixPath ?? winePrefixPath,
         BiosPath: overrides?.biosPath ?? biosPath,
+        TrashPath: overrides?.trashPath ?? trashPath,
+        TrashRetentionDays: overrides?.trashRetentionDays ?? trashRetentionDays,
         Platform: 'default'
       });
     } catch (error: unknown) {
@@ -306,6 +312,40 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
                 ))}
               </ul>
             )}
+          </div>
+
+          <div className="form-group" style={{ marginTop: '20px', borderTop: '1px solid #444', paddingTop: '15px' }}>
+            <div className="section-header-with-logo">
+              <h4>{t('trashTitle') || 'Trash'}</h4>
+            </div>
+            <p className="settings-description-sm" style={{ fontSize: '0.85em', color: 'var(--ctp-subtext0)' }}>
+              {t('trashPathDesc') || 'Deleted game files are moved here first so you can restore them. Set retention to 0 to keep entries until you empty the trash manually.'}
+            </p>
+            <label htmlFor="trash-path">{t('trashPath') || 'Trash folder'}</label>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <input
+                id="trash-path"
+                type="text"
+                value={trashPath}
+                onChange={(e) => setTrashPath(e.target.value)}
+                onBlur={() => saveMediaConfig({ trashPath })}
+                placeholder="/app/config/trash"
+                style={{ flex: 1 }}
+              />
+            </div>
+            <label htmlFor="trash-retention" style={{ marginTop: '10px', display: 'block' }}>
+              {t('trashRetentionLabel') || 'Retention (days, 0 = manual only)'}
+            </label>
+            <input
+              id="trash-retention"
+              type="number"
+              min={0}
+              max={3650}
+              value={trashRetentionDays}
+              onChange={(e) => setTrashRetentionDays(parseInt(e.target.value, 10) || 0)}
+              onBlur={() => saveMediaConfig({ trashRetentionDays })}
+              style={{ width: 140 }}
+            />
           </div>
 
           <div className="form-group" style={{ marginTop: '20px', borderTop: '1px solid #444', paddingTop: '15px' }}>

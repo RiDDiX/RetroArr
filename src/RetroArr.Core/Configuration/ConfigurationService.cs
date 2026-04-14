@@ -279,7 +279,9 @@ namespace RetroArr.Core.Configuration
             if (string.IsNullOrWhiteSpace(settings.DestinationPath)) settings.DestinationPath = defaultLibraryPath;
             if (string.IsNullOrWhiteSpace(settings.FolderPath)) settings.FolderPath = defaultGamesPath;
             if (string.IsNullOrWhiteSpace(settings.BiosPath)) settings.BiosPath = Path.Combine(_configDirectory, "bios");
-            
+            if (string.IsNullOrWhiteSpace(settings.TrashPath)) settings.TrashPath = Path.Combine(_configDirectory, "trash");
+
+
             // Create directories if they don't exist (UX convenience)
             try 
             {

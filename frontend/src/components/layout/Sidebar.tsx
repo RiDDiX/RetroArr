@@ -72,6 +72,7 @@ export function Sidebar() {
         { to: '/library-resort',  label: 'Resort' },
         { to: '/metadata-review', label: 'Review' },
         { to: '/review-import',   label: 'Review Import' },
+        { to: '/trash',           label: t('trashTitle') || 'Trash' },
       ],
     },
     {

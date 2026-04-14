@@ -10,6 +10,15 @@ namespace RetroArr.Core.Configuration
         public string DestinationPath { get; set; } = string.Empty;
         public string WinePrefixPath { get; set; } = string.Empty;
         public string BiosPath { get; set; } = string.Empty;
+
+        // Deleted game files land here instead of being wiped immediately.
+        // Empty = use <configDir>/trash as the default.
+        public string TrashPath { get; set; } = string.Empty;
+
+        // 0 = never auto-purge (manual-empty only). Positive = days before
+        // background service purges an entry.
+        public int TrashRetentionDays { get; set; } = 14;
+
         public string Platform { get; set; } = "default";
         
         /// <summary>

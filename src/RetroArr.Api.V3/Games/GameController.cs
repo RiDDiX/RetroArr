@@ -27,8 +27,9 @@ namespace RetroArr.Api.V3.Games
         private readonly InstallerScannerService _installerScanner;
         private readonly LocalMediaExportService _localMediaExport;
         private readonly RetroArr.Core.MetadataSource.Gog.GogDownloadTracker _gogDownloadTracker;
+        private readonly TrashService _trash;
 
-        public GameController(IGameRepository repository, IGameMetadataServiceFactory metadataServiceFactory, RetroArr.Core.IO.IArchiveService archiveService, ILauncherService launcherService, ConfigurationService configService, InstallerScannerService installerScanner, LocalMediaExportService localMediaExport, RetroArr.Core.MetadataSource.Gog.GogDownloadTracker gogDownloadTracker)
+        public GameController(IGameRepository repository, IGameMetadataServiceFactory metadataServiceFactory, RetroArr.Core.IO.IArchiveService archiveService, ILauncherService launcherService, ConfigurationService configService, InstallerScannerService installerScanner, LocalMediaExportService localMediaExport, RetroArr.Core.MetadataSource.Gog.GogDownloadTracker gogDownloadTracker, TrashService trash)
         {
             _repository = repository;
             _metadataServiceFactory = metadataServiceFactory;
@@ -38,6 +39,7 @@ namespace RetroArr.Api.V3.Games
             _installerScanner = installerScanner;
             _localMediaExport = localMediaExport;
             _gogDownloadTracker = gogDownloadTracker;
+            _trash = trash;
         }
 
         [HttpGet]
@@ -427,22 +429,55 @@ namespace RetroArr.Api.V3.Games
 
                 if (isSafe)
                 {
+                    // Defence in depth: never wipe a directory that still holds
+                    // other games (happens when game.Path is the platform folder
+                    // for single-file ROM systems — e.g. NDS rom sits at
+                    // /media/nds/foo.nds but game.Path got set to /media/nds).
+                    // Prefer the specific file via ExecutablePath when we can.
+                    if (System.IO.Directory.Exists(pathToDelete))
+                    {
+                        if (!string.IsNullOrEmpty(game.ExecutablePath)
+                            && System.IO.File.Exists(game.ExecutablePath)
+                            && IsSubPath(game.ExecutablePath, pathToDelete)
+                            && !System.IO.Path.GetFullPath(pathToDelete).Equals(System.IO.Path.GetFullPath(game.ExecutablePath), StringComparison.OrdinalIgnoreCase))
+                        {
+                            // game.Path is a folder, ExecutablePath is the actual ROM — delete just the file.
+                            pathToDelete = game.ExecutablePath;
+                        }
+                        else
+                        {
+                            var allGames = await _repository.GetAllLightAsync();
+                            var collisions = allGames
+                                .Where(g => g.Id != id)
+                                .Where(g =>
+                                    (!string.IsNullOrEmpty(g.Path) && IsSubPath(g.Path, pathToDelete)) ||
+                                    (!string.IsNullOrEmpty(g.ExecutablePath) && IsSubPath(g.ExecutablePath, pathToDelete)))
+                                .Select(g => g.Id)
+                                .Take(5)
+                                .ToList();
+                            if (collisions.Count > 0)
+                            {
+                                _logger.Error($"[Delete] REFUSED to delete directory {pathToDelete}: it still holds {collisions.Count}+ other library entries (sample ids: {string.Join(", ", collisions)}).");
+                                return Conflict(new
+                                {
+                                    message = $"Refusing to delete '{pathToDelete}' — it contains other games in the library. Fix the game's path in Settings or use file-level delete.",
+                                    otherGameIds = collisions,
+                                });
+                            }
+                        }
+                    }
+
                     try
                     {
-                        if (System.IO.File.Exists(pathToDelete))
+                        var entry = await _trash.MoveAsync(pathToDelete, id, game.Title);
+                        if (entry != null)
                         {
-                            System.IO.File.Delete(pathToDelete);
-                            _logger.Info($"[Delete] Deleted file: {pathToDelete}");
-                        }
-                        else if (System.IO.Directory.Exists(pathToDelete))
-                        {
-                            System.IO.Directory.Delete(pathToDelete, true);
-                            _logger.Info($"[Delete] Deleted directory: {pathToDelete}");
+                            _logger.Info($"[Delete] Moved {(entry.IsDirectory ? "directory" : "file")} to trash: {pathToDelete} (entry {entry.Id})");
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.Error($"[Delete] Error deleting library files at {pathToDelete}: {ex.Message}");
+                        _logger.Error($"[Delete] Error moving library files to trash at {pathToDelete}: {ex.Message}");
                     }
                 }
                 else
@@ -463,12 +498,15 @@ namespace RetroArr.Api.V3.Games
                 {
                     try
                     {
-                        System.IO.Directory.Delete(downloadPath, true);
-                        _logger.Info($"[Delete] Deleted download directory: {downloadPath}");
+                        var entry = await _trash.MoveAsync(downloadPath, id, game.Title);
+                        if (entry != null)
+                        {
+                            _logger.Info($"[Delete] Moved download directory to trash: {downloadPath} (entry {entry.Id})");
+                        }
                     }
                     catch (Exception ex)
                     {
-                        _logger.Error($"[Delete] Error deleting download folder at {downloadPath}: {ex.Message}");
+                        _logger.Error($"[Delete] Error moving download folder to trash at {downloadPath}: {ex.Message}");
                     }
                 }
                 else if (!isDownloadSafe)
@@ -484,6 +522,19 @@ namespace RetroArr.Api.V3.Games
             }
 
             return NoContent();
+        }
+
+        private static bool IsSubPath(string candidate, string root)
+        {
+            if (string.IsNullOrEmpty(candidate) || string.IsNullOrEmpty(root)) return false;
+            try
+            {
+                var r = System.IO.Path.GetFullPath(root).TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar) + System.IO.Path.DirectorySeparatorChar;
+                var c = System.IO.Path.GetFullPath(candidate);
+                return c.Equals(r.TrimEnd(System.IO.Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)
+                    || c.StartsWith(r, StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
         }
 
         private bool IsCriticalPath(string path)
