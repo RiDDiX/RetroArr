@@ -1,3 +1,8 @@
+## v1.0.99 (2026-04-14)
+
+### Changes
+- log the inner cause when game update fails (cc59fa6)
+
 ## v1.0.98 (2026-04-14)
 
 ### Changes
