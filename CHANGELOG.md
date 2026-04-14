@@ -1,3 +1,11 @@
+## v1.0.96 (2026-04-14)
+
+### Changes
+- harden auth, encrypt creds, new retro UI (65573f1)
+- fix: include ProtonDbTier in GameDetails API response, enlarge badges (d7fea34)
+- chore: bump version to v1.0.91 [skip ci] (5393336)
+- chore: bump version to v1.0.70 [skip ci] (f347632)
+
 ## v1.0.94 (2026-03-21)
 
 ### Changes
