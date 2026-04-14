@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
-import apiClient, { getErrorMessage, isTimeoutError } from '../api/client';
+import apiClient, { getErrorMessage, isTimeoutError, isAxiosError } from '../api/client';
 import { t, getLanguage, useTranslation } from '../i18n/translations';
 import GameCorrectionModal from '../components/GameCorrectionModal';
 import UninstallModal from '../components/UninstallModal';
@@ -150,6 +150,16 @@ const GameDetails: React.FC = () => {
   const [downloadingUrl, setDownloadingUrl] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
   const [showCorrectionModal, setShowCorrectionModal] = useState(false);
+
+  // Surfaces the backend 409 duplicate-title response with a choice of actions.
+  const [conflict, setConflict] = useState<{
+    message: string;
+    otherGameId: number;
+    otherGameTitle?: string;
+    otherGamePath?: string;
+    attemptedUpdates: Record<string, unknown>;
+  } | null>(null);
+  const [conflictBusy, setConflictBusy] = useState(false);
   const [showUninstallModal, setShowUninstallModal] = useState(false);
   const [showInstallWarning, setShowInstallWarning] = useState(false);
   const [showSwitchModal, setShowSwitchModal] = useState(false);
@@ -949,8 +959,50 @@ const GameDetails: React.FC = () => {
       const response = await apiClient.get(`/game/${game.id}`, { params: { lang: language } });
       setGame(response.data);
     } catch (err: unknown) {
+      if (isAxiosError(err) && err.response?.status === 409
+        && err.response?.data?.code === 'duplicate_title'
+        && typeof err.response?.data?.otherGameId === 'number') {
+        setConflict({
+          message: err.response.data.message,
+          otherGameId: err.response.data.otherGameId,
+          otherGameTitle: err.response.data.otherGameTitle,
+          otherGamePath: err.response.data.otherGamePath,
+          attemptedUpdates: updates,
+        });
+        return;
+      }
       console.error(err);
       setNotification({ message: getErrorMessage(err, t('errorUpdating')), type: 'error' });
+    }
+  };
+
+  const resolveWithRename = async () => {
+    if (!game || !conflict) return;
+    const current = String(conflict.attemptedUpdates.Title ?? game.title ?? '');
+    const suggestion = `${current} (${game.id})`.trim();
+    const next = window.prompt(t('conflictRenamePrompt') || 'Enter a new title:', suggestion);
+    if (!next || !next.trim()) return;
+    const merged = { ...conflict.attemptedUpdates, Title: next.trim() };
+    setConflict(null);
+    await handleCorrectionSave(merged);
+  };
+
+  const resolveWithMerge = async () => {
+    if (!game || !conflict) return;
+    if (!window.confirm(
+      t('conflictMergeConfirm')
+      || `Merge this entry into #${conflict.otherGameId}? The current entry will be removed from the library (files stay on disk).`
+    )) return;
+    setConflictBusy(true);
+    try {
+      await apiClient.post(`/game/${game.id}/merge-into/${conflict.otherGameId}`);
+      setNotification({ message: t('conflictMerged') || 'Merged.', type: 'success' });
+      setConflict(null);
+      navigate(`/game/${conflict.otherGameId}`);
+    } catch (err) {
+      setNotification({ message: getErrorMessage(err, 'Merge failed.'), type: 'error' });
+    } finally {
+      setConflictBusy(false);
     }
   };
   const handleInstallClick = () => {
@@ -2702,6 +2754,37 @@ const GameDetails: React.FC = () => {
           />
         )
       }
+
+      <Modal
+        isOpen={!!conflict}
+        onClose={() => setConflict(null)}
+        title={t('conflictTitle') || 'Duplicate title'}
+        footer={
+          <>
+            <button className="btn-secondary" onClick={() => setConflict(null)} disabled={conflictBusy}>
+              {t('cancel') || 'Cancel'}
+            </button>
+            <button className="btn-secondary" onClick={resolveWithRename} disabled={conflictBusy}>
+              {t('conflictRename') || 'Rename this one'}
+            </button>
+            <button className="btn-primary" onClick={resolveWithMerge} disabled={conflictBusy}>
+              {t('conflictMerge') || `Merge into #${conflict?.otherGameId ?? '?'}`}
+            </button>
+          </>
+        }
+      >
+        <p style={{ marginBottom: '0.75rem' }}>{conflict?.message}</p>
+        {conflict?.otherGameTitle && (
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+            <strong>#{conflict.otherGameId}</strong> — {conflict.otherGameTitle}
+          </p>
+        )}
+        {conflict?.otherGamePath && (
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+            <code>{conflict.otherGamePath}</code>
+          </p>
+        )}
+      </Modal>
 
       <Modal
         isOpen={showInstallWarning}

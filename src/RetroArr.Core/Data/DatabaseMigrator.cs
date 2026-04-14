@@ -231,7 +231,9 @@ namespace RetroArr.Core.Data
             if (dbType != DatabaseType.SQLite) return; // Non-SQLite indexes created by EnsureCreated
             var indexes = new[]
             {
-                "CREATE UNIQUE INDEX IF NOT EXISTS IX_Games_Title_PlatformId ON Games (Title, PlatformId);",
+                // Drop the old Title+PlatformId unique index — region-variants kept colliding.
+                "DROP INDEX IF EXISTS IX_Games_Title_PlatformId;",
+                "CREATE UNIQUE INDEX IF NOT EXISTS IX_Games_Title_PlatformId_Region ON Games (Title, PlatformId, Region);",
                 "CREATE UNIQUE INDEX IF NOT EXISTS IX_Games_Path ON Games (Path) WHERE Path IS NOT NULL;"
             };
 

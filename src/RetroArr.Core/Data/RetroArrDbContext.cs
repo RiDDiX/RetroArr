@@ -77,9 +77,14 @@ namespace RetroArr.Core.Data
                     .WithOne(f => f.Game)
                     .HasForeignKey(f => f.GameId);
 
-                entity.HasIndex(e => new { e.Title, e.PlatformId })
+                // Region is part of the key so that legitimate regional variants
+                // (e.g. "AFL Live 2004 (AU)" vs the same title in (EU)) can live
+                // side by side. SQLite treats NULL as distinct, so untagged
+                // duplicates aren't merged — the user can clean those up via
+                // the review gate.
+                entity.HasIndex(e => new { e.Title, e.PlatformId, e.Region })
                     .IsUnique()
-                    .HasDatabaseName("IX_Games_Title_PlatformId");
+                    .HasDatabaseName("IX_Games_Title_PlatformId_Region");
 
                 entity.HasIndex(e => e.Path)
                     .IsUnique()

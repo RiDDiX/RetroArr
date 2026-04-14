@@ -344,6 +344,9 @@ export interface MediaSettings {
   downloadPath: string;
   destinationPath: string;
   winePrefixPath: string;
+  biosPath: string;
+  trashPath: string;
+  trashRetentionDays: number;
   platform: string;
   folderNamingMode: string;
   gogDownloadsPath: string;

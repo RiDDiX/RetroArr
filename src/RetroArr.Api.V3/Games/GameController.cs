@@ -377,12 +377,92 @@ namespace RetroArr.Api.V3.Games
                 _logger.Info($"[Game] Applied ScreenScraper metadata for game {id}: {existingGame.Title}");
             }
 
-            var updated = await _repository.UpdateAsync(id, existingGame);
+            // Pre-check: another game on this platform with the same Title + Region?
+            // Catch it here so the caller gets a useful 409 instead of a raw
+            // database violation. Region variants are allowed — the unique index
+            // is (Title, PlatformId, Region), so only an exact 3-way match fires.
+            try
+            {
+                var others = await _repository.GetAllLightAsync();
+                var collision = others.FirstOrDefault(g =>
+                    g.Id != id &&
+                    g.PlatformId == existingGame.PlatformId &&
+                    string.Equals(g.Title, existingGame.Title, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(g.Region ?? string.Empty, existingGame.Region ?? string.Empty, StringComparison.OrdinalIgnoreCase));
+                if (collision != null)
+                {
+                    return Conflict(new
+                    {
+                        code = "duplicate_title",
+                        message = $"Another library entry already has this title + platform + region. Rename this one, merge it into #{collision.Id}, or delete the duplicate.",
+                        otherGameId = collision.Id,
+                        otherGameTitle = collision.Title,
+                        otherGamePath = collision.Path,
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn($"[Game] Pre-save duplicate check skipped: {ex.Message}");
+            }
+
+            Game? updated;
+            try
+            {
+                updated = await _repository.UpdateAsync(id, existingGame);
+            }
+            catch (DuplicateGameException ex)
+            {
+                _logger.Warn($"[Game] Update blocked by unique constraint for id={id}: {ex.Message}");
+                return Conflict(new
+                {
+                    code = "duplicate_title",
+                    message = ex.Message,
+                    conflictField = ex.ConflictField,
+                });
+            }
 
             try { await _localMediaExport.ExportMediaForGameAsync(existingGame); }
             catch (System.Exception ex) { _logger.Error($"[Game] Media export error: {ex.Message}"); }
 
             return Ok(updated);
+        }
+
+        /// Merge endpoint: take the `sourceId` game, carry its file/path info into
+        /// `targetId`, and trash the source. Useful when the user discovers two
+        /// rows for the same game (same region) and wants to keep only one entry.
+        [HttpPost("{sourceId:int}/merge-into/{targetId:int}")]
+        public async Task<ActionResult> MergeInto(int sourceId, int targetId)
+        {
+            if (sourceId == targetId) return BadRequest(new { message = "Source and target must differ." });
+
+            var source = await _repository.GetByIdAsync(sourceId);
+            var target = await _repository.GetByIdAsync(targetId);
+            if (source == null || target == null) return NotFound();
+
+            if (string.IsNullOrEmpty(target.Path) && !string.IsNullOrEmpty(source.Path))
+                target.Path = source.Path;
+            if (string.IsNullOrEmpty(target.ExecutablePath) && !string.IsNullOrEmpty(source.ExecutablePath))
+                target.ExecutablePath = source.ExecutablePath;
+            if (string.IsNullOrEmpty(target.Region) && !string.IsNullOrEmpty(source.Region))
+                target.Region = source.Region;
+            if (string.IsNullOrEmpty(target.Languages) && !string.IsNullOrEmpty(source.Languages))
+                target.Languages = source.Languages;
+
+            try
+            {
+                await _repository.UpdateAsync(target.Id, target);
+            }
+            catch (DuplicateGameException ex)
+            {
+                return Conflict(new { code = "duplicate_title", message = ex.Message });
+            }
+
+            // Delete the source metadata row. Files are kept in place — if the
+            // user wants the file gone too, they can hit Remove on the row first.
+            await _repository.DeleteAsync(sourceId);
+            _logger.Info($"[Game] Merged {sourceId} into {targetId}");
+            return Ok(new { merged = true, targetId });
         }
 
         [HttpDelete("{id}")]

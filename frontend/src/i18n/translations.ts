@@ -954,6 +954,12 @@ export const translations = {
         trashPathDesc: 'Deleted game files are moved here first so you can restore them. Set retention to 0 to keep entries until you empty the trash manually.',
         trashRetentionLabel: 'Retention (days, 0 = manual only)',
         refresh: 'Refresh',
+        conflictTitle: 'Duplicate title',
+        conflictRename: 'Rename this one',
+        conflictMerge: 'Merge into the other entry',
+        conflictRenamePrompt: 'Enter a new title:',
+        conflictMergeConfirm: 'Merge this entry into the other one? The current entry will be removed from the library (files stay on disk).',
+        conflictMerged: 'Merged.',
     },
     fr: {
         // Post-Download Management

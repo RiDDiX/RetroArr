@@ -238,7 +238,28 @@ namespace RetroArr.Core.Games
             }
 
             CopyDirRecursive(src, dst);
-            Directory.Delete(src, recursive: true);
+
+            // If the source delete fails after a successful copy, we've left
+            // a duplicate on disk. Retry a few times, then roll the trash
+            // copy back out so the user isn't stuck with an orphaned entry
+            // pointing at a path they can't restore to.
+            Exception? lastDeleteError = null;
+            for (int attempt = 1; attempt <= 3; attempt++)
+            {
+                try
+                {
+                    Directory.Delete(src, recursive: true);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    lastDeleteError = ex;
+                    System.Threading.Thread.Sleep(250 * attempt);
+                }
+            }
+
+            try { Directory.Delete(dst, recursive: true); } catch { }
+            throw new IOException($"Source delete failed after copy: {lastDeleteError?.Message}", lastDeleteError);
         }
 
         private static void CopyDirRecursive(string src, string dst)

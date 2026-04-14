@@ -141,6 +141,19 @@ namespace RetroArr.Core.Games
             {
                 var inner = ex.GetBaseException();
                 _logger.Error($"[Game] Update failed for id={id}: {inner.GetType().Name}: {inner.Message}");
+
+                var msg = inner.Message ?? string.Empty;
+                if (msg.Contains("UNIQUE constraint failed", StringComparison.OrdinalIgnoreCase))
+                {
+                    string? field = null;
+                    if (msg.Contains("Games.Title", StringComparison.OrdinalIgnoreCase)) field = "Title+PlatformId";
+                    else if (msg.Contains("Games.Path", StringComparison.OrdinalIgnoreCase)) field = "Path";
+                    else if (msg.Contains("Games.IgdbId", StringComparison.OrdinalIgnoreCase)) field = "IgdbId+PlatformId";
+                    throw new DuplicateGameException(
+                        $"Another library entry already has this {field ?? "value"}.",
+                        field, game.Title, ex);
+                }
+
                 throw new InvalidOperationException(
                     $"Could not save game {id}: {inner.Message}", ex);
             }
