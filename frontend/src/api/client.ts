@@ -16,6 +16,19 @@ export function getApiKey(): string | null {
   return _apiKey;
 }
 
+// Append the current API key as a query parameter. Use this for native
+// <img src>, <video src>, and anchor downloads — they don't go through
+// the axios interceptor or the window.fetch wrapper, so they'd otherwise
+// hit the auth middleware without credentials on LAN access.
+export function withApiKey(url: string): string {
+  if (!url) return url;
+  const key = _apiKey;
+  if (!key) return url;
+  if (!(url.startsWith('/api/') || url.startsWith('/hubs/'))) return url;
+  if (/[?&]apiKey=/.test(url)) return url;
+  return url + (url.includes('?') ? '&' : '?') + 'apiKey=' + encodeURIComponent(key);
+}
+
 export function setApiKey(key: string | null) {
   _apiKey = key;
   try {

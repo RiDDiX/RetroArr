@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
-import apiClient, { getErrorMessage, isTimeoutError, isAxiosError } from '../api/client';
+import apiClient, { getErrorMessage, isTimeoutError, isAxiosError, withApiKey } from '../api/client';
 import { t, getLanguage, useTranslation } from '../i18n/translations';
 import GameCorrectionModal from '../components/GameCorrectionModal';
 import UninstallModal from '../components/UninstallModal';
@@ -371,8 +371,10 @@ const GameDetails: React.FC = () => {
       setLocalMediaLoading(true);
       try {
         const res = await apiClient.get(`/game/${id}/local-media`);
-        setLocalImages(res.data.images || []);
-        setLocalVideos(res.data.videos || []);
+        const stampUrl = <T extends { url: string }>(items: T[]): T[] =>
+          (items || []).map((it) => ({ ...it, url: withApiKey(it.url) }));
+        setLocalImages(stampUrl(res.data.images));
+        setLocalVideos(stampUrl(res.data.videos));
       } catch {
         setLocalImages([]);
         setLocalVideos([]);
@@ -402,7 +404,7 @@ const GameDetails: React.FC = () => {
 
   const handleDownloadFile = (relativePath: string) => {
     const a = document.createElement('a');
-    a.href = `/api/v3/game/${id}/files/download?path=${encodeURIComponent(relativePath)}`;
+    a.href = withApiKey(`/api/v3/game/${id}/files/download?path=${encodeURIComponent(relativePath)}`);
     a.download = relativePath.split('/').pop() || relativePath;
     document.body.appendChild(a);
     a.click();
