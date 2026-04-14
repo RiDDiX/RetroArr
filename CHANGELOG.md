@@ -1,3 +1,8 @@
+## v1.0.97 (2026-04-14)
+
+### Changes
+- api access: show retrieval hint when bootstrap can't fetch the key (87a838c)
+
 ## v1.0.96 (2026-04-14)
 
 ### Changes
