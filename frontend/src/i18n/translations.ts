@@ -934,6 +934,9 @@ export const translations = {
         notFoundTitle: 'Game Over',
         notFoundBody: 'That route is not in the cartridge. Head back to the library and keep playing.',
         continue: 'Continue',
+        apiKeyNoneTitle: 'This browser has no key yet',
+        apiKeyNoneBody: 'Your server is not reachable from this page over loopback, so auto-bootstrap skipped. Read the key file on the server and paste it below.',
+        apiKeyNoneHint: 'Desktop installs: look under the config folder RetroArr created on first launch (Windows: %APPDATA%/RetroArr/config, Linux: ~/.config/RetroArr/config, macOS: ~/Library/Application Support/RetroArr/config).',
     },
     fr: {
         // Post-Download Management

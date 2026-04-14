@@ -24,6 +24,11 @@ const ApiAccessTab: React.FC<Props> = ({ t }) => {
     setCurrent(getApiKey());
   }, []);
 
+  // When we don't have a key yet the whole "Current key" panel is useless.
+  // Surface the retrieval steps instead so the user doesn't bounce off
+  // "Missing or invalid API key" without a way forward.
+  const hasKey = !!current;
+
   const rotate = async () => {
     if (!window.confirm(t('apiKeyConfirmRotate') || 'Rotate the API key? Other clients will need the new key.')) return;
     setBusy(true);
@@ -72,6 +77,35 @@ const ApiAccessTab: React.FC<Props> = ({ t }) => {
 
       {error && <div className="alert alert-error">{error}</div>}
       {notice && <div className="alert alert-info">{notice}</div>}
+
+      {!hasKey && (
+        <div
+          className="alert alert-info"
+          style={{ display: 'grid', gap: 8, padding: 12, marginBottom: 16 }}
+        >
+          <strong>{t('apiKeyNoneTitle') || 'This browser has no key yet'}</strong>
+          <div style={{ fontSize: 13, lineHeight: 1.55 }}>
+            {t('apiKeyNoneBody') ||
+              'Your server is not reachable from this page over loopback, so auto-bootstrap skipped. Read the key file on the server and paste it below.'}
+          </div>
+          <code
+            style={{
+              display: 'block',
+              padding: '6px 10px',
+              background: 'var(--surface-0)',
+              borderRadius: 4,
+              fontSize: 12,
+              overflowX: 'auto',
+            }}
+          >
+            docker exec -it retroarr cat /app/config/apikey.json
+          </code>
+          <small style={{ color: 'var(--ctp-overlay0)' }}>
+            {t('apiKeyNoneHint') ||
+              'Desktop installs: look under the config folder RetroArr created on first launch (Windows: %APPDATA%/RetroArr/config, Linux: ~/.config/RetroArr/config, macOS: ~/Library/Application Support/RetroArr/config).'}
+          </small>
+        </div>
+      )}
 
       <div className="form-group">
         <label>{t('apiKeyCurrent') || 'Current API key'}</label>
