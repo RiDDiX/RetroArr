@@ -9,6 +9,7 @@ namespace RetroArr.Core.Games
 {
     public class SqliteGameRepository : IGameRepository
     {
+        private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(Logging.AppLoggerService.General);
         private readonly IDbContextFactory<RetroArrDbContext> _contextFactory;
 
         public SqliteGameRepository(IDbContextFactory<RetroArrDbContext> contextFactory)
@@ -132,7 +133,17 @@ namespace RetroArr.Core.Games
                 existing.Images.Artworks = game.Images.Artworks;
             }
 
-            await context.SaveChangesAsync();
+            try
+            {
+                await context.SaveChangesAsync();
+            }
+            catch (DbUpdateException ex)
+            {
+                var inner = ex.GetBaseException();
+                _logger.Error($"[Game] Update failed for id={id}: {inner.GetType().Name}: {inner.Message}");
+                throw new InvalidOperationException(
+                    $"Could not save game {id}: {inner.Message}", ex);
+            }
             return existing;
         }
 
