@@ -1,3 +1,8 @@
+## v1.0.100 (2026-04-14)
+
+### Changes
+- delete moves to trash, not a wipe no more folder-wide mistakes (482ef7b)
+
 ## v1.0.99 (2026-04-14)
 
 ### Changes
