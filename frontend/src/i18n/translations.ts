@@ -685,6 +685,11 @@ export const translations = {
         fixPlatformDone: 'Platform corrected.',
         fixPlatformUnchanged: 'Platform already matches the path.',
         fixPlatformFailed: 'Could not fix platform.',
+        healPlatforms: 'Fix Wrong Platforms',
+        healPlatformsTitle: 'Fix rows whose stored platform disagrees with the file path',
+        healPlatformsRunning: 'Fixing...',
+        healPlatformsConfirm: 'Walk every game and fix rows whose platform disagrees with their path?',
+        healPlatformsDone: 'Heal done.',
 
         // Status
         status: 'Status',

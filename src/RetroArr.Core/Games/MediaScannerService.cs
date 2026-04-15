@@ -638,14 +638,19 @@ namespace RetroArr.Core.Games
                     gamesAdded += externalGames;
                 }
 
-                // Global orphan sweep. Only runs on full-library scans so that a
-                // single-platform rescan can't nuke unrelated entries. Catches the
-                // case where a whole platform folder got deleted externally — per-
-                // platform cleanup never fires for a platform the detector no
-                // longer sees, so we need a second pass.
+                // Full sweep runs only on full-library scans (the Missing/purge
+                // pass depends on seeing every platform). Per-platform scans
+                // still get a cheap heal pass so wrong PlatformId rows get
+                // fixed without waiting for the next full scan.
                 if (string.IsNullOrEmpty(overridePath))
                 {
                     await GlobalOrphanSweepAsync(settings, _scanCts.Token);
+                }
+                else
+                {
+                    try { await HealWrongPlatformsAsync(_scanCts.Token); }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex) { Log($"[Heal] skipped: {ex.Message}", LogLevel.Warning); }
                 }
             }
             catch (OperationCanceledException)
@@ -1859,6 +1864,11 @@ namespace RetroArr.Core.Games
                 if (string.IsNullOrEmpty(existing.ExecutablePath) && !string.IsNullOrEmpty(freshData.ExecutablePath))
                     existing.ExecutablePath = freshData.ExecutablePath;
                 existing.IsExternal = freshData.IsExternal;
+                if (existing.MissingSince != null)
+                {
+                    existing.MissingSince = null;
+                    if (existing.Status == GameStatus.Missing) existing.Status = GameStatus.Released;
+                }
                 await _gameRepository.UpdateAsync(existing.Id, existing);
                 await SyncGameFilesFromDisk(existing.Id, existing.Path);
                 return true;
@@ -1884,6 +1894,15 @@ namespace RetroArr.Core.Games
             if (string.IsNullOrEmpty(existing.ExecutablePath) && !string.IsNullOrEmpty(freshData.ExecutablePath))
                 existing.ExecutablePath = freshData.ExecutablePath;
             existing.IsExternal = freshData.IsExternal;
+
+            // Rediscovered on disk: drop the Missing flag so retention purge
+            // doesn't wipe this row next sweep.
+            if (existing.MissingSince != null)
+            {
+                existing.MissingSince = null;
+                if (existing.Status == GameStatus.Missing) existing.Status = GameStatus.Released;
+            }
+
             await _gameRepository.UpdateAsync(existing.Id, existing);
             await SyncGameFilesFromDisk(existing.Id, existing.Path);
             return true;
@@ -2635,89 +2654,101 @@ namespace RetroArr.Core.Games
                 Log($"[Cleanup] Platform '{platformKey}': flagged {flagged} missing, cleared {cleared}, resynced {resynced}");
         }
 
+        // Walks every DB row, compares stored PlatformId against what the path
+        // says, and fixes mismatches. Returns (healed, dupesDropped, dropped-set).
+        // Split out from the full orphan sweep so it can be called ad-hoc
+        // without touching the Missing-flag lifecycle.
+        public async Task<(int healed, int dupesDropped)> HealWrongPlatformsAsync(System.Threading.CancellationToken ct = default)
+        {
+            var all = await _gameRepository.GetAllLightAsync();
+            int healed = 0;
+            int dupesDropped = 0;
+
+            var live = new Dictionary<(string, int), HashSet<int>>();
+            foreach (var g in all)
+            {
+                var key = (g.Title?.ToLowerInvariant() ?? string.Empty, g.PlatformId);
+                if (!live.TryGetValue(key, out var set)) { set = new HashSet<int>(); live[key] = set; }
+                set.Add(g.Id);
+            }
+            var dropped = new HashSet<int>();
+
+            foreach (var g in all)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (dropped.Contains(g.Id)) continue;
+                if (string.IsNullOrEmpty(g.Path)) continue;
+
+                bool pathExists;
+                try { pathExists = Directory.Exists(g.Path) || File.Exists(g.Path); }
+                catch { continue; }
+                if (!pathExists) continue;
+
+                var pathPlatform = PlatformDefinitions.ResolvePlatformFromPath(g.Path);
+                if (pathPlatform == null || pathPlatform.Id == g.PlatformId) continue;
+
+                var titleKey = g.Title?.ToLowerInvariant() ?? string.Empty;
+                var hasLiveCollision = live.TryGetValue((titleKey, pathPlatform.Id), out var set)
+                    && set.Any(id => id != g.Id);
+
+                if (!hasLiveCollision)
+                {
+                    Log($"[Heal] Correcting platform for '{g.Title}' (id={g.Id}): {g.PlatformId} → {pathPlatform.Id} ({pathPlatform.Name}) based on path '{g.Path}'");
+                    var fresh = await _gameRepository.GetByIdAsync(g.Id);
+                    if (fresh != null)
+                    {
+                        fresh.PlatformId = pathPlatform.Id;
+                        try
+                        {
+                            await _gameRepository.UpdateAsync(fresh.Id, fresh);
+                            healed++;
+                            if (live.TryGetValue((titleKey, g.PlatformId), out var oldSet)) oldSet.Remove(g.Id);
+                            if (!live.TryGetValue((titleKey, pathPlatform.Id), out var newSet))
+                            { newSet = new HashSet<int>(); live[(titleKey, pathPlatform.Id)] = newSet; }
+                            newSet.Add(g.Id);
+                        }
+                        catch (Exception ex) { Log($"[Heal] Update failed id={g.Id}: {ex.Message}", LogLevel.Warning); }
+                    }
+                }
+                else
+                {
+                    Log($"[Heal] Dropping duplicate '{g.Title}' (id={g.Id}, platform={g.PlatformId}) — correct entry on platform {pathPlatform.Id} already exists");
+                    try
+                    {
+                        await _gameRepository.DeleteAsync(g.Id);
+                        dupesDropped++;
+                        dropped.Add(g.Id);
+                        if (live.TryGetValue((titleKey, g.PlatformId), out var oldSet)) oldSet.Remove(g.Id);
+                    }
+                    catch (Exception ex) { Log($"[Heal] Delete failed id={g.Id}: {ex.Message}", LogLevel.Warning); }
+                }
+            }
+
+            if (healed > 0 || dupesDropped > 0)
+                Log($"[Heal] Platform heal pass: healed {healed}, duplicates dropped {dupesDropped}");
+            return (healed, dupesDropped);
+        }
+
         private async Task GlobalOrphanSweepAsync(Configuration.MediaSettings settings, System.Threading.CancellationToken ct)
         {
             try
             {
+                // Platform heal runs first so the Missing pass sees corrected rows.
+                var (healed, dupesDropped) = await HealWrongPlatformsAsync(ct);
+
                 var all = await _gameRepository.GetAllLightAsync();
                 var now = DateTime.UtcNow;
                 var toFlag = new List<int>();
                 int cleared = 0;
-                int healed = 0;
-                int dupesDropped = 0;
-
-                // Live index: (title-lower, platformId) → set of game IDs still
-                // valid. We mutate this as we heal/delete so later iterations
-                // see the correct picture and don't mis-classify because a row
-                // that was there at loop-start is gone by iteration 50.
-                var live = new Dictionary<(string, int), HashSet<int>>();
-                foreach (var g in all)
-                {
-                    var key = (g.Title?.ToLowerInvariant() ?? string.Empty, g.PlatformId);
-                    if (!live.TryGetValue(key, out var set)) { set = new HashSet<int>(); live[key] = set; }
-                    set.Add(g.Id);
-                }
-                var dropped = new HashSet<int>();
 
                 foreach (var g in all)
                 {
                     ct.ThrowIfCancellationRequested();
-                    if (dropped.Contains(g.Id)) continue;
                     if (string.IsNullOrEmpty(g.Path)) continue;
 
                     bool pathExists;
                     try { pathExists = Directory.Exists(g.Path) || File.Exists(g.Path); }
                     catch { continue; }
-
-                    if (pathExists)
-                    {
-                        // Heal wrong PlatformId when the file lives under a
-                        // different platform folder than the DB claims.
-                        var pathPlatform = PlatformDefinitions.ResolvePlatformFromPath(g.Path);
-                        if (pathPlatform != null && pathPlatform.Id != g.PlatformId)
-                        {
-                            var titleKey = g.Title?.ToLowerInvariant() ?? string.Empty;
-                            var hasLiveCollision = live.TryGetValue((titleKey, pathPlatform.Id), out var set)
-                                && set.Any(id => id != g.Id);
-
-                            if (!hasLiveCollision)
-                            {
-                                Log($"[Heal] Correcting platform for '{g.Title}' (id={g.Id}): {g.PlatformId} → {pathPlatform.Id} ({pathPlatform.Name}) based on path '{g.Path}'");
-                                var fresh = await _gameRepository.GetByIdAsync(g.Id);
-                                if (fresh != null)
-                                {
-                                    fresh.PlatformId = pathPlatform.Id;
-                                    try
-                                    {
-                                        await _gameRepository.UpdateAsync(fresh.Id, fresh);
-                                        healed++;
-
-                                        // Keep the live index consistent so a
-                                        // later game with the same title can
-                                        // still detect a collision with this one.
-                                        if (live.TryGetValue((titleKey, g.PlatformId), out var oldSet)) oldSet.Remove(g.Id);
-                                        if (!live.TryGetValue((titleKey, pathPlatform.Id), out var newSet))
-                                        { newSet = new HashSet<int>(); live[(titleKey, pathPlatform.Id)] = newSet; }
-                                        newSet.Add(g.Id);
-                                    }
-                                    catch (Exception ex) { Log($"[Heal] Update failed id={g.Id}: {ex.Message}", LogLevel.Warning); }
-                                }
-                            }
-                            else
-                            {
-                                Log($"[Heal] Dropping duplicate '{g.Title}' (id={g.Id}, platform={g.PlatformId}) — correct entry on platform {pathPlatform.Id} already exists");
-                                try
-                                {
-                                    await _gameRepository.DeleteAsync(g.Id);
-                                    dupesDropped++;
-                                    dropped.Add(g.Id);
-                                    if (live.TryGetValue((titleKey, g.PlatformId), out var oldSet)) oldSet.Remove(g.Id);
-                                }
-                                catch (Exception ex) { Log($"[Heal] Delete failed id={g.Id}: {ex.Message}", LogLevel.Warning); }
-                                continue; // nothing more to do with a deleted row
-                            }
-                        }
-                    }
 
                     if (!pathExists && g.MissingSince == null)
                     {

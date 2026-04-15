@@ -109,6 +109,18 @@ namespace RetroArr.Api.V3.Settings
             });
         }
 
+        // Ad-hoc platform reconciliation: walks every DB row and fixes entries
+        // whose stored PlatformId disagrees with the folder the file lives in.
+        // Drops duplicates when a correct row already occupies the target slot.
+        [HttpPost("heal-platforms")]
+        public async Task<IActionResult> HealPlatforms()
+        {
+            if (_scannerService.IsScanning)
+                return Conflict(new { message = "A scan is already running — heal will run at the end of it." });
+            var (healed, dupesDropped) = await _scannerService.HealWrongPlatformsAsync();
+            return Ok(new { healed, dupesDropped });
+        }
+
         // ==================== Metadata Rescan ====================
 
         private static volatile bool _isRescanningMetadata;

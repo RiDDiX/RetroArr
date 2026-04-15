@@ -142,6 +142,22 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
     }
   };
 
+  const [healing, setHealing] = useState(false);
+  const handleHealPlatforms = async () => {
+    if (!window.confirm(t('healPlatformsConfirm') || 'Walk every game and fix rows whose platform disagrees with their path?')) return;
+    setHealing(true);
+    try {
+      const res = await apiClient.post('/media/heal-platforms');
+      const { healed = 0, dupesDropped = 0 } = res.data || {};
+      alert(`${t('healPlatformsDone') || 'Heal done.'} healed: ${healed}, dropped: ${dupesDropped}`);
+      window.dispatchEvent(new Event('LIBRARY_UPDATED_EVENT'));
+    } catch (error: unknown) {
+      alert(`${t('error')}: ${getErrorMessage(error)}`);
+    } finally {
+      setHealing(false);
+    }
+  };
+
   const startFolderPolling = () => {
     setScanning(true);
     let attempts = 0;
@@ -204,6 +220,17 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
                 }
               }} title={t('selectFolder')}>
                 <FontAwesomeIcon icon={faFolderOpen} />
+              </button>
+            </div>
+            <div style={{ marginTop: '8px' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={handleHealPlatforms}
+                disabled={healing || scanning}
+                title={t('healPlatformsTitle') || 'Fix rows whose stored platform disagrees with the file path'}
+              >
+                {healing ? (t('healPlatformsRunning') || 'Fixing…') : (t('healPlatforms') || 'Fix Wrong Platforms')}
               </button>
             </div>
           </div>
