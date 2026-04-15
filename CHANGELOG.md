@@ -1,3 +1,8 @@
+## v1.0.106 (2026-04-15)
+
+### Changes
+- show protondb slot on pc and steam cards and sort by tier (4f51bf8)
+
 ## v1.0.105 (2026-04-15)
 
 ### Changes
