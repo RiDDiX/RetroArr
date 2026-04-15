@@ -673,6 +673,10 @@ export const translations = {
         addFromOnline: 'Add from Online',
         viewDetails: 'View',
         moreResults: 'more',
+        missingBadge: 'Missing',
+        missingBadgeTitle: 'Files missing on disk — last seen',
+        missingFilter: 'Only missing',
+        missingHideFilter: 'Hide missing',
 
         // Status
         status: 'Status',

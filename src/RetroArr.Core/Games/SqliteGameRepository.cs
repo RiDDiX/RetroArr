@@ -73,7 +73,8 @@ namespace RetroArr.Core.Games
                     Languages = g.Languages,
                     Revision = g.Revision,
                     IgdbId = g.IgdbId,
-                    ProtonDbTier = g.ProtonDbTier
+                    ProtonDbTier = g.ProtonDbTier,
+                    MissingSince = g.MissingSince
                 })
                 .ToListAsync();
 
@@ -232,6 +233,58 @@ namespace RetroArr.Core.Games
             gf.RelativePath = newRelativePath;
             await context.SaveChangesAsync();
             return true;
+        }
+
+        public async Task<int> FlagMissingAsync(IEnumerable<int> gameIds, DateTime at)
+        {
+            using var context = await _contextFactory.CreateDbContextAsync();
+            var ids = gameIds as List<int> ?? gameIds.ToList();
+            if (ids.Count == 0) return 0;
+
+            var targets = await context.Games
+                .Where(g => ids.Contains(g.Id) && g.MissingSince == null)
+                .ToListAsync();
+
+            foreach (var g in targets)
+            {
+                g.MissingSince = at;
+                g.Status = GameStatus.Missing;
+            }
+            await context.SaveChangesAsync();
+            return targets.Count;
+        }
+
+        public async Task<int> ClearMissingAsync(int gameId)
+        {
+            using var context = await _contextFactory.CreateDbContextAsync();
+            var g = await context.Games.FindAsync(gameId);
+            if (g == null || g.MissingSince == null) return 0;
+            g.MissingSince = null;
+            // Flip Missing back to Released; leave anything else alone.
+            if (g.Status == GameStatus.Missing) g.Status = GameStatus.Released;
+            await context.SaveChangesAsync();
+            return 1;
+        }
+
+        public async Task<List<Game>> GetMissingAsync()
+        {
+            using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.Games
+                .AsNoTracking()
+                .Where(g => g.MissingSince != null)
+                .ToListAsync();
+        }
+
+        public async Task<int> DeleteMissingOlderThanAsync(DateTime threshold)
+        {
+            using var context = await _contextFactory.CreateDbContextAsync();
+            var stale = await context.Games
+                .Where(g => g.MissingSince != null && g.MissingSince < threshold)
+                .ToListAsync();
+            if (stale.Count == 0) return 0;
+            context.Games.RemoveRange(stale);
+            await context.SaveChangesAsync();
+            return stale.Count;
         }
 
         public async Task SyncGameFilesAsync(int gameId, List<GameFile> files)

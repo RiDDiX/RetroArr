@@ -637,6 +637,16 @@ namespace RetroArr.Core.Games
                     var externalGames = await ScanExternalLibraryAsync(winePath, existingGames, metadataService, _scanCts.Token);
                     gamesAdded += externalGames;
                 }
+
+                // Global orphan sweep. Only runs on full-library scans so that a
+                // single-platform rescan can't nuke unrelated entries. Catches the
+                // case where a whole platform folder got deleted externally — per-
+                // platform cleanup never fires for a platform the detector no
+                // longer sees, so we need a second pass.
+                if (string.IsNullOrEmpty(overridePath))
+                {
+                    await GlobalOrphanSweepAsync(settings, _scanCts.Token);
+                }
             }
             catch (OperationCanceledException)
             {
@@ -1478,6 +1488,15 @@ namespace RetroArr.Core.Games
             {
                 bool needsUpdate = false;
 
+                // Rediscovered on disk: drop the Missing flag so it stops showing as stale.
+                if (existingByPath.MissingSince != null)
+                {
+                    await _gameRepository.ClearMissingAsync(existingByPath.Id);
+                    existingByPath.MissingSince = null;
+                    if (existingByPath.Status == GameStatus.Missing)
+                        existingByPath.Status = GameStatus.Released;
+                }
+
                 // Correct platform if folder-based detection disagrees with stored value
                 if (!string.IsNullOrEmpty(platformKey) && platformKey != "default")
                 {
@@ -1592,6 +1611,13 @@ namespace RetroArr.Core.Games
             existing.ExecutablePath = executablePath;
             existing.IsExternal = isExternal;
             if (isInstaller) existing.Status = GameStatus.InstallerDetected;
+
+            // Rediscovered on disk: drop the Missing flag.
+            if (existing.MissingSince != null)
+            {
+                existing.MissingSince = null;
+                if (existing.Status == GameStatus.Missing) existing.Status = GameStatus.Released;
+            }
 
             // Correct platform if folder-based detection disagrees
             if (!string.IsNullOrEmpty(platformKey) && platformKey != "default")
@@ -2550,9 +2576,11 @@ namespace RetroArr.Core.Games
                 !string.IsNullOrEmpty(g.Path)
             ).ToList();
 
-            int removed = 0;
+            int flagged = 0;
+            int cleared = 0;
             int resynced = 0;
-            var toRemove = new List<Game>();
+            var missingIds = new List<int>();
+            var now = DateTime.UtcNow;
 
             foreach (var game in platformGames)
             {
@@ -2570,30 +2598,83 @@ namespace RetroArr.Core.Games
 
                 if (!pathExists)
                 {
-                    Log($"[Cleanup] Removing stale game '{game.Title}' (ID: {game.Id}) — path no longer exists: {game.Path}");
-                    try
+                    if (game.MissingSince == null)
                     {
-                        await _gameRepository.DeleteAsync(game.Id);
-                        toRemove.Add(game);
-                        removed++;
+                        missingIds.Add(game.Id);
+                        game.MissingSince = now;
+                        game.Status = GameStatus.Missing;
+                        flagged++;
                     }
-                    catch (Exception ex)
-                    {
-                        Log($"[Cleanup] Error deleting game {game.Id}: {ex.Message}", LogLevel.Warning);
-                    }
+                    // Already flagged earlier — retention sweep at scan end handles final purge.
                 }
                 else
                 {
+                    if (game.MissingSince != null)
+                    {
+                        await _gameRepository.ClearMissingAsync(game.Id);
+                        game.MissingSince = null;
+                        cleared++;
+                    }
                     await SyncGameFilesFromDisk(game.Id, game.Path);
                     resynced++;
                 }
             }
 
-            foreach (var g in toRemove)
-                existingGames.Remove(g);
+            if (missingIds.Count > 0)
+                await _gameRepository.FlagMissingAsync(missingIds, now);
 
-            if (removed > 0 || resynced > 0)
-                Log($"[Cleanup] Platform '{platformKey}': removed {removed} stale game(s), resynced {resynced} game(s)");
+            if (flagged > 0 || cleared > 0 || resynced > 0)
+                Log($"[Cleanup] Platform '{platformKey}': flagged {flagged} missing, cleared {cleared}, resynced {resynced}");
+        }
+
+        private async Task GlobalOrphanSweepAsync(Configuration.MediaSettings settings, System.Threading.CancellationToken ct)
+        {
+            try
+            {
+                var all = await _gameRepository.GetAllLightAsync();
+                var now = DateTime.UtcNow;
+                var toFlag = new List<int>();
+                int cleared = 0;
+
+                foreach (var g in all)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (string.IsNullOrEmpty(g.Path)) continue;
+
+                    bool pathExists;
+                    try { pathExists = Directory.Exists(g.Path) || File.Exists(g.Path); }
+                    catch { continue; }
+
+                    if (!pathExists && g.MissingSince == null)
+                    {
+                        toFlag.Add(g.Id);
+                    }
+                    else if (pathExists && g.MissingSince != null)
+                    {
+                        await _gameRepository.ClearMissingAsync(g.Id);
+                        cleared++;
+                    }
+                }
+
+                int flagged = 0;
+                if (toFlag.Count > 0)
+                    flagged = await _gameRepository.FlagMissingAsync(toFlag, now);
+
+                int purged = 0;
+                if (settings.MissingRetentionDays > 0)
+                {
+                    var threshold = now.AddDays(-settings.MissingRetentionDays);
+                    purged = await _gameRepository.DeleteMissingOlderThanAsync(threshold);
+                }
+
+                if (flagged > 0 || cleared > 0 || purged > 0)
+                    Log($"[OrphanSweep] flagged {flagged}, cleared {cleared}, purged {purged} (retention={settings.MissingRetentionDays}d)");
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                Log($"[OrphanSweep] skipped: {ex.Message}", LogLevel.Warning);
+            }
         }
 
         private List<(string FolderPath, Platform Platform)> DetectPlatformSubfolders(string libraryPath)

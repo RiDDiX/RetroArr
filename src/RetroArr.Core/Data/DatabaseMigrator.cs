@@ -38,7 +38,8 @@ namespace RetroArr.Core.Data
             ("Images_BoxBackUrl",       "TEXT",                          "TEXT",                            "TEXT"),
             ("Images_VideoUrl",         "TEXT",                          "TEXT",                            "TEXT"),
             ("MetadataSource",          "TEXT",                          "TEXT",                            "VARCHAR(255)"),
-            ("ProtonDbTier",            "TEXT",                          "TEXT",                            "VARCHAR(50)")
+            ("ProtonDbTier",            "TEXT",                          "TEXT",                            "VARCHAR(50)"),
+            ("MissingSince",            "TEXT",                          "TIMESTAMP",                       "DATETIME")
         };
 
         private static readonly (string Name, string SqliteType, string PgType, string MariaType)[] GameFilesColumns = new[]

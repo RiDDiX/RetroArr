@@ -19,6 +19,10 @@ namespace RetroArr.Core.Configuration
         // background service purges an entry.
         public int TrashRetentionDays { get; set; } = 14;
 
+        // Days a game keeps its Missing flag before the scanner drops the DB
+        // row. 0 = never auto-purge (keep flagged forever, user decides).
+        public int MissingRetentionDays { get; set; } = 14;
+
         public string Platform { get; set; } = "default";
         
         /// <summary>

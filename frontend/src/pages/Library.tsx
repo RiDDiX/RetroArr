@@ -32,6 +32,7 @@ interface Game {
   languages?: string;
   revision?: string;
   protonDbTier?: string;
+  missingSince?: string | null;
 }
 
 interface SearchResult {
@@ -134,6 +135,7 @@ const Library: React.FC = () => {
     revision: dto.revision,
     igdbId: dto.igdbId,
     protonDbTier: dto.protonDbTier,
+    missingSince: dto.missingSince,
   }), []);
 
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, visible: boolean, game: Game | null }>({

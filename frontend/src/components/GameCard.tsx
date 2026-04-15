@@ -42,6 +42,7 @@ interface Game {
   languages?: string;
   revision?: string;
   protonDbTier?: string;
+  missingSince?: string | null;
 }
 
 interface ReviewData {
@@ -143,12 +144,21 @@ const GameCard: React.FC<GameCardProps> = ({ game, reviewData, onClick, onContex
       onContextMenu={onContextMenu}
       onKeyDown={handleKey}
     >
-      <div className="game-card-poster">
+      <div className={`game-card-poster${game.missingSince ? ' game-card-poster--missing' : ''}`}>
         {game.images.coverUrl ? (
           <img src={game.images.coverUrl} alt={game.title} />
         ) : (
           <div className="game-card-placeholder">
             <span>?</span>
+          </div>
+        )}
+
+        {game.missingSince && (
+          <div
+            className="game-card-missing-badge"
+            title={`${t('missingBadgeTitle') || 'Files missing on disk'} (${new Date(game.missingSince).toLocaleDateString()})`}
+          >
+            {t('missingBadge') || 'Missing'}
           </div>
         )}
 

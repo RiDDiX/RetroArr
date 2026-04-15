@@ -36,6 +36,10 @@ namespace RetroArr.Core.Games
         public bool Monitored { get; set; }
         public string? Path { get; set; }
         public long? SizeOnDisk { get; set; }
+
+        // When the scanner first noticed the files were gone. Null = present.
+        // Two-stage cleanup: flag now, purge after retention window expires.
+        public DateTime? MissingSince { get; set; }
         
         [SuppressMessage("Microsoft.Usage", "CA2227:CollectionPropertiesShouldBeReadOnly")]
         [SuppressMessage("Microsoft.Design", "CA1002:DoNotExposeGenericLists")]

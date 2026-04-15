@@ -127,6 +127,33 @@ namespace RetroArr.Core.Cache
             return result;
         }
 
+        public async Task<int> FlagMissingAsync(IEnumerable<int> gameIds, DateTime at)
+        {
+            var count = await _inner.FlagMissingAsync(gameIds, at);
+            if (count > 0) await InvalidateAllGameCaches();
+            return count;
+        }
+
+        public async Task<int> ClearMissingAsync(int gameId)
+        {
+            var count = await _inner.ClearMissingAsync(gameId);
+            if (count > 0)
+            {
+                await _cache.RemoveAsync(CacheKeys.GameDetail(gameId));
+                await InvalidateListCaches();
+            }
+            return count;
+        }
+
+        public Task<List<Game>> GetMissingAsync() => _inner.GetMissingAsync();
+
+        public async Task<int> DeleteMissingOlderThanAsync(DateTime threshold)
+        {
+            var count = await _inner.DeleteMissingOlderThanAsync(threshold);
+            if (count > 0) await InvalidateAllGameCaches();
+            return count;
+        }
+
         private async Task InvalidateListCaches()
         {
             await _cache.RemoveAsync(CacheKeys.GamesAll);

@@ -360,6 +360,7 @@ export interface MediaSettings {
   biosPath: string;
   trashPath: string;
   trashRetentionDays: number;
+  missingRetentionDays: number;
   platform: string;
   folderNamingMode: string;
   gogDownloadsPath: string;
@@ -481,6 +482,7 @@ export interface GameListDto {
   revision?: string;
   igdbId?: number;
   protonDbTier?: string;
+  missingSince?: string | null;
 }
 
 export interface ProtonDbRefreshStatus {
