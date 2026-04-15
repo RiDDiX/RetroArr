@@ -1,3 +1,8 @@
+## v1.0.104 (2026-04-15)
+
+### Changes
+- add library filters for missing and protondb plus retention setting (8812366)
+
 ## v1.0.103 (2026-04-15)
 
 ### Changes
