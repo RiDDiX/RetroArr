@@ -1,3 +1,8 @@
+## v1.0.105 (2026-04-15)
+
+### Changes
+- heal wrong platform from path and push live refresh after fix (b7f4d24)
+
 ## v1.0.104 (2026-04-15)
 
 ### Changes
