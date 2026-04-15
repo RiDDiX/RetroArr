@@ -1,3 +1,8 @@
+## v1.0.107 (2026-04-15)
+
+### Changes
+- clear missing on merge rediscovery and add adhoc platform heal (9577a8e)
+
 ## v1.0.106 (2026-04-15)
 
 ### Changes
