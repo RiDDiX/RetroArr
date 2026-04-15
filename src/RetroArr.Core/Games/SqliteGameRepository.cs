@@ -57,9 +57,35 @@ namespace RetroArr.Core.Games
 
             var totalItems = await query.CountAsync();
 
-            query = sortOrder == "desc"
-                ? query.OrderByDescending(g => g.Title)
-                : query.OrderBy(g => g.Title);
+            // Tier ranking via inline CASE — SQLite can't sort on an enum-
+            // like string directly, so map each tier to a number first.
+            query = sortOrder switch
+            {
+                "desc" => query.OrderByDescending(g => g.Title),
+                "protondb" => query
+                    .OrderBy(g => g.ProtonDbTier == null || g.ProtonDbTier == "" ? 99
+                        : g.ProtonDbTier.ToLower() == "platinum" ? 1
+                        : g.ProtonDbTier.ToLower() == "gold" ? 2
+                        : g.ProtonDbTier.ToLower() == "silver" ? 3
+                        : g.ProtonDbTier.ToLower() == "bronze" ? 4
+                        : g.ProtonDbTier.ToLower() == "native" ? 5
+                        : g.ProtonDbTier.ToLower() == "pending" ? 6
+                        : g.ProtonDbTier.ToLower() == "borked" ? 7
+                        : 98)
+                    .ThenBy(g => g.Title),
+                "protondb-desc" => query
+                    .OrderByDescending(g => g.ProtonDbTier == null || g.ProtonDbTier == "" ? 0
+                        : g.ProtonDbTier.ToLower() == "borked" ? 1
+                        : g.ProtonDbTier.ToLower() == "pending" ? 2
+                        : g.ProtonDbTier.ToLower() == "native" ? 3
+                        : g.ProtonDbTier.ToLower() == "bronze" ? 4
+                        : g.ProtonDbTier.ToLower() == "silver" ? 5
+                        : g.ProtonDbTier.ToLower() == "gold" ? 6
+                        : g.ProtonDbTier.ToLower() == "platinum" ? 7
+                        : 0)
+                    .ThenBy(g => g.Title),
+                _ => query.OrderBy(g => g.Title)
+            };
 
             var platformLookup = PlatformDefinitions.PlatformDictionary;
 

@@ -1383,17 +1383,23 @@ const GameDetails: React.FC = () => {
                 label="YOU"
               />
             )}
-            {game.protonDbTier && (
-              <a
-                href={game.steamId ? `https://www.protondb.com/app/${game.steamId}` : '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ textDecoration: 'none' }}
-                title="View on ProtonDB"
-              >
-                <ProtonDbBadge tier={game.protonDbTier} size="large" showLabel />
-              </a>
-            )}
+            {(() => {
+              const slug = (game.platform as { slug?: string } | undefined)?.slug?.toLowerCase() ?? '';
+              const isPcOrSteam = slug === 'pc' || slug === 'steam' || slug === 'windows';
+              if (!game.protonDbTier && !isPcOrSteam) return null;
+              const href = game.steamId ? `https://www.protondb.com/app/${game.steamId}` : '#';
+              return (
+                <a
+                  href={href}
+                  target={game.steamId ? '_blank' : undefined}
+                  rel="noopener noreferrer"
+                  style={{ textDecoration: 'none' }}
+                  title={game.protonDbTier ? 'View on ProtonDB' : 'ProtonDB rating not yet fetched'}
+                >
+                  <ProtonDbBadge tier={game.protonDbTier} size="large" showLabel showWhenMissing={isPcOrSteam} />
+                </a>
+              );
+            })()}
           </div>
 
           {game.availablePlatforms && game.availablePlatforms.length > 0 && (
@@ -1437,7 +1443,7 @@ const GameDetails: React.FC = () => {
                   <span>🎮</span> Steam ID: {game.steamId}
                 </a>
               )}
-              {game.steamId && game.protonDbTier && (
+              {game.steamId && (
                 <a
                   href={`https://www.protondb.com/app/${game.steamId}`}
                   target="_blank"
@@ -1454,9 +1460,9 @@ const GameDetails: React.FC = () => {
                     textDecoration: 'none',
                     border: '1px solid var(--ctp-surface2)'
                   }}
-                  title="View on ProtonDB"
+                  title={game.protonDbTier ? 'View on ProtonDB' : 'No ProtonDB rating yet'}
                 >
-                  <ProtonDbBadge tier={game.protonDbTier} size="medium" showLabel />
+                  <ProtonDbBadge tier={game.protonDbTier} size="medium" showLabel showWhenMissing />
                   <span style={{ color: 'var(--ctp-subtext1)', fontSize: '0.7rem' }}>ProtonDB</span>
                 </a>
               )}

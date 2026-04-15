@@ -4,6 +4,8 @@ interface ProtonDbBadgeProps {
   tier: string | null | undefined;
   size?: 'small' | 'medium' | 'large';
   showLabel?: boolean;
+  // Render an "N/A" pill instead of nothing when tier is missing.
+  showWhenMissing?: boolean;
 }
 
 const tierConfig: Record<string, { color: string; bg: string; label: string }> = {
@@ -14,12 +16,14 @@ const tierConfig: Record<string, { color: string; bg: string; label: string }> =
   borked:   { color: '#ffffff', bg: '#d32f2f', label: 'Borked' },
   native:   { color: '#ffffff', bg: '#4caf50', label: 'Native' },
   pending:  { color: '#aaaaaa', bg: '#444444', label: 'Pending' },
+  unknown:  { color: '#cccccc', bg: '#2a2a2a', label: 'N/A' },
 };
 
-const ProtonDbBadge: React.FC<ProtonDbBadgeProps> = ({ tier, size = 'small', showLabel = false }) => {
-  if (!tier) return null;
+const ProtonDbBadge: React.FC<ProtonDbBadgeProps> = ({ tier, size = 'small', showLabel = false, showWhenMissing = false }) => {
+  const hasTier = !!tier && !!tierConfig[tier.toLowerCase()];
+  if (!hasTier && !showWhenMissing) return null;
 
-  const config = tierConfig[tier.toLowerCase()] || tierConfig.pending;
+  const config = hasTier ? tierConfig[tier!.toLowerCase()] : tierConfig.unknown;
   
   const fontSize = size === 'large' ? '14px' : size === 'medium' ? '12px' : '10px';
   const padding = size === 'large' ? '4px 10px' : size === 'medium' ? '3px 8px' : '2px 6px';
@@ -40,7 +44,7 @@ const ProtonDbBadge: React.FC<ProtonDbBadgeProps> = ({ tier, size = 'small', sho
         whiteSpace: 'nowrap',
         letterSpacing: '0.3px',
         lineHeight: 1.2,
-        border: tier.toLowerCase() === 'platinum' ? '1px solid #4a6a8a' : 'none',
+        border: hasTier && tier!.toLowerCase() === 'platinum' ? '1px solid #4a6a8a' : 'none',
       }}
     >
       {showLabel ? config.label : config.label.charAt(0)}

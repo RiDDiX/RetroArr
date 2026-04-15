@@ -214,9 +214,13 @@ const GameCard: React.FC<GameCardProps> = ({ game, reviewData, onClick, onContex
                   whiteSpace: 'nowrap'
                 }}>{game.revision}</span>
               )}
-              {game.protonDbTier && (
-                <ProtonDbBadge tier={game.protonDbTier} size="medium" showLabel />
-              )}
+              {(() => {
+                const slug = game.platform?.slug?.toLowerCase() ?? '';
+                const showAlways = slug === 'pc' || slug === 'steam' || slug === 'windows';
+                return (game.protonDbTier || showAlways) ? (
+                  <ProtonDbBadge tier={game.protonDbTier} size="medium" showLabel showWhenMissing={showAlways} />
+                ) : null;
+              })()}
             </div>
           )}
           <div className="game-card-rating">

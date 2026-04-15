@@ -75,7 +75,7 @@ const Library: React.FC = () => {
     }
   };
 
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc' | 'protondb' | 'protondb-desc'>('asc');
   const [missingOnly, setMissingOnly] = useState<boolean>(false);
   const [protonFilter, setProtonFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -798,9 +798,18 @@ const Library: React.FC = () => {
                 <option value="pending">Pending</option>
               </select>
             )}
-            <button className="control-btn sort-btn" onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')} title={`Sort: ${sortOrder === 'asc' ? 'A-Z' : 'Z-A'}`}>
-              {sortOrder === 'asc' ? 'A-Z' : 'Z-A'}
-            </button>
+            <select
+              className="control-btn"
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value as typeof sortOrder)}
+              title="Sort"
+              style={{ minWidth: 110 }}
+            >
+              <option value="asc">A-Z</option>
+              <option value="desc">Z-A</option>
+              <option value="protondb">ProtonDB: best</option>
+              <option value="protondb-desc">ProtonDB: worst</option>
+            </select>
             <button className="control-btn clear-btn" onClick={handleClearLibrary} title={t('clearLibrary')}>
               <FontAwesomeIcon icon={faTrash} />
             </button>
