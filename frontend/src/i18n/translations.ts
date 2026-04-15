@@ -677,6 +677,8 @@ export const translations = {
         missingBadgeTitle: 'Files missing on disk — last seen',
         missingFilter: 'Only missing',
         missingHideFilter: 'Hide missing',
+        missingRetentionLabel: 'Missing-flag retention (days, 0 = keep forever)',
+        missingRetentionDesc: 'How long a game stays flagged as Missing before a full scan purges it from the DB.',
 
         // Status
         status: 'Status',

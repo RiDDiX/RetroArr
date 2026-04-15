@@ -76,13 +76,15 @@ namespace RetroArr.Api.V3.Games
             [FromQuery] int pageSize = 50,
             [FromQuery] int? platformId = null,
             [FromQuery] string? search = null,
-            [FromQuery] string sortOrder = "asc")
+            [FromQuery] string sortOrder = "asc",
+            [FromQuery] bool? missingOnly = null,
+            [FromQuery] string? protonDbTier = null)
         {
             if (page < 1) page = 1;
             if (pageSize < 1) pageSize = 50;
             if (pageSize > 1000) pageSize = 1000;
 
-            var result = await _repository.GetAllPagedAsync(page, pageSize, platformId, search, sortOrder);
+            var result = await _repository.GetAllPagedAsync(page, pageSize, platformId, search, sortOrder, missingOnly, protonDbTier);
             return Ok(result);
         }
 

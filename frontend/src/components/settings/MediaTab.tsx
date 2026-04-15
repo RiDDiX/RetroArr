@@ -21,6 +21,7 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
   const [biosFiles, setBiosFiles] = useState<{ filename: string; present: boolean }[]>([]);
   const [trashPath, setTrashPath] = useState('');
   const [trashRetentionDays, setTrashRetentionDays] = useState(14);
+  const [missingRetentionDays, setMissingRetentionDays] = useState(14);
   const [scanning, setScanning] = useState(false);
   const [showFolderExplorer, setShowFolderExplorer] = useState(false);
   const [activeFolderField, setActiveFolderField] = useState<'media' | 'download' | 'destination' | 'wine' | 'bios'>('media');
@@ -86,6 +87,7 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
       setBiosPath(mediaRes.data.biosPath || '');
       setTrashPath(mediaRes.data.trashPath || '');
       setTrashRetentionDays(typeof mediaRes.data.trashRetentionDays === 'number' ? mediaRes.data.trashRetentionDays : 14);
+      setMissingRetentionDays(typeof mediaRes.data.missingRetentionDays === 'number' ? mediaRes.data.missingRetentionDays : 14);
       setPostDownloadSettings(postDownloadRes.data);
 
       try {
@@ -100,7 +102,7 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
     }
   };
 
-  const saveMediaConfig = async (overrides?: { folderPath?: string; downloadPath?: string; destinationPath?: string; destinationPathPattern?: string; useDestinationPattern?: boolean; folderNamingMode?: string; winePrefixPath?: string; biosPath?: string; trashPath?: string; trashRetentionDays?: number }) => {
+  const saveMediaConfig = async (overrides?: { folderPath?: string; downloadPath?: string; destinationPath?: string; destinationPathPattern?: string; useDestinationPattern?: boolean; folderNamingMode?: string; winePrefixPath?: string; biosPath?: string; trashPath?: string; trashRetentionDays?: number; missingRetentionDays?: number }) => {
     try {
       await apiClient.post('/media', {
         FolderPath: overrides?.folderPath ?? folderPath,
@@ -113,6 +115,7 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
         BiosPath: overrides?.biosPath ?? biosPath,
         TrashPath: overrides?.trashPath ?? trashPath,
         TrashRetentionDays: overrides?.trashRetentionDays ?? trashRetentionDays,
+        MissingRetentionDays: overrides?.missingRetentionDays ?? missingRetentionDays,
         Platform: 'default'
       });
     } catch (error: unknown) {
@@ -344,6 +347,23 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
               value={trashRetentionDays}
               onChange={(e) => setTrashRetentionDays(parseInt(e.target.value, 10) || 0)}
               onBlur={() => saveMediaConfig({ trashRetentionDays })}
+              style={{ width: 140 }}
+            />
+
+            <label htmlFor="missing-retention" style={{ marginTop: '14px', display: 'block' }}>
+              {t('missingRetentionLabel') || 'Missing-flag retention (days, 0 = keep forever)'}
+            </label>
+            <p className="settings-description-sm" style={{ fontSize: '0.8em', color: 'var(--ctp-subtext0)', margin: '2px 0 6px' }}>
+              {t('missingRetentionDesc') || 'How long a game stays flagged as Missing before a full scan purges it from the DB.'}
+            </p>
+            <input
+              id="missing-retention"
+              type="number"
+              min={0}
+              max={3650}
+              value={missingRetentionDays}
+              onChange={(e) => setMissingRetentionDays(parseInt(e.target.value, 10) || 0)}
+              onBlur={() => saveMediaConfig({ missingRetentionDays })}
               style={{ width: 140 }}
             />
           </div>

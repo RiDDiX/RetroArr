@@ -7,7 +7,7 @@ namespace RetroArr.Core.Games
     {
         Task<List<Game>> GetAllAsync();
         Task<List<Game>> GetAllLightAsync();
-        Task<PagedResult<GameListDto>> GetAllPagedAsync(int page, int pageSize, int? platformId = null, string? search = null, string sortOrder = "asc");
+        Task<PagedResult<GameListDto>> GetAllPagedAsync(int page, int pageSize, int? platformId = null, string? search = null, string sortOrder = "asc", bool? missingOnly = null, string? protonDbTier = null);
         Task<Game?> GetByIdAsync(int id);
         Task<Game> AddAsync(Game game);
         Task<Game?> UpdateAsync(int id, Game game);

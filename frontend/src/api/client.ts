@@ -514,7 +514,7 @@ export interface BulkReviewData {
 // -- Games --
 export const gamesApi = {
   getAll: () => apiClient.get<Game[]>('/game'),
-  getPaged: (params: { page?: number; pageSize?: number; platformId?: number; search?: string; sortOrder?: string }) =>
+  getPaged: (params: { page?: number; pageSize?: number; platformId?: number; search?: string; sortOrder?: string; missingOnly?: boolean; protonDbTier?: string }) =>
     apiClient.get<PagedResult<GameListDto>>('/game/paged', { params }),
   getById: (id: number, lang: string) => apiClient.get<Game>(`/game/${id}`, { params: { lang } }),
   create: (game: Partial<Game>) => apiClient.post<Game>('/game', game),

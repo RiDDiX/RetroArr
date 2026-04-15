@@ -31,7 +31,7 @@ namespace RetroArr.Core.Games
             return await context.Games.ToListAsync();
         }
 
-        public async Task<PagedResult<GameListDto>> GetAllPagedAsync(int page, int pageSize, int? platformId = null, string? search = null, string sortOrder = "asc")
+        public async Task<PagedResult<GameListDto>> GetAllPagedAsync(int page, int pageSize, int? platformId = null, string? search = null, string sortOrder = "asc", bool? missingOnly = null, string? protonDbTier = null)
         {
             using var context = await _contextFactory.CreateDbContextAsync();
 
@@ -44,6 +44,15 @@ namespace RetroArr.Core.Games
             {
                 var term = search.Trim().ToLower();
                 query = query.Where(g => g.Title.ToLower().Contains(term));
+            }
+
+            if (missingOnly == true)
+                query = query.Where(g => g.MissingSince != null);
+
+            if (!string.IsNullOrWhiteSpace(protonDbTier))
+            {
+                var tier = protonDbTier.Trim().ToLower();
+                query = query.Where(g => g.ProtonDbTier != null && g.ProtonDbTier.ToLower() == tier);
             }
 
             var totalItems = await query.CountAsync();

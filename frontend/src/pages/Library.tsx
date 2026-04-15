@@ -76,6 +76,8 @@ const Library: React.FC = () => {
   };
 
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [missingOnly, setMissingOnly] = useState<boolean>(false);
+  const [protonFilter, setProtonFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -184,6 +186,8 @@ const Library: React.FC = () => {
         pageSize: s,
         platformId: pid ? parseInt(pid, 10) : undefined,
         sortOrder: so,
+        missingOnly: missingOnly || undefined,
+        protonDbTier: protonFilter || undefined,
       });
       const data = response.data;
       setPagedGames(data.items);
@@ -200,7 +204,7 @@ const Library: React.FC = () => {
     } catch (error) {
       console.error('Error loading paged games:', error);
     }
-  }, [currentPage, itemsPerPage, selectedPlatform, sortOrder]);
+  }, [currentPage, itemsPerPage, selectedPlatform, sortOrder, missingOnly, protonFilter]);
 
   // Load platform game counts (lightweight call for sidebar badges)
   const loadPlatformCounts = useCallback(async () => {
@@ -263,7 +267,7 @@ const Library: React.FC = () => {
   // Reload when pagination/filter/sort changes
   useEffect(() => {
     loadPagedGames();
-  }, [currentPage, itemsPerPage, selectedPlatform, sortOrder]);
+  }, [currentPage, itemsPerPage, selectedPlatform, sortOrder, missingOnly, protonFilter]);
 
   const checkIgdbConfig = async () => {
     try {
@@ -602,7 +606,15 @@ const Library: React.FC = () => {
   // Reset to page 1 when filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedPlatform, sortOrder]);
+  }, [selectedPlatform, sortOrder, missingOnly, protonFilter]);
+
+  // ProtonDB filter only makes sense on PC/Steam platforms. We don't hide it
+  // everywhere, but we use the PC category to decide whether to surface it.
+  const showProtonFilter = useMemo(() => {
+    if (!selectedPlatformData) return true; // "All platforms" — keep it visible
+    const cat = (selectedPlatformData as { category?: string }).category?.toLowerCase();
+    return !cat || cat === 'pc' || cat === 'computer';
+  }, [selectedPlatformData]);
 
   // Save items per page preference
   const handleItemsPerPageChange = (value: number) => {
@@ -760,6 +772,32 @@ const Library: React.FC = () => {
 
         <div className="library-controls-bar">
           <div className="control-group right" style={{ marginLeft: 'auto' }}>
+            <button
+              className={`control-btn${missingOnly ? ' active' : ''}`}
+              onClick={() => setMissingOnly(v => !v)}
+              title={t('missingFilter') || 'Only missing'}
+              style={missingOnly ? { background: 'rgba(190,20,20,0.85)', color: '#fff' } : undefined}
+            >
+              {t('missingBadge') || 'Missing'}
+            </button>
+            {showProtonFilter && (
+              <select
+                className="control-btn"
+                value={protonFilter}
+                onChange={(e) => setProtonFilter(e.target.value)}
+                title="ProtonDB tier"
+                style={{ minWidth: 110 }}
+              >
+                <option value="">ProtonDB: all</option>
+                <option value="platinum">Platinum</option>
+                <option value="gold">Gold</option>
+                <option value="silver">Silver</option>
+                <option value="bronze">Bronze</option>
+                <option value="borked">Borked</option>
+                <option value="native">Native</option>
+                <option value="pending">Pending</option>
+              </select>
+            )}
             <button className="control-btn sort-btn" onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')} title={`Sort: ${sortOrder === 'asc' ? 'A-Z' : 'Z-A'}`}>
               {sortOrder === 'asc' ? 'A-Z' : 'Z-A'}
             </button>
