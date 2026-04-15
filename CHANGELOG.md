@@ -1,3 +1,8 @@
+## v1.0.103 (2026-04-15)
+
+### Changes
+- flag stale games as missing and sweep orphans on full scan (5148beb)
+
 ## v1.0.102 (2026-04-14)
 
 ### Changes
