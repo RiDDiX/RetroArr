@@ -1497,17 +1497,21 @@ namespace RetroArr.Core.Games
                         existingByPath.Status = GameStatus.Released;
                 }
 
-                // Correct platform if folder-based detection disagrees with stored value
+                // Path is authoritative: the file lives where it lives, so the
+                // folder dictates the platform. If a rival row already owns
+                // this title on the target platform, the current row is a
+                // stale duplicate — drop it and let the rival keep the slot.
                 if (!string.IsNullOrEmpty(platformKey) && platformKey != "default")
                 {
                     var correctPlatform = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.MatchesFolderName(platformKey));
                     if (correctPlatform != null && existingByPath.PlatformId != correctPlatform.Id)
                     {
-                        bool wouldCollide = existingGames.Any(g =>
+                        var rival = existingGames.FirstOrDefault(g =>
                             g.Id != existingByPath.Id &&
                             g.Title.Equals(existingByPath.Title, StringComparison.OrdinalIgnoreCase) &&
                             g.PlatformId == correctPlatform.Id);
-                        if (!wouldCollide)
+
+                        if (rival == null)
                         {
                             Log($"[Scanner] Correcting platform for '{existingByPath.Title}': {existingByPath.PlatformId} → {correctPlatform.Id} ({correctPlatform.Name})");
                             existingByPath.PlatformId = correctPlatform.Id;
@@ -1515,7 +1519,14 @@ namespace RetroArr.Core.Games
                         }
                         else
                         {
-                            Log($"[Scanner] Skipping platform correction for '{existingByPath.Title}': would collide with existing entry on platform {correctPlatform.Id}");
+                            Log($"[Scanner] Dropping miscategorized '{existingByPath.Title}' (id={existingByPath.Id}, platform={existingByPath.PlatformId}) — rival id={rival.Id} already owns title on platform {correctPlatform.Id}");
+                            try
+                            {
+                                await _gameRepository.DeleteAsync(existingByPath.Id);
+                                existingGames.Remove(existingByPath);
+                            }
+                            catch (Exception ex) { Log($"[Scanner] Dupe drop failed id={existingByPath.Id}: {ex.Message}", LogLevel.Warning); }
+                            return false; // nothing more to do with the deleted row
                         }
                     }
                 }
@@ -2601,8 +2612,6 @@ namespace RetroArr.Core.Games
                     if (game.MissingSince == null)
                     {
                         missingIds.Add(game.Id);
-                        game.MissingSince = now;
-                        game.Status = GameStatus.Missing;
                         flagged++;
                     }
                     // Already flagged earlier — retention sweep at scan end handles final purge.
@@ -2612,7 +2621,6 @@ namespace RetroArr.Core.Games
                     if (game.MissingSince != null)
                     {
                         await _gameRepository.ClearMissingAsync(game.Id);
-                        game.MissingSince = null;
                         cleared++;
                     }
                     await SyncGameFilesFromDisk(game.Id, game.Path);
@@ -2635,15 +2643,81 @@ namespace RetroArr.Core.Games
                 var now = DateTime.UtcNow;
                 var toFlag = new List<int>();
                 int cleared = 0;
+                int healed = 0;
+                int dupesDropped = 0;
+
+                // Live index: (title-lower, platformId) → set of game IDs still
+                // valid. We mutate this as we heal/delete so later iterations
+                // see the correct picture and don't mis-classify because a row
+                // that was there at loop-start is gone by iteration 50.
+                var live = new Dictionary<(string, int), HashSet<int>>();
+                foreach (var g in all)
+                {
+                    var key = (g.Title?.ToLowerInvariant() ?? string.Empty, g.PlatformId);
+                    if (!live.TryGetValue(key, out var set)) { set = new HashSet<int>(); live[key] = set; }
+                    set.Add(g.Id);
+                }
+                var dropped = new HashSet<int>();
 
                 foreach (var g in all)
                 {
                     ct.ThrowIfCancellationRequested();
+                    if (dropped.Contains(g.Id)) continue;
                     if (string.IsNullOrEmpty(g.Path)) continue;
 
                     bool pathExists;
                     try { pathExists = Directory.Exists(g.Path) || File.Exists(g.Path); }
                     catch { continue; }
+
+                    if (pathExists)
+                    {
+                        // Heal wrong PlatformId when the file lives under a
+                        // different platform folder than the DB claims.
+                        var pathPlatform = PlatformDefinitions.ResolvePlatformFromPath(g.Path);
+                        if (pathPlatform != null && pathPlatform.Id != g.PlatformId)
+                        {
+                            var titleKey = g.Title?.ToLowerInvariant() ?? string.Empty;
+                            var hasLiveCollision = live.TryGetValue((titleKey, pathPlatform.Id), out var set)
+                                && set.Any(id => id != g.Id);
+
+                            if (!hasLiveCollision)
+                            {
+                                Log($"[Heal] Correcting platform for '{g.Title}' (id={g.Id}): {g.PlatformId} → {pathPlatform.Id} ({pathPlatform.Name}) based on path '{g.Path}'");
+                                var fresh = await _gameRepository.GetByIdAsync(g.Id);
+                                if (fresh != null)
+                                {
+                                    fresh.PlatformId = pathPlatform.Id;
+                                    try
+                                    {
+                                        await _gameRepository.UpdateAsync(fresh.Id, fresh);
+                                        healed++;
+
+                                        // Keep the live index consistent so a
+                                        // later game with the same title can
+                                        // still detect a collision with this one.
+                                        if (live.TryGetValue((titleKey, g.PlatformId), out var oldSet)) oldSet.Remove(g.Id);
+                                        if (!live.TryGetValue((titleKey, pathPlatform.Id), out var newSet))
+                                        { newSet = new HashSet<int>(); live[(titleKey, pathPlatform.Id)] = newSet; }
+                                        newSet.Add(g.Id);
+                                    }
+                                    catch (Exception ex) { Log($"[Heal] Update failed id={g.Id}: {ex.Message}", LogLevel.Warning); }
+                                }
+                            }
+                            else
+                            {
+                                Log($"[Heal] Dropping duplicate '{g.Title}' (id={g.Id}, platform={g.PlatformId}) — correct entry on platform {pathPlatform.Id} already exists");
+                                try
+                                {
+                                    await _gameRepository.DeleteAsync(g.Id);
+                                    dupesDropped++;
+                                    dropped.Add(g.Id);
+                                    if (live.TryGetValue((titleKey, g.PlatformId), out var oldSet)) oldSet.Remove(g.Id);
+                                }
+                                catch (Exception ex) { Log($"[Heal] Delete failed id={g.Id}: {ex.Message}", LogLevel.Warning); }
+                                continue; // nothing more to do with a deleted row
+                            }
+                        }
+                    }
 
                     if (!pathExists && g.MissingSince == null)
                     {
@@ -2667,8 +2741,8 @@ namespace RetroArr.Core.Games
                     purged = await _gameRepository.DeleteMissingOlderThanAsync(threshold);
                 }
 
-                if (flagged > 0 || cleared > 0 || purged > 0)
-                    Log($"[OrphanSweep] flagged {flagged}, cleared {cleared}, purged {purged} (retention={settings.MissingRetentionDays}d)");
+                if (flagged > 0 || cleared > 0 || purged > 0 || healed > 0 || dupesDropped > 0)
+                    Log($"[OrphanSweep] flagged {flagged}, cleared {cleared}, purged {purged}, healed {healed}, duplicates dropped {dupesDropped} (retention={settings.MissingRetentionDays}d)");
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)

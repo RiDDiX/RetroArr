@@ -978,6 +978,39 @@ const GameDetails: React.FC = () => {
     }
   };
 
+  const handleFixPlatform = async () => {
+    if (!game) return;
+    if (!window.confirm(
+      t('fixPlatformConfirm')
+      || 'Re-derive the platform from the file path and update this entry?'
+    )) return;
+    try {
+      const res = await apiClient.post(`/game/${game.id}/fix-platform-from-path`);
+      if (res.data?.changed === false) {
+        setNotification({ message: t('fixPlatformUnchanged') || 'Platform already matches the path.', type: 'success' });
+        return;
+      }
+      setNotification({ message: t('fixPlatformDone') || 'Platform corrected.', type: 'success' });
+      window.dispatchEvent(new Event('LIBRARY_UPDATED_EVENT'));
+      const response = await apiClient.get(`/game/${game.id}`, { params: { lang: language } });
+      setGame(response.data);
+    } catch (err: unknown) {
+      if (isAxiosError(err) && err.response?.status === 409
+        && err.response?.data?.code === 'duplicate_title'
+        && typeof err.response?.data?.otherGameId === 'number') {
+        setConflict({
+          message: err.response.data.message,
+          otherGameId: err.response.data.otherGameId,
+          otherGameTitle: err.response.data.otherGameTitle,
+          otherGamePath: err.response.data.otherGamePath,
+          attemptedUpdates: {},
+        });
+        return;
+      }
+      setNotification({ message: getErrorMessage(err, t('fixPlatformFailed') || 'Could not fix platform.'), type: 'error' });
+    }
+  };
+
   const resolveWithRename = async () => {
     if (!game || !conflict) return;
     const current = String(conflict.attemptedUpdates.Title ?? game.title ?? '');
@@ -1198,6 +1231,15 @@ const GameDetails: React.FC = () => {
             >
               <FontAwesomeIcon icon={faPen} />
               <span>{t('correct')}</span>
+            </button>
+
+            <button
+              className="action-btn"
+              onClick={handleFixPlatform}
+              title={t('fixPlatformTitle') || 'Fix platform from file path'}
+            >
+              <FontAwesomeIcon icon={faGamepad} />
+              <span>{t('fixPlatform') || 'Fix Platform'}</span>
             </button>
 
             <button

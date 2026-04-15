@@ -679,6 +679,12 @@ export const translations = {
         missingHideFilter: 'Hide missing',
         missingRetentionLabel: 'Missing-flag retention (days, 0 = keep forever)',
         missingRetentionDesc: 'How long a game stays flagged as Missing before a full scan purges it from the DB.',
+        fixPlatform: 'Fix Platform',
+        fixPlatformTitle: 'Re-derive platform from file path',
+        fixPlatformConfirm: 'Re-derive the platform from the file path and update this entry?',
+        fixPlatformDone: 'Platform corrected.',
+        fixPlatformUnchanged: 'Platform already matches the path.',
+        fixPlatformFailed: 'Could not fix platform.',
 
         // Status
         status: 'Status',

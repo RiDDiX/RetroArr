@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 namespace RetroArr.Core.Games
@@ -8,6 +9,33 @@ namespace RetroArr.Core.Games
         private static Dictionary<int, Platform>? _platformDict;
         public static Dictionary<int, Platform> PlatformDictionary =>
             _platformDict ??= AllPlatforms.ToDictionary(p => p.Id);
+
+        // Walks up a filesystem path and returns the first platform whose
+        // folder-name (or alias) matches a segment. Used to heal stale DB rows
+        // where a game's Path points into /media/psx/... but PlatformId still
+        // says NDS (or whatever the first scan guessed wrong).
+        public static Platform? ResolvePlatformFromPath(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return null;
+
+            string normalized;
+            try { normalized = Path.GetFullPath(path); }
+            catch { normalized = path; }
+
+            var segments = normalized.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+                                            System.StringSplitOptions.RemoveEmptyEntries);
+
+            // Walk deepest-to-shallowest so a nested platform folder wins over
+            // a parent. Example: /library/retrobat/nds/Game.nds — we want nds,
+            // not whatever "retrobat" might match.
+            for (int i = segments.Length - 1; i >= 0; i--)
+            {
+                var seg = segments[i];
+                var hit = AllPlatforms.FirstOrDefault(p => p.MatchesFolderName(seg));
+                if (hit != null) return hit;
+            }
+            return null;
+        }
 
         public static readonly List<Platform> AllPlatforms = new()
         {

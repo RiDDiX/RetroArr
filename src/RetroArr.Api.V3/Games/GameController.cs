@@ -11,6 +11,7 @@ using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using RetroArr.Core.Configuration;
 using RetroArr.Core.MetadataSource.Gog;
+using RetroArr.SignalR;
 
 namespace RetroArr.Api.V3.Games
 {
@@ -28,8 +29,9 @@ namespace RetroArr.Api.V3.Games
         private readonly LocalMediaExportService _localMediaExport;
         private readonly RetroArr.Core.MetadataSource.Gog.GogDownloadTracker _gogDownloadTracker;
         private readonly TrashService _trash;
+        private readonly IProgressNotifier? _progressNotifier;
 
-        public GameController(IGameRepository repository, IGameMetadataServiceFactory metadataServiceFactory, RetroArr.Core.IO.IArchiveService archiveService, ILauncherService launcherService, ConfigurationService configService, InstallerScannerService installerScanner, LocalMediaExportService localMediaExport, RetroArr.Core.MetadataSource.Gog.GogDownloadTracker gogDownloadTracker, TrashService trash)
+        public GameController(IGameRepository repository, IGameMetadataServiceFactory metadataServiceFactory, RetroArr.Core.IO.IArchiveService archiveService, ILauncherService launcherService, ConfigurationService configService, InstallerScannerService installerScanner, LocalMediaExportService localMediaExport, RetroArr.Core.MetadataSource.Gog.GogDownloadTracker gogDownloadTracker, TrashService trash, IProgressNotifier? progressNotifier = null)
         {
             _repository = repository;
             _metadataServiceFactory = metadataServiceFactory;
@@ -40,6 +42,7 @@ namespace RetroArr.Api.V3.Games
             _localMediaExport = localMediaExport;
             _gogDownloadTracker = gogDownloadTracker;
             _trash = trash;
+            _progressNotifier = progressNotifier;
         }
 
         [HttpGet]
@@ -465,6 +468,64 @@ namespace RetroArr.Api.V3.Games
             await _repository.DeleteAsync(sourceId);
             _logger.Info($"[Game] Merged {sourceId} into {targetId}");
             return Ok(new { merged = true, targetId });
+        }
+
+        // Fixes a row whose PlatformId disagrees with the folder the file
+        // actually lives in. Walks up game.Path, finds the first platform folder
+        // match, and writes that PlatformId back. Returns 409 if another row
+        // already owns the title on the target platform (user should merge or
+        // delete by hand in that case).
+        [HttpPost("{id:int}/fix-platform-from-path")]
+        public async Task<ActionResult> FixPlatformFromPath(int id)
+        {
+            var game = await _repository.GetByIdAsync(id);
+            if (game == null) return NotFound();
+            if (string.IsNullOrEmpty(game.Path))
+                return BadRequest(new { code = "no_path", message = "Game has no path on disk to infer platform from." });
+
+            var resolved = PlatformDefinitions.ResolvePlatformFromPath(game.Path);
+            if (resolved == null)
+                return BadRequest(new { code = "no_match", message = $"Could not match any known platform folder inside '{game.Path}'." });
+
+            if (resolved.Id == game.PlatformId)
+                return Ok(new { changed = false, platformId = game.PlatformId, platformName = resolved.Name });
+
+            // Look for an existing row on the target platform with the same
+            // title — that's a collision we don't auto-merge. Let the user pick.
+            var all = await _repository.GetAllLightAsync();
+            var collision = all.FirstOrDefault(g => g.Id != id
+                && g.PlatformId == resolved.Id
+                && string.Equals(g.Title, game.Title, StringComparison.OrdinalIgnoreCase));
+            if (collision != null)
+            {
+                return Conflict(new
+                {
+                    code = "duplicate_title",
+                    message = $"'{game.Title}' already exists on {resolved.Name}.",
+                    otherGameId = collision.Id,
+                    otherGameTitle = collision.Title,
+                    otherGamePath = collision.Path
+                });
+            }
+
+            var previous = game.PlatformId;
+            game.PlatformId = resolved.Id;
+            try
+            {
+                await _repository.UpdateAsync(id, game);
+            }
+            catch (DuplicateGameException ex)
+            {
+                return Conflict(new { code = "duplicate_title", message = ex.Message });
+            }
+
+            _logger.Info($"[Game] Fixed platform for id={id}: {previous} → {resolved.Id} ({resolved.Name})");
+            if (_progressNotifier != null)
+            {
+                try { await _progressNotifier.LibraryUpdatedAsync(); }
+                catch (Exception ex) { _logger.Warn($"[Game] Hub notify failed: {ex.Message}"); }
+            }
+            return Ok(new { changed = true, platformId = resolved.Id, platformName = resolved.Name, previousPlatformId = previous });
         }
 
         [HttpDelete("{id}")]
