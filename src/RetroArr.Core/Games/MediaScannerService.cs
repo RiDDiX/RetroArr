@@ -358,7 +358,7 @@ namespace RetroArr.Core.Games
             "shadercache", "compatdata", "depotcache", ".steam", ".local", ".cache", "temp", "tmp", "node_modules",
             "windows", "system32", "syswow64", "Microsoft.NET", "Framework", "Framework64", "Internet Explorer", "Accessories", "Windows NT", "INF", "WinSxS", "SysARM32", "Sysnative", "command",
             "retroarch", "autoconfig", "assets", "overlays", "database", "cursors", "cheats", "filters", "libretro", "thumbnails", "config", "remaps", "playlists", "cores", "screenshots",
-            "images", "videos", "snaps", "marquees", "wheels", "boxart", "fanart",
+            "images", "videos", "manuals", "snaps", "marquees", "wheels", "boxart", "fanart",
             "z:", "d:"
         };
 
@@ -543,32 +543,15 @@ namespace RetroArr.Core.Games
                                 var folderAdded = await ScanFolderModeAsync(platformFolder, platformRule, existingGames, platform.FolderName, metadataService, _scanCts.Token);
                                 gamesAdded += folderAdded;
 
-                                // Fallback: If folder mode found nothing, try file mode to catch loose files (e.g. .iso directly in platform folder)
-                                // But skip fallback if game directories exist — means games are already in DB (rescan scenario)
-                                if (folderAdded == 0 && !_scanCts.Token.IsCancellationRequested)
+                                // Always also scan loose files in the platform root.
+                                // Many platforms (Xbox 360, Wii U, PS3) mix folder-based
+                                // games with loose .iso/.wua files in the same directory.
+                                if (!_scanCts.Token.IsCancellationRequested)
                                 {
-                                    bool hasGameDirs = false;
-                                    try
-                                    {
-                                        hasGameDirs = Directory.GetDirectories(platformFolder)
-                                            .Any(d => {
-                                                var name = Path.GetFileName(d);
-                                                return !_folderBlacklist.Contains(name) &&
-                                                       !_supplementaryFolderNames.Contains(name) &&
-                                                       !name.StartsWith(".");
-                                            });
-                                    }
-                                    catch { /* ignore access errors */ }
-
-                                    if (!hasGameDirs)
-                                    {
-                                        Log($"[AutoPlatform] FolderMode found 0 for '{platform.Name}'. No game directories — trying FileMode fallback...");
-                                        gamesAdded += await ScanFileModeAsync(platformFolder, platformRule, existingGames, platform.FolderName, metadataService, _scanCts.Token);
-                                    }
-                                    else
-                                    {
-                                        Log($"[AutoPlatform] FolderMode added 0 for '{platform.Name}' but game directories exist. Skipping FileMode fallback.");
-                                    }
+                                    var looseAdded = await ScanFileModeAsync(platformFolder, platformRule, existingGames, platform.FolderName, metadataService, _scanCts.Token);
+                                    if (looseAdded > 0)
+                                        Log($"[AutoPlatform] FileMode picked up {looseAdded} loose file(s) for '{platform.Name}'.");
+                                    gamesAdded += looseAdded;
                                 }
                             }
                             else
@@ -592,33 +575,14 @@ namespace RetroArr.Core.Games
                 else if (rule.IsFolderMode)
                 {
                     gamesAdded = await ScanFolderModeAsync(folderPath, rule, existingGames, platformKey, metadataService, _scanCts.Token);
-                    
-                    // FALLBACK: If folder mode found 0 games, try file mode just in case
-                    // But skip fallback if game directories exist — means games are already in DB (rescan scenario)
-                    if (gamesAdded == 0 && !_scanCts.Token.IsCancellationRequested)
-                    {
-                        bool hasGameDirs = false;
-                        try
-                        {
-                            hasGameDirs = Directory.GetDirectories(folderPath)
-                                .Any(d => {
-                                    var name = Path.GetFileName(d);
-                                    return !_folderBlacklist.Contains(name) &&
-                                           !_supplementaryFolderNames.Contains(name) &&
-                                           !name.StartsWith(".");
-                                });
-                        }
-                        catch { /* ignore access errors */ }
 
-                        if (!hasGameDirs)
-                        {
-                            Log($"ScanFolderMode found 0 games. No game directories — falling back to ScanFileMode.");
-                            gamesAdded = await ScanFileModeAsync(folderPath, rule, existingGames, platformKey, metadataService, _scanCts.Token);
-                        }
-                        else
-                        {
-                            Log($"ScanFolderMode added 0 but game directories exist. Skipping FileMode fallback.");
-                        }
+                    // Also scan loose files — same reason as the platform-subfolder path above.
+                    if (!_scanCts.Token.IsCancellationRequested)
+                    {
+                        var looseAdded = await ScanFileModeAsync(folderPath, rule, existingGames, platformKey, metadataService, _scanCts.Token);
+                        if (looseAdded > 0)
+                            Log($"FileMode picked up {looseAdded} loose file(s) for '{platformKey}'.");
+                        gamesAdded += looseAdded;
                     }
 
                     await CleanupAndResyncPlatformAsync(folderPath, platformKey, existingGames, _scanCts.Token);
