@@ -1,41 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import './EmulatorPlayer.css';
 
-// Generate the EmulatorJS HTML page content for iframe isolation
-const generateEmulatorHTML = (romUrl: string, core: string, gameTitle: string, baseUrl: string): string => {
-    return `<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${gameTitle}</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: var(--ctp-base); overflow: hidden; }
-        #game { width: 100vw; height: 100vh; }
-    </style>
-</head>
-<body>
-    <div id="game"></div>
-    <script>
-        EJS_player = '#game';
-        EJS_gameUrl = '${baseUrl}${romUrl}';
-        EJS_core = '${core}';
-        EJS_gameName = '${gameTitle}';
-        EJS_pathtodata = '${baseUrl}/api/v3/emulator/assets/';
-        EJS_startOnLoaded = true;
-        EJS_color = 'var(--ctp-blue)';
-        EJS_backgroundColor = 'var(--ctp-base)';
-        EJS_language = 'en-US';
-        EJS_threads = false;
-        EJS_AdUrl = '';
-        EJS_DEBUG_XX = true;
-    </script>
-    <script src="${baseUrl}/api/v3/emulator/assets/loader.js"></script>
-</body>
-</html>`;
-};
-
 interface EmulatorPlayerProps {
     romUrl: string;
     gameTitle: string;
@@ -136,22 +101,16 @@ const EmulatorPlayer = ({ romUrl, gameTitle, platform, gameId, onClose }: Emulat
             return;
         }
 
-        // Get base URL for absolute paths (required for blob iframe)
-        const baseUrl = window.location.origin;
-
-        // Use iframe to isolate EmulatorJS from browser extension conflicts (SES/lockdown)
+        // Point iframe at the backend player endpoint which sets COOP/COEP
+        // headers for SharedArrayBuffer (needed by threaded cores like PSP).
         if (iframeRef.current) {
-            const html = generateEmulatorHTML(romUrl, core, gameTitle, baseUrl);
-            const blob = new Blob([html], { type: 'text/html' });
-            iframeRef.current.src = URL.createObjectURL(blob);
+            const params = new URLSearchParams({
+                rom: romUrl,
+                core,
+                title: gameTitle,
+            });
+            iframeRef.current.src = `/api/v3/emulator/player?${params.toString()}`;
         }
-
-        return () => {
-            // Cleanup blob URL
-            if (iframeRef.current?.src) {
-                URL.revokeObjectURL(iframeRef.current.src);
-            }
-        };
     }, [romUrl, core, gameTitle, gameId]);
 
     return (

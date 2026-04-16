@@ -555,6 +555,68 @@ namespace RetroArr.Api.V3.Emulator
 
         // ============== EmulatorJS Self-Hosting Endpoints ==============
 
+        // Cores that need SharedArrayBuffer (multi-threaded WASM)
+        private static readonly HashSet<string> ThreadedCores = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "psp", "nds", "n64", "segaSaturn", "3do"
+        };
+
+        /// <summary>
+        /// Serve a self-contained emulator page with COOP/COEP headers so
+        /// SharedArrayBuffer works for threaded cores (PSP, NDS, etc.).
+        /// </summary>
+        [HttpGet("player")]
+        public ActionResult GetEmulatorPlayer(
+            [FromQuery] string rom,
+            [FromQuery] string core,
+            [FromQuery] string title = "Game")
+        {
+            if (string.IsNullOrEmpty(rom) || string.IsNullOrEmpty(core))
+                return BadRequest(new { error = "rom and core are required" });
+
+            var baseUrl = $"{Request.Scheme}://{Request.Host}";
+            var needsThreads = ThreadedCores.Contains(core);
+            var safeTitle = title.Replace("'", "\\'").Replace("\"", "&quot;").Replace("<", "&lt;");
+            var safeRom = rom.Replace("'", "\\'");
+            var safeCore = core.Replace("'", "\\'");
+
+            var html = $@"<!DOCTYPE html>
+<html>
+<head>
+    <meta charset=""UTF-8"">
+    <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
+    <title>{safeTitle}</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ background: #1e1e2e; overflow: hidden; }}
+        #game {{ width: 100vw; height: 100vh; }}
+    </style>
+</head>
+<body>
+    <div id=""game""></div>
+    <script>
+        EJS_player = '#game';
+        EJS_gameUrl = '{baseUrl}{safeRom}';
+        EJS_core = '{safeCore}';
+        EJS_gameName = '{safeTitle}';
+        EJS_pathtodata = '{baseUrl}/api/v3/emulator/assets/';
+        EJS_startOnLoaded = true;
+        EJS_color = '#89b4fa';
+        EJS_backgroundColor = '#1e1e2e';
+        EJS_language = 'en-US';
+        EJS_threads = {(needsThreads ? "true" : "false")};
+        EJS_AdUrl = '';
+    </script>
+    <script src=""{baseUrl}/api/v3/emulator/assets/loader.js""></script>
+</body>
+</html>";
+
+            Response.Headers["Cross-Origin-Opener-Policy"] = "same-origin";
+            Response.Headers["Cross-Origin-Embedder-Policy"] = "require-corp";
+            Response.Headers["Cross-Origin-Resource-Policy"] = "cross-origin";
+            return Content(html, "text/html");
+        }
+
         /// <summary>
         /// Serve EmulatorJS static files with proper COOP/COEP headers for SharedArrayBuffer.
         /// Falls back to CDN if file not found locally (for on-demand core downloads).

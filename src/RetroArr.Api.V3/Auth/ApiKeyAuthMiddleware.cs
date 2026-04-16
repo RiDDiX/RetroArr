@@ -61,9 +61,11 @@ namespace RetroArr.Api.V3.Auth
             if (path.Equals("/api/v3/system/status", StringComparison.OrdinalIgnoreCase))
                 return false;
 
-            // EmulatorJS assets are static files loaded via <script src> / fetch
-            // from the browser — no way to attach an API key to those requests.
+            // EmulatorJS assets and player page are loaded via <script src> /
+            // iframe src from the browser — no way to attach an API key.
             if (path.StartsWith("/api/v3/emulator/assets/", StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (path.StartsWith("/api/v3/emulator/player", StringComparison.OrdinalIgnoreCase))
                 return false;
 
             if (IsLoopback(context))
