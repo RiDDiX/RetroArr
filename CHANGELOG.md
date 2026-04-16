@@ -1,3 +1,8 @@
+## v1.0.109 (2026-04-16)
+
+### Changes
+- also scan loose files in folder-mode platform dirs (0b70f23)
+
 ## v1.0.108 (2026-04-16)
 
 ### Changes
