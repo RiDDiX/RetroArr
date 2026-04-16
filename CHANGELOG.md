@@ -1,3 +1,8 @@
+## v1.0.110 (2026-04-16)
+
+### Changes
+- throttle scan events and fix emulator 401 on remote access (7f275ec)
+
 ## v1.0.109 (2026-04-16)
 
 ### Changes
