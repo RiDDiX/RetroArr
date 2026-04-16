@@ -30,8 +30,7 @@ namespace RetroArr.Core.Test.Games
         [Test]
         public void AllPlatforms_FolderNamesAreNonEmpty()
         {
-            // FolderNames are NOT strictly unique (switch/switch2 share "switch")
-            // but every platform must have a non-empty FolderName
+            // Every platform must have a non-empty FolderName
             foreach (var p in PlatformDefinitions.AllPlatforms)
             {
                 Assert.That(p.FolderName, Is.Not.Null.And.Not.Empty, $"Platform Id={p.Id} Slug={p.Slug} has empty FolderName");

@@ -57,6 +57,34 @@ namespace RetroArr.Core.Test.Games
             Assert.That(platform!.Id, Is.EqualTo(expectedId));
         }
 
+        // ==================== REGRESSION: Switch and Switch 2 must resolve to separate platforms ====================
+
+        [Test]
+        public void Switch_FolderName_ResolvesToSwitch_NotSwitch2()
+        {
+            var platform = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.MatchesFolderName("switch"));
+            Assert.That(platform, Is.Not.Null);
+            Assert.That(platform!.Id, Is.EqualTo(46), "Folder 'switch' must resolve to Nintendo Switch (Id=46), not Switch 2");
+        }
+
+        [Test]
+        public void Switch2_FolderName_ResolvesToSwitch2()
+        {
+            var platform = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.MatchesFolderName("switch2"));
+            Assert.That(platform, Is.Not.Null, "No platform matched folder 'switch2'");
+            Assert.That(platform!.Id, Is.EqualTo(47), "Folder 'switch2' must resolve to Nintendo Switch 2 (Id=47)");
+        }
+
+        [Test]
+        public void Switch2_HasOwnFolderName_NotSharedWithSwitch()
+        {
+            var sw = PlatformDefinitions.AllPlatforms.First(p => p.Id == 46);
+            var sw2 = PlatformDefinitions.AllPlatforms.First(p => p.Id == 47);
+            Assert.That(sw.FolderName, Is.EqualTo("switch"));
+            Assert.That(sw2.FolderName, Is.EqualTo("switch2"));
+            Assert.That(sw.FolderName, Is.Not.EqualTo(sw2.FolderName), "Switch and Switch 2 must not share the same FolderName");
+        }
+
         // ==================== REGRESSION: GameCube must NEVER resolve to PS4 ====================
 
         [Test]

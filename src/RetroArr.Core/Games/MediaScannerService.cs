@@ -78,6 +78,7 @@ namespace RetroArr.Core.Games
             // ========== Sony PlayStation ==========
             ["nintendo_switch"] = new() { Extensions = new[] { ".nsp", ".xci", ".nsz", ".xcz", ".nso", ".nro", ".nca", ".kip" } },
             ["switch"] = new() { Extensions = new[] { ".nsp", ".xci", ".nsz", ".xcz", ".nso", ".nro", ".nca", ".kip" } },
+            ["switch2"] = new() { Extensions = new[] { ".nsp", ".xci", ".nsz", ".xcz", ".nso", ".nro", ".nca", ".kip" } },
             ["ps4"] = new() { Extensions = new[] { ".ps4", ".m3u", ".lnk" }, IsFolderMode = true },
             ["ps5"] = new() { Extensions = new[] { ".pkg" } },
             ["ps3"] = new() { Extensions = new[] { ".iso", ".pkg", ".bin", ".psn", ".squashfs", ".m3u", ".ps3", ".lnk", ".7z", ".zip", ".rar" }, IsFolderMode = true },
