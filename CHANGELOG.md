@@ -1,3 +1,8 @@
+## v1.0.111 (2026-04-16)
+
+### Changes
+- serve emulator page from backend with coop/coep headers (ff5e544)
+
 ## v1.0.110 (2026-04-16)
 
 ### Changes
