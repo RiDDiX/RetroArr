@@ -206,19 +206,11 @@ const Library: React.FC = () => {
     }
   }, [currentPage, itemsPerPage, selectedPlatform, sortOrder, missingOnly, protonFilter]);
 
-  // Load platform game counts (lightweight call for sidebar badges)
+  // Load platform game counts via lightweight server-side endpoint
   const loadPlatformCounts = useCallback(async () => {
     try {
-      const response = await gamesApi.getAll();
-      const counts: Record<string, number> = {};
-      let total = 0;
-      for (const game of response.data) {
-        const pid = (game.platformId ?? 0).toString();
-        counts[pid] = (counts[pid] || 0) + 1;
-        total++;
-      }
-      counts['__total'] = total;
-      setPlatformGameCounts(counts);
+      const response = await gamesApi.getCounts();
+      setPlatformGameCounts(response.data);
     } catch {
       // Sidebar counts are non-critical
     }
@@ -240,12 +232,17 @@ const Library: React.FC = () => {
       }
     }).catch(() => {});
 
-    // Listen for global library updates (e.g. from Auto-Scan in Settings)
+    // Listen for global library updates (e.g. from Auto-Scan in Settings).
+    // Debounce to avoid hammering the API during bulk scans — the scanner
+    // fires this event per game added, which can be hundreds per second.
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const handleLibraryUpdate = () => {
-      console.log("[Library] Received update signal (EVENT). Loading games...");
-      setForceUpdateCounter(prev => prev + 1);
-      loadPagedGames();
-      loadPlatformCounts();
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        setForceUpdateCounter(prev => prev + 1);
+        loadPagedGames();
+        loadPlatformCounts();
+      }, 2000);
     };
 
     window.addEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
@@ -259,6 +256,7 @@ const Library: React.FC = () => {
 
     return () => {
       window.removeEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
+      if (debounceTimer) clearTimeout(debounceTimer);
       if (rescanPollRef.current) clearInterval(rescanPollRef.current);
       if (protonPollRef.current) clearInterval(protonPollRef.current);
     };

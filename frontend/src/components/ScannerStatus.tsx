@@ -19,9 +19,8 @@ const ScannerStatus: React.FC = () => {
             const response = await mediaApi.getScanStatus();
             const newStatus = response.data;
 
-            // Trigger library refresh if new games were added during this poll
+            // Trigger library refresh if a meaningful batch arrived since last poll
             if (newStatus.isScanning && newStatus.gamesAddedCount > status.gamesAddedCount) {
-                console.log(`ScannerStatus: Detected ${newStatus.gamesAddedCount - status.gamesAddedCount} new games. Triggering refresh...`);
                 window.dispatchEvent(new Event('LIBRARY_UPDATED_EVENT'));
             }
 
@@ -63,7 +62,9 @@ const ScannerStatus: React.FC = () => {
             fetchStatus();
         });
         const offLibrary = progressHub.on('libraryUpdated', () => {
-            window.dispatchEvent(new Event('LIBRARY_UPDATED_EVENT'));
+            // Don't relay every single event — the Library page debounces
+            // on its end, but we still want to avoid flooding the event bus.
+            // The poll interval already picks up new games every 3s.
             fetchStatus();
         });
 

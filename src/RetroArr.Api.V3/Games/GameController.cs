@@ -73,6 +73,22 @@ namespace RetroArr.Api.V3.Games
             }
         }
 
+        [HttpGet("counts")]
+        public async Task<ActionResult<Dictionary<string, int>>> GetPlatformCounts()
+        {
+            var games = await _repository.GetAllLightAsync();
+            var counts = new Dictionary<string, int>();
+            int total = 0;
+            foreach (var g in games)
+            {
+                var key = (g.PlatformId > 0 ? g.PlatformId : 0).ToString();
+                counts[key] = counts.TryGetValue(key, out var c) ? c + 1 : 1;
+                total++;
+            }
+            counts["__total"] = total;
+            return Ok(counts);
+        }
+
         [HttpGet("paged")]
         public async Task<ActionResult<PagedResult<GameListDto>>> GetPaged(
             [FromQuery] int page = 1,

@@ -531,7 +531,9 @@ namespace RetroArr.Host
                 Fire(progressNotifier.ScanFinishedAsync(gamesAdded), "scanFinished");
                 Fire(progressNotifier.LibraryUpdatedAsync(), "libraryUpdated");
             };
-            scannerForHub.OnGameAdded += game => Fire(progressNotifier.LibraryUpdatedAsync(), "libraryUpdated");
+            // Notify per batch (every ~20 games) instead of per game to
+            // avoid flooding the frontend with hundreds of SignalR events.
+            scannerForHub.OnBatchFinished += () => Fire(progressNotifier.LibraryUpdatedAsync(), "libraryUpdated");
 
             // Serve frontend - fallback to index.html for SPA routing
             if (Directory.Exists(uiPath))
