@@ -1,3 +1,8 @@
+## v1.0.108 (2026-04-16)
+
+### Changes
+- fix switch 2 sharing foldername with switch, making it unreachable (c944678)
+
 ## v1.0.107 (2026-04-15)
 
 ### Changes
