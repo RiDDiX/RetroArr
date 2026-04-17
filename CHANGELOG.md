@@ -1,3 +1,8 @@
+## v1.0.128 (2026-04-17)
+
+### Changes
+- strip any absolute url from the rom query param (17e896c)
+
 ## v1.0.127 (2026-04-17)
 
 ### Changes
