@@ -1,3 +1,8 @@
+## v1.0.114 (2026-04-17)
+
+### Changes
+- fix covers dropping and reverse proxy scheme detection (f19cd61)
+
 ## v1.0.113 (2026-04-17)
 
 ### Changes
