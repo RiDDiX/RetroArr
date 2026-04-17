@@ -1,3 +1,8 @@
+## v1.0.118 (2026-04-17)
+
+### Changes
+- add swag subdomain config (a21241f)
+
 ## v1.0.117 (2026-04-17)
 
 ### Changes
