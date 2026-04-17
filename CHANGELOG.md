@@ -1,3 +1,10 @@
+## v1.0.122 (2026-04-17)
+
+### Changes
+- clean up disclaimer and site phrasing (0aa004b)
+- tighten user-facing strings (fb3346a)
+- trim xml doc noise and tighten log messages (c01fda6)
+
 ## v1.0.121 (2026-04-17)
 
 ### Changes
