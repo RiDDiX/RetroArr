@@ -1,3 +1,8 @@
+## v1.0.112 (2026-04-17)
+
+### Changes
+- explain threaded cores need https or localhost (3440c61)
+
 ## v1.0.111 (2026-04-16)
 
 ### Changes
