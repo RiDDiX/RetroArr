@@ -3,7 +3,8 @@ services:
     image: ghcr.io/riddix/retroarr:latest
     container_name: RetroArr
     ports:
-      - "2727:2727"
+      - "2727:2727"      # HTTP
+      - "2728:2728"      # HTTPS (self-signed) — remove if using a reverse proxy
     volumes:
       - ./config:/app/config
       - /your/games/path:/media
@@ -12,6 +13,7 @@ services:
       - ASPNETCORE_ENVIRONMENT=Production
       - DOTNET_RUNNING_IN_CONTAINER=true
       - RetroArr_SAVESTATES_PATH=/app/savestates
+      - RETROARR_HTTPS_PORT=2728
       - PUID=1000
       - PGID=1000
     restart: unless-stopped

@@ -13,7 +13,7 @@
     RetroArr is a self-hosted game library manager and PVR, inspired by Radarr and Sonarr. It manages your game library across 55+ platforms, fetches metadata from IGDB/Steam/ScreenScraper, handles downloads via Prowlarr/Jackett, and supports Linux gaming integrations (Proton, Lutris, Steam Deck).
   </Overview>
   <Category>MediaApp:Video GameServers: Tools:</Category>
-  <WebUI>http://[IP]:[PORT:2727]/</WebUI>
+  <WebUI>https://[IP]:[PORT:2728]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/RiDDiX/RetroArr/main/_unraid/retroarr.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/RiDDiX/RetroArr/main/frontend/src/assets/app_logo.png</Icon>
   <ExtraParams/>
@@ -38,6 +38,11 @@
       <Port>
         <HostPort>2727</HostPort>
         <ContainerPort>2727</ContainerPort>
+        <Protocol>tcp</Protocol>
+      </Port>
+      <Port>
+        <HostPort>2728</HostPort>
+        <ContainerPort>2728</ContainerPort>
         <Protocol>tcp</Protocol>
       </Port>
     </Publish>
@@ -70,8 +75,14 @@
       <Name>PGID</Name>
       <Mode/>
     </Variable>
+    <Variable>
+      <Value>2728</Value>
+      <Name>RETROARR_HTTPS_PORT</Name>
+      <Mode/>
+    </Variable>
   </Environment>
-  <Config Name="Web Port" Target="2727" Default="2727" Mode="tcp" Description="The port for the RetroArr Web UI." Type="Port" Display="always" Required="true" Mask="false">2727</Config>
+  <Config Name="HTTP Port" Target="2727" Default="2727" Mode="tcp" Description="Plain HTTP port for the Web UI. Use this when running behind a reverse proxy (SWAG, nginx, Caddy)." Type="Port" Display="always" Required="true" Mask="false">2727</Config>
+  <Config Name="HTTPS Port" Target="2728" Default="2728" Mode="tcp" Description="HTTPS port with auto-generated self-signed cert. Needed for threaded emulator cores (PSP, NDS, N64, Saturn, 3DO) when accessed from a LAN IP. Cert is stored in config/certs/retroarr.pfx." Type="Port" Display="always" Required="false" Mask="false">2728</Config>
   <Config Name="Appdata" Target="/app/config" Default="/mnt/user/appdata/RetroArr/config" Mode="rw" Description="Location for RetroArr configuration and database." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/RetroArr/config</Config>
   <Config Name="Games Library" Target="/media" Default="/mnt/user/games" Mode="rw" Description="Location of your game library." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/games</Config>
   <Config Name="Downloads" Target="/downloads" Default="/mnt/user/downloads" Mode="rw" Description="Downloads directory for completed files." Type="Path" Display="always" Required="false" Mask="false">/mnt/user/downloads</Config>

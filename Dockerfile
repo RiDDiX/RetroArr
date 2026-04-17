@@ -88,12 +88,14 @@ RUN --mount=type=cache,target=/root/.nuget/packages \
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
 
-# Install runtime dependencies for Switch USB support (Python + libusb) and healthcheck (curl)
+# Install runtime dependencies for Switch USB support (Python + libusb),
+# healthcheck (curl), and self-signed cert generation (openssl)
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     libusb-1.0-0 \
     curl \
+    openssl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install pyusb
@@ -113,6 +115,10 @@ COPY CHANGELOG.md /app/CHANGELOG.md
 # Copy EmulatorJS assets (pre-downloaded during build)
 COPY --from=emulatorjs /emulatorjs/data /app/config/emulatorjs
 
+# Entrypoint script handles self-signed cert generation + dual-listener config
+COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 # Create config, media and savestate directories; non-root user
 RUN mkdir -p /app/config /app/savestates /media && \
     groupadd -g 1000 retroarr && \
@@ -121,12 +127,11 @@ RUN mkdir -p /app/config /app/savestates /media && \
 
 USER retroarr
 
-# Expose port 2727
-EXPOSE 2727
-ENV ASPNETCORE_URLS=http://+:2727
+# 2727 = HTTP, 2728 = HTTPS (optional; only enabled when RETROARR_HTTPS_PORT is set)
+EXPOSE 2727 2728
 ENV DOTNET_RUNNING_IN_CONTAINER=true
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -fsS http://127.0.0.1:2727/api/v3/system/status > /dev/null || exit 1
 
-ENTRYPOINT ["dotnet", "RetroArr.Host.dll"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

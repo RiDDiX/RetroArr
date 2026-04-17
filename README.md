@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>Self-hosted game library manager & PVR for video games and retro consoles.</strong>
+  <strong>Self-hosted game library manager for PC and retro consoles.</strong>
 </p>
 
 <p align="center">
@@ -15,7 +15,7 @@
 
 ---
 
-Inspired by the *arr stack (Radarr, Sonarr), RetroArr manages your game library the same way — scan local files, fetch metadata, organize, search indexers, and automate downloads. It covers PC games, retro consoles, handhelds, and arcade platforms under one roof.
+Think Radarr/Sonarr, but for video games. RetroArr scans your library, fetches metadata, organizes files, searches indexers, and automates downloads — across PC, retro consoles, handhelds, and arcade platforms. One tool, one UI.
 
 ## Quick Start
 
@@ -26,7 +26,8 @@ services:
     image: ghcr.io/riddix/retroarr:latest
     container_name: retroarr
     ports:
-      - "2727:2727"
+      - "2727:2727"      # HTTP
+      - "2728:2728"      # HTTPS (optional, self-signed cert)
     volumes:
       - ./config:/app/config
       - /your/games/path:/media
@@ -34,6 +35,7 @@ services:
     environment:
       - PUID=1000
       - PGID=1000
+      - RETROARR_HTTPS_PORT=2728   # remove to disable HTTPS
     restart: unless-stopped
 ```
 
@@ -41,83 +43,98 @@ services:
 docker compose up -d
 ```
 
-Open `http://your-ip:2727`, then go to **Settings → Metadata** and add your [IGDB credentials](https://api-docs.igdb.com/#getting-started) (free Twitch dev account).
+Open `http://your-ip:2727` (or `https://your-ip:2728`), then **Settings → Metadata** and paste your [IGDB credentials](https://api-docs.igdb.com/#getting-started) (free, Twitch dev account).
+
+## HTTP or HTTPS?
+
+Both are served by the same container. Pick what fits your setup:
+
+- **HTTP on `:2727`** — fine for localhost, or when you already have a reverse proxy (SWAG, Traefik, Caddy, nginx) handling TLS
+- **HTTPS on `:2728`** — auto-generated self-signed cert on first start, stored in `config/certs/retroarr.pfx`. Required for threaded emulator cores (PSP, NDS, N64, Saturn, 3DO) when you access the UI from a LAN IP — browsers only expose `SharedArrayBuffer` on secure origins
+
+If you only plan to proxy through SWAG with a real cert, drop the `2728` line from `ports:` and the `RETROARR_HTTPS_PORT` env var.
 
 ## Features
 
-**Library & Scanning**
-- Scans and identifies files across **80+ platforms** — PC, PlayStation 1–5, Xbox, Nintendo NES through Switch 2, Sega, Atari, NEC, Arcade (MAME, FBNeo, CPS, Neo Geo), ScummVM, DOSBox, and more
-- Metadata from **IGDB**, **Steam**, and **ScreenScraper** (retro/arcade fallback): covers, descriptions, ratings, release dates
-- PlayStation serial number detection (SCES, SCUS, SLUS, SLES, …) — serial is extracted, title cleaned for correct metadata lookup
-- Region & language detection from filenames with flag display (USA, Europe, Japan, PAL, multi-region)
-- Revision/variant tagging: Beta, Rev A, Disc 2, etc.
-- Automatic folder renaming based on cleaned metadata titles
+**Library & scanning**
+- Identifies files across **170 platforms** from `PlatformDefinitions.cs` — PC, every PlayStation, every Xbox, Nintendo NES through Switch 2, Sega from SG-1000 to Dreamcast, Atari, NEC, Arcade (MAME, FBNeo, CPS, Neo Geo), ScummVM, DOSBox, a pile of obscure handhelds and 8-bit computers
+- Metadata from **IGDB** (primary), **ScreenScraper** (retro and arcade fallback), **Steam**, and **GOG**
+- PlayStation serial extraction (SCES/SCUS/SLUS/SLES/CUSA/PPSA/…) so the title gets cleaned and metadata finds the right entry
+- Nintendo Switch Title ID parsing (base vs patch vs DLC via bit flags)
+- Region, language and revision tags parsed from filenames
+- Multi-file games: `.cue` + `.bin`, `.m3u` for multi-disc, `.gdi` tracks, folder-based PS3/Wii U, `.chd`, `.nsz`/`.xcz`
+- Rescan heals wrong platforms by re-reading the path, deduplicates after folder moves
 
-**Download Automation**
-- Indexer search via **Prowlarr** or **Jackett** (torrent + Usenet)
-- Download clients: qBittorrent, Transmission, Deluge, SABnzbd, NZBGet
-- Post-download processing with automatic file handling
+**Downloads & indexers**
+- Indexer backends: **Prowlarr**, **Jackett**, **Hydra Launcher**, plus raw **Newznab**/**Torznab**
+- Download clients: **qBittorrent**, **Transmission**, **Deluge**, **SABnzbd**, **NZBGet**
+- Post-download handler picks the right platform folder, renames, attaches patches/DLC to the right game
 
-**Launching & Platforms**
-- Steam and GOG direct launch with library sync
-- Executable discovery for installed PC games (Windows, macOS, Linux)
-- Linux: automatic Proton/Wine detection, per-game runner selection, Lutris export, Steam Deck shortcuts, XDG `.desktop` generation
-- macOS: Whisky / CrossOver delegation
-- Built-in browser-based retro emulator via [EmulatorJS](https://emulatorjs.org/) for supported platforms — play directly from the web UI
-- Save states: 8 slots per game, upload/download/delete from the UI, stored under `/app/savestates`
-- BIOS support: drop core BIOS files into a configurable folder (default `/app/config/bios`); whitelisted names served to EmulatorJS on demand
+**Launching**
+- Steam and GOG launch directly through their clients when the game is installed there
+- Native executable discovery for installed PC games
+- Linux: Proton/Wine auto-detection, per-game runner override, Lutris config export, Steam shortcut export, `.desktop` file generation
+- macOS: opens via `/usr/bin/open`, delegates to Whisky/CrossOver when present
 
-**More**
-- Retro-themed UI: CRT boot screen, platform-accent color tinting (NES red, Game Boy green, PS1 blue, …), keyboard d-pad navigation in the library grid
-- Multi-language UI (EN, DE, ES, FR, RU, ZH, JA)
-- Review import gate for unidentified files
-- Plugin system (process-isolated, language-agnostic, circuit breaker)
-- Webhook notifications for library events (with UI to add / edit / test)
-- Nintendo Switch USB transfer (DBI protocol)
-- Database: SQLite (default), PostgreSQL, MariaDB with built-in migration
-- Optional Redis cache layer
-- Structured logging with per-feature files, rotation, and diagnostics export
-- Real-time scan / download / connection status via SignalR (LIVE indicator in the sidebar)
+**Emulation**
+- Browser-based retro emulation via [EmulatorJS](https://emulatorjs.org/) — 25 cores wired up (NES/SNES/N64/GB/GBC/GBA/NDS/VB, Genesis/Master System/Game Gear/Saturn/32X/Sega CD, PS1/PSP, Atari 2600/5200/7800/Lynx/Jaguar, Arcade, PCEngine)
+- BIOS drop folder at `/app/config/bios` — whitelisted filenames served to EmulatorJS on demand
+- Save states: 8 slots per game, upload/download/delete from the UI, stored in `/app/savestates`
+
+**UI & integrations**
+- Retro-themed interface with CRT boot animation, platform-accent color tinting, keyboard d-pad navigation
+- 7 UI languages (English, German, Spanish, French, Russian, Chinese, Japanese)
+- Plugin system: process-isolated, language-agnostic, with circuit breaker and JSON stdin/stdout
+- Webhook notifications (Discord-compatible) with in-UI test button
+- Nintendo Switch USB transfer via DBI protocol (Python helper ships with the container)
+- Real-time scan / download / health status over SignalR — LIVE badge in the sidebar
+
+**Storage & deployment**
+- Database: **SQLite** (default), **PostgreSQL**, or **MariaDB** — migration between them is a guided flow in Settings → Database
+- Optional **Redis** cache
+- Structured logging, per-feature log files, rotation, one-click diagnostics export
+- Docker image runs as non-root, has a `HEALTHCHECK`, works on `amd64` + `arm64`
 
 **Security**
-- Credentials (IGDB, ScreenScraper, download clients, Steam, Prowlarr / Jackett, GOG) encrypted at rest with ASP.NET Data Protection — transparent plaintext migration on first save
-- API key gate: loopback requests stay unauthenticated; LAN / remote clients must present `X-Api-Key` (key visible + rotatable in Settings → API access)
-- Docker image runs as non-root with `HEALTHCHECK`
+- Every stored credential (IGDB, ScreenScraper, download clients, Steam, Prowlarr, Jackett, GOG) encrypted with ASP.NET Data Protection. Plaintext values from older installs get migrated on first save
+- API key gate: loopback requests are unauthenticated (for the Docker healthcheck), LAN and remote clients need `X-Api-Key`. Key is shown and rotatable in Settings → API access
+- EmulatorJS static assets and the `/emulator/player` page are exempt from auth, since browsers can't attach API keys to `<script src>` or iframe loads
 
-See also: [Linux Gaming](docs/LINUX_GAMING.md) · [Plugins](docs/PLUGIN_GUIDE.md) · [Scanner Logic](docs/SCANNING_LOGIC.md) · [Updates & DLC](docs/UPDATES_DLC_GUIDE.md) · [Launcher Specs](docs/LAUNCHER_SPECS.md) · [Installer Logic](docs/INSTALLER_LOGIC.md)
+Deeper reads: [Linux Gaming](docs/LINUX_GAMING.md) · [Plugins](docs/PLUGIN_GUIDE.md) · [Scanner Logic](docs/SCANNING_LOGIC.md) · [Updates & DLC](docs/UPDATES_DLC_GUIDE.md) · [Launcher Specs](docs/LAUNCHER_SPECS.md) · [Installer Logic](docs/INSTALLER_LOGIC.md)
 
 ## Installation
 
 ### Docker (recommended)
 
-See [Quick Start](#quick-start). Web UI runs on port **2727**.
+See [Quick Start](#quick-start). HTTP on **2727**, optional HTTPS on **2728**.
 
 <details>
 <summary><strong>CasaOS</strong></summary>
 
-Go to **App Store → Custom Install → Import** and paste:
+**App Store → Custom Install → Import**, then paste:
 
 ```yaml
 services:
-  retroarr:
+  RetroArr:
     image: ghcr.io/riddix/retroarr:latest
-    container_name: retroarr
+    container_name: RetroArr
+    network_mode: bridge
     ports:
       - "2727:2727"
+      - "2728:2728"
     volumes:
       - /DATA/AppData/RetroArr/config:/app/config
-      - /DATA/Media/Games:/media
-      - /DATA/AppData/RetroArr/savestates:/app/savestates
+      - /DATA/Media:/media
     environment:
+      - DOTNET_RUNNING_IN_CONTAINER=true
+      - RETROARR_HTTPS_PORT=2728
       - PUID=1000
       - PGID=1000
     restart: unless-stopped
 
 x-casaos:
-  architectures:
-    - amd64
-    - arm64
-  main: retroarr
+  architectures: [amd64, arm64]
+  main: RetroArr
   icon: https://raw.githubusercontent.com/RiDDiX/RetroArr/main/frontend/src/assets/app_logo.png
   title:
     en_us: RetroArr
@@ -128,104 +145,112 @@ x-casaos:
 <details>
 <summary><strong>Synology / NAS</strong></summary>
 
-Open **Container Manager → Project → Create**, paste the compose template from `_synology/docker-compose.yml`, adjust your paths, and click **Done**.
+**Container Manager → Project → Create**, import the compose template from [`_synology/docker-compose.yml`](_synology/docker-compose.yml), adjust paths, done.
 
 </details>
 
 <details>
 <summary><strong>Unraid</strong></summary>
 
-Use the Community Applications template in `_unraid/retroarr.xml`, or add the container manually with image `ghcr.io/riddix/retroarr:latest`.
+Community Applications template: [`_unraid/retroarr.xml`](_unraid/retroarr.xml). Or add the container by hand with image `ghcr.io/riddix/retroarr:latest` and both ports mapped (2727 + 2728).
+
+</details>
+
+<details>
+<summary><strong>Behind a reverse proxy (SWAG, Traefik, Caddy, nginx)</strong></summary>
+
+Proxy your HTTPS domain to `http://retroarr:2727`. The container doesn't need its own HTTPS in this case — drop the `2728` port mapping and the `RETROARR_HTTPS_PORT` env var.
+
+Make sure the proxy forwards WebSocket upgrades (`/hubs/progress`), SignalR needs them. `Upgrade` and `Connection` headers must pass through.
 
 </details>
 
 ### Desktop
 
-Download from [GitHub Releases](https://github.com/RiDDiX/RetroArr/releases):
+Grab the build for your OS from [Releases](https://github.com/RiDDiX/RetroArr/releases):
 
-| Platform | File |
-|----------|------|
+| OS | File |
+|----|------|
 | Windows | `RetroArr-Setup.exe` (installer) or portable `.exe` |
-| macOS | `RetroArr.app` — Apple Silicon and Intel |
+| macOS | `RetroArr.app` — universal (Apple Silicon + Intel) |
 | Linux | Generic x64 binary |
 
-Desktop mode uses ports 5002–5005 with config in `{AppData}/RetroArr/config`.
+Desktop mode uses ports `5002-5005` and stores config in `{AppData}/RetroArr/config`. Photino wraps the same Kestrel server in a native window.
 
-### Build from Source
+### Build from source
 
-Requires [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) and [Node.js 20+](https://nodejs.org/).
+Needs [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) and [Node.js 20+](https://nodejs.org/).
 
 ```bash
 git clone https://github.com/RiDDiX/RetroArr.git
 cd RetroArr
+
+# Everything in one shot
 docker build -t retroarr:local .
-```
 
-Or individually:
-
-```bash
-cd frontend && npm install && npm run build   # Frontend
-cd src && dotnet build RetroArr.sln           # Backend
+# Or piece by piece
+npm install && npm run build
+cd src && dotnet build RetroArr.sln -c Release
 ```
 
 ## Configuration
 
-All config lives in `config/` (Docker: `/app/config`) as JSON files.
+Everything lives under `config/` (Docker: `/app/config`) as JSON files. Nothing needs editing by hand — use the Settings UI.
 
 | Setting | Where | What |
 |---------|-------|------|
 | IGDB | Settings → Metadata | Twitch Client ID + Secret (required) |
-| Prowlarr / Jackett | Settings → Connections | Indexer URL + API Key |
-| Download Clients | Settings → Download Clients | qBit, Transmission, Deluge, SABnzbd, NZBGet |
+| ScreenScraper | Settings → Metadata | Optional fallback for retro and arcade |
 | Steam | Settings → Steam | API Key + Steam ID for library sync |
-| GOG | Settings → GOG | OAuth for GOG library access |
-| Media Library | Settings → Media | Root path to your game folders |
-| ScreenScraper | Settings → Metadata | Retro/arcade metadata fallback |
-| Webhooks | Settings → Notifications | Event notification endpoints |
-| Database | Settings → Database | SQLite / PostgreSQL / MariaDB + migration |
-| Cache | Settings → Cache | Redis connection + TTL config |
-| Logging | Settings → Logging | Log levels, rotation, redaction |
+| GOG | Settings → GOG | OAuth for GOG Galaxy library |
+| Prowlarr / Jackett | Settings → Connections | Indexer URL + API key |
+| Download clients | Settings → Download Clients | qBit, Transmission, Deluge, SABnzbd, NZBGet |
+| Media library | Settings → Media | Root path to your games |
+| Webhooks | Settings → Notifications | Endpoints for library events |
+| Database | Settings → Database | Pick SQLite, PostgreSQL or MariaDB, run the migration |
+| Cache | Settings → Cache | Redis URL and TTL |
+| Logging | Settings → Logging | Levels, rotation, redaction rules |
 
-**Environment variables:**
+**Environment variables**
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PUID` | `1000` | User ID for file permissions |
-| `PGID` | `1000` | Group ID for file permissions |
-| `ASPNETCORE_URLS` | `http://+:2727` | Listen address |
+| `PUID` / `PGID` | `1000` | User and group IDs for file permissions |
+| `RETROARR_HTTP_PORT` | `2727` | HTTP listen port |
+| `RETROARR_HTTPS_PORT` | unset | HTTPS listen port. If unset, HTTPS is disabled |
+| `ASPNETCORE_ENVIRONMENT` | `Production` | Standard .NET environment flag |
 
-**Docker volumes:**
+**Docker volumes**
 
 | Path | Description |
 |------|-------------|
-| `/app/config` | Configuration files (JSON) |
-| `/media` | Game library root folder |
-| `/app/savestates` | EmulatorJS save states |
+| `/app/config` | All config, database, logs, EmulatorJS assets, certs |
+| `/media` | Your game library root |
+| `/app/savestates` | EmulatorJS save states (optional, separate volume keeps them out of backups) |
+| `/downloads` | Where download clients drop files (optional) |
 
 ## Development
 
-Requires [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) and [Node.js 20+](https://nodejs.org/).
-
 ```bash
-npm run lint                                          # Lint frontend
-npm run build                                         # Build frontend
-cd src && dotnet build RetroArr.sln -c Release        # Build backend
-cd src && dotnet test RetroArr.Core.Test -c Release   # Run tests
-docker build -t retroarr:local .                      # Docker image
+npm run lint                                          # Frontend lint
+npm run build                                         # Frontend build
+cd src && dotnet build RetroArr.sln -c Release        # Backend build
+cd src && dotnet test RetroArr.Core.Test -c Release   # Tests (171 of them)
+docker build -t retroarr:local .                      # Full image
 ```
 
-### Project Layout
+### Project layout
 
 ```
 src/
-├── RetroArr.Host         # Kestrel server, Photino desktop wrapper
-├── RetroArr.Api.V3       # REST controllers
+├── RetroArr.Host         # Kestrel server + Photino desktop wrapper
+├── RetroArr.Api.V3       # REST controllers (33 of them)
 ├── RetroArr.Core         # Business logic, services, models
 ├── RetroArr.Core.Test    # NUnit tests
 ├── RetroArr.Common       # Shared utilities
 ├── RetroArr.Http         # HTTP client helpers
-├── RetroArr.SignalR       # Real-time hub
-└── RetroArr.UsbHelper    # Switch USB transfer
+├── RetroArr.SignalR      # Real-time hub
+└── RetroArr.UsbHelper    # Switch USB transfer helper
 frontend/
 ├── src/pages/            # React pages
 ├── src/components/       # Reusable components
@@ -234,15 +259,15 @@ frontend/
 
 ## Contributing
 
-Found a bug or have an idea? [Open an issue](https://github.com/RiDDiX/RetroArr/issues). Pull requests are welcome.
+Bug, idea, feature request? [Open an issue](https://github.com/RiDDiX/RetroArr/issues). PRs welcome.
 
 ## License
 
-MIT — see [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE).
 
 ## Disclaimer
 
-RetroArr is for personal library management and educational purposes. Not affiliated with any game platform or metadata provider. Users are responsible for compliance with local copyright laws. See [DISCLAIMER.md](DISCLAIMER.md).
+RetroArr is for personal library management and educational use. Not affiliated with any game platform, publisher, or metadata provider. You're responsible for complying with local copyright law. See [DISCLAIMER.md](DISCLAIMER.md).
 
 ---
 

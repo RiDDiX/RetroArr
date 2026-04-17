@@ -1,6 +1,6 @@
 # Plugin Developer Guide
 
-RetroArr supports community-driven plugins for metadata enrichment and custom scripting. Plugins run as isolated external processes — a broken plugin can never crash the main application.
+RetroArr lets you extend metadata enrichment and custom scripting through plugins. Each plugin runs as its own subprocess, so a crash in a plugin stays in that plugin — the main app keeps running.
 
 ## Architecture
 

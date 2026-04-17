@@ -549,7 +549,7 @@ ScreenScraper system IDs are sourced from the [ScreenScraper API](https://www.sc
 | C64 | 66 | ZX Spectrum | 76 |
 | MSX | 113 | Amstrad CPC | 65 |
 
-Platforms without a ScreenScraper system ID (PS3, PS4, PS5, Vita, Xbox, Xbox 360) rely exclusively on IGDB for metadata. PS3/PS4/PS5/Vita/Xbox are modern enough that IGDB has comprehensive coverage.
+Platforms without a ScreenScraper system ID (PS3, PS4, PS5, Vita, Xbox, Xbox 360) rely on IGDB only. IGDB covers those platforms well, so there's nothing to fall back to.
 
 ### Fallback behaviour
 

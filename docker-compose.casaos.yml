@@ -4,14 +4,15 @@ services:
     container_name: RetroArr
     network_mode: bridge
     ports:
-      - "2727:2727"
+      - "2727:2727"      # HTTP
+      - "2728:2728"      # HTTPS (self-signed) — remove if using a reverse proxy
     volumes:
       - /DATA/AppData/RetroArr/config:/app/config
       - /DATA/Media:/media
     restart: unless-stopped
     environment:
-      - ASPNETCORE_URLS=http://+:2727
       - DOTNET_RUNNING_IN_CONTAINER=true
+      - RETROARR_HTTPS_PORT=2728
       - PUID=1000
       - PGID=1000
     labels:

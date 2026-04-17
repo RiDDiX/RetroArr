@@ -110,7 +110,7 @@ All three OS paths are handled by `NativeLaunchStrategy`, which delegates based 
 
 ---
 
-### Benefits of This Approach
-Using the `open` command on Mac:
-* It's **fail-proof**: If it fails, it's macOS's fault, not your code.
-* If you (as a user) already have Whisky installed and `.exe` files open with Whisky when double-clicking in Finder, **RetroArr will work automatically** without having to write complex code about "bottles" or "Z:" paths.
+### Why `open` on macOS
+Letting macOS handle the file association means we don't reimplement Whisky/CrossOver logic:
+* If `open` fails, it's a Finder/macOS issue — surfaces faster than a custom error path.
+* If the user already set `.exe` files to open with Whisky in Finder, RetroArr inherits that — no "bottles" or `Z:` path juggling on our side.

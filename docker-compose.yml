@@ -3,7 +3,8 @@ services:
     build: .
     container_name: retroarr
     ports:
-      - "2727:2727"
+      - "2727:2727"      # HTTP
+      - "2728:2728"      # HTTPS (optional — remove if running behind a reverse proxy)
     volumes:
       - ./config:/app/config       # Logs are stored in ./config/logs/ by default
       - ./games:/media
@@ -11,8 +12,12 @@ services:
       - ./savestates:/app/savestates
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
-      - ASPNETCORE_URLS=http://+:2727
       - RetroArr_SAVESTATES_PATH=/app/savestates
+      # Enable HTTPS with an auto-generated self-signed cert (stored in
+      # ./config/certs/retroarr.pfx). Required for threaded emulator cores
+      # (PSP, NDS, N64, Saturn, 3DO) when accessed from a LAN IP.
+      # Comment out if you only serve HTTP through a reverse proxy.
+      - RETROARR_HTTPS_PORT=2728
     restart: unless-stopped
     networks:
       - arr-network
