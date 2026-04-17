@@ -13,6 +13,8 @@ services:
     environment:
       - DOTNET_RUNNING_IN_CONTAINER=true
       - RETROARR_HTTPS_PORT=2728
+      # Reverse-proxy trusted ranges (CIDR). Defaults cover RFC1918 + loopback.
+      # - RETROARR_TRUSTED_PROXIES=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
       - PUID=1000
       - PGID=1000
     labels:

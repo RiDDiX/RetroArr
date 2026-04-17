@@ -220,6 +220,8 @@ Everything lives under `config/` (Docker: `/app/config`) as JSON files. Nothing 
 | `PUID` / `PGID` | `1000` | User and group IDs for file permissions |
 | `RETROARR_HTTP_PORT` | `2727` | HTTP listen port |
 | `RETROARR_HTTPS_PORT` | unset | HTTPS listen port. If unset, HTTPS is disabled |
+| `RETROARR_CERT_SAN` | unset | Extra SAN entries (comma-separated) for the auto-generated HTTPS cert, e.g. `IP:192.168.1.10,DNS:retroarr.lan` |
+| `RETROARR_TRUSTED_PROXIES` | RFC1918 + loopback | Comma-separated CIDR ranges of reverse proxies whose `X-Forwarded-*` headers should be trusted |
 | `ASPNETCORE_ENVIRONMENT` | `Production` | Standard .NET environment flag |
 
 **Docker volumes**

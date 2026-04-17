@@ -359,17 +359,41 @@ namespace RetroArr.Host
             // Honour X-Forwarded-Proto / X-Forwarded-For from reverse proxies
             // (SWAG, Traefik, Caddy, nginx) so Request.IsHttps and the real
             // client IP are correct behind TLS termination.
-            app.UseForwardedHeaders(new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions
+            //
+            // Out of the box we trust all RFC1918 private ranges + loopback.
+            // Users who want to lock it down (public edge deployments) can
+            // override via the RETROARR_TRUSTED_PROXIES env var, e.g.
+            //   RETROARR_TRUSTED_PROXIES="172.20.0.0/16,10.1.2.3/32"
+            var forwardedOpts = new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions
             {
                 ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
                                  | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto
                                  | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedHost,
-                // Accept from any upstream — users run this on their own LAN,
-                // not as a public edge service. Clear the defaults so the
-                // middleware doesn't reject proxies on random docker IPs.
-                KnownNetworks = { },
-                KnownProxies = { }
-            });
+                ForwardLimit = null
+            };
+            forwardedOpts.KnownNetworks.Clear();
+            forwardedOpts.KnownProxies.Clear();
+
+            var trustedEnv = Environment.GetEnvironmentVariable("RETROARR_TRUSTED_PROXIES");
+            var trustedRanges = !string.IsNullOrWhiteSpace(trustedEnv)
+                ? trustedEnv.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                : new[] { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "::1/128" };
+
+            foreach (var range in trustedRanges)
+            {
+                try
+                {
+                    var slash = range.IndexOf('/');
+                    var addr = slash > 0 ? range.Substring(0, slash) : range;
+                    var bits = slash > 0 ? int.Parse(range.Substring(slash + 1), System.Globalization.CultureInfo.InvariantCulture) : 32;
+                    forwardedOpts.KnownNetworks.Add(new Microsoft.AspNetCore.HttpOverrides.IPNetwork(System.Net.IPAddress.Parse(addr), bits));
+                }
+                catch (Exception ex)
+                {
+                    Log($"[ForwardedHeaders] ignoring bad proxy range '{range}': {ex.Message}");
+                }
+            }
+            app.UseForwardedHeaders(forwardedOpts);
 
             // Configure middleware
             app.UseResponseCompression();

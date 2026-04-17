@@ -80,9 +80,15 @@
       <Name>RETROARR_HTTPS_PORT</Name>
       <Mode/>
     </Variable>
+    <Variable>
+      <Value/>
+      <Name>RETROARR_TRUSTED_PROXIES</Name>
+      <Mode/>
+    </Variable>
   </Environment>
   <Config Name="HTTP Port" Target="2727" Default="2727" Mode="tcp" Description="Plain HTTP port for the Web UI. Use this when running behind a reverse proxy (SWAG, nginx, Caddy)." Type="Port" Display="always" Required="true" Mask="false">2727</Config>
   <Config Name="HTTPS Port" Target="2728" Default="2728" Mode="tcp" Description="HTTPS port with auto-generated self-signed cert. Needed for threaded emulator cores (PSP, NDS, N64, Saturn, 3DO) when accessed from a LAN IP. Cert is stored in config/certs/retroarr.pfx." Type="Port" Display="always" Required="false" Mask="false">2728</Config>
+  <Config Name="Trusted Proxies" Target="RETROARR_TRUSTED_PROXIES" Default="" Description="Comma-separated CIDR ranges of reverse proxies allowed to set X-Forwarded-Proto / X-Forwarded-For. Leave empty to accept all RFC1918 private ranges + loopback. Example: 172.20.0.0/16,10.1.2.3/32" Type="Variable" Display="advanced" Required="false" Mask="false"/>
   <Config Name="Appdata" Target="/app/config" Default="/mnt/user/appdata/RetroArr/config" Mode="rw" Description="Location for RetroArr configuration and database." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/RetroArr/config</Config>
   <Config Name="Games Library" Target="/media" Default="/mnt/user/games" Mode="rw" Description="Location of your game library." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/games</Config>
   <Config Name="Downloads" Target="/downloads" Default="/mnt/user/downloads" Mode="rw" Description="Downloads directory for completed files." Type="Path" Display="always" Required="false" Mask="false">/mnt/user/downloads</Config>
