@@ -61,11 +61,17 @@ namespace RetroArr.Api.V3.Auth
             if (path.Equals("/api/v3/system/status", StringComparison.OrdinalIgnoreCase))
                 return false;
 
-            // EmulatorJS assets and player page are loaded via <script src> /
-            // iframe src from the browser — no way to attach an API key.
+            // EmulatorJS assets, player page and ROM stream are loaded via
+            // <script src> / iframe / fetch from the browser. None of those
+            // can attach an API key header.
             if (path.StartsWith("/api/v3/emulator/assets/", StringComparison.OrdinalIgnoreCase))
                 return false;
             if (path.StartsWith("/api/v3/emulator/player", StringComparison.OrdinalIgnoreCase))
+                return false;
+            // ROM endpoint matches /api/v3/emulator/{id}/rom — exempt anything
+            // ending in /rom under /emulator/.
+            if (path.StartsWith("/api/v3/emulator/", StringComparison.OrdinalIgnoreCase)
+                && path.EndsWith("/rom", StringComparison.OrdinalIgnoreCase))
                 return false;
 
             if (IsLoopback(context))
