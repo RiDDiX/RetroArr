@@ -1,3 +1,8 @@
+## v1.0.119 (2026-04-17)
+
+### Changes
+- drop duplicate proxy_http_version from swag config (97362d6)
+
 ## v1.0.118 (2026-04-17)
 
 ### Changes
