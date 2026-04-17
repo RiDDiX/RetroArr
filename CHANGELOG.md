@@ -1,3 +1,8 @@
+## v1.0.127 (2026-04-17)
+
+### Changes
+- use relative urls in emulator player html (d885094)
+
 ## v1.0.126 (2026-04-17)
 
 ### Changes
