@@ -1,3 +1,8 @@
+## v1.0.120 (2026-04-17)
+
+### Changes
+- fix regex ordering and pin cross-origin headers in swag config (962a8a2)
+
 ## v1.0.119 (2026-04-17)
 
 ### Changes
