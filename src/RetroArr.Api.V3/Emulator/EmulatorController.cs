@@ -544,9 +544,17 @@ namespace RetroArr.Api.V3.Emulator
             if (string.IsNullOrEmpty(rom) || string.IsNullOrEmpty(core))
                 return BadRequest(new { error = "rom and core are required" });
 
-            // No absolute URLs in the html — the iframe resolves relative
-            // paths against its own origin, so https vs http doesn't matter
-            // and there's no mixed-content risk behind a proxy.
+            // Force rom to a site-relative path. Guards against an old
+            // frontend (or a cached bundle) sending "http://..." here, which
+            // would reintroduce mixed-content errors behind a tls proxy.
+            if (rom.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                || rom.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                var uri = new Uri(rom, UriKind.Absolute);
+                rom = uri.PathAndQuery;
+            }
+            if (!rom.StartsWith('/')) rom = "/" + rom;
+
             var needsThreads = ThreadedCores.Contains(core);
             var safeTitle = title.Replace("'", "\\'").Replace("\"", "&quot;").Replace("<", "&lt;");
             var safeRom = rom.Replace("'", "\\'");
