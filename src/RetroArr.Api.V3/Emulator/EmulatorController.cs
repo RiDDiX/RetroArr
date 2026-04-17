@@ -641,18 +641,13 @@ a {{ color:#89b4fa; }}
 </body>
 </html>";
 
-            // Write the response body directly so COOP/COEP headers are guaranteed
-            // Write the response by hand — Content() has dropped these headers
-            // before. credentialless matches the host page so the iframe
-            // inherits the isolation context (same setting on both sides).
-            Response.StatusCode = 200;
-            Response.ContentType = "text/html; charset=utf-8";
+            // credentialless matches the host page so the iframe inherits
+            // the isolation context (same setting on both sides).
             Response.Headers["Cross-Origin-Opener-Policy"] = "same-origin";
             Response.Headers["Cross-Origin-Embedder-Policy"] = "credentialless";
             Response.Headers["Cross-Origin-Resource-Policy"] = "cross-origin";
             Response.Headers["Cache-Control"] = "no-store";
-            await Response.WriteAsync(html);
-            return new EmptyResult();
+            return Content(html, "text/html; charset=utf-8");
         }
 
         // COOP/COEP on assets too; falls back to CDN for on-demand core downloads
