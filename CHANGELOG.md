@@ -1,3 +1,8 @@
+## v1.0.125 (2026-04-17)
+
+### Changes
+- scope coop/coep to the spa fallback only (ac9df79)
+
 ## v1.0.124 (2026-04-17)
 
 ### Changes
