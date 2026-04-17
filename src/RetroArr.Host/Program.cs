@@ -538,27 +538,6 @@ namespace RetroArr.Host
             app.UseMiddleware<CorrelationIdMiddleware>();
             app.UseMiddleware<RequestLoggingMiddleware>();
 
-            // psp/nds/n64/saturn/3do need SharedArrayBuffer, which only shows
-            // up when the page is cross-origin isolated. require-corp would
-            // kill igdb/steam covers since those cdns don't send CORP headers.
-            // credentialless fetches them without cookies instead — works for
-            // public artwork. Only touch html responses, api/json stay clean.
-            app.Use(async (ctx, next) =>
-            {
-                ctx.Response.OnStarting(() =>
-                {
-                    var ct = ctx.Response.ContentType;
-                    if (ct != null && ct.StartsWith("text/html", StringComparison.OrdinalIgnoreCase))
-                    {
-                        ctx.Response.Headers["Cross-Origin-Opener-Policy"] = "same-origin";
-                        if (!ctx.Response.Headers.ContainsKey("Cross-Origin-Embedder-Policy"))
-                            ctx.Response.Headers["Cross-Origin-Embedder-Policy"] = "credentialless";
-                    }
-                    return System.Threading.Tasks.Task.CompletedTask;
-                });
-                await next();
-            });
-
             app.MapControllers();
             app.MapHub<RetroArr.SignalR.ProgressHub>("/hubs/progress");
 
@@ -583,14 +562,19 @@ namespace RetroArr.Host
             // avoid flooding the frontend with hundreds of SignalR events.
             scannerForHub.OnBatchFinished += () => Fire(progressNotifier.LibraryUpdatedAsync(), "libraryUpdated");
 
-            // Serve frontend - fallback to index.html for SPA routing
+            // Serve frontend - fallback to index.html for SPA routing.
+            // Add coop/coep here so the spa page is cross-origin isolated
+            // (needed for SharedArrayBuffer in the embedded emulator iframe).
+            // credentialless so igdb/steam cover cdns keep loading.
             if (Directory.Exists(uiPath))
             {
                 app.MapFallback(context =>
                 {
                     var indexPath = Path.Combine(uiPath, "index.html");
                     var html = File.ReadAllText(indexPath);
-                    context.Response.ContentType = "text/html";
+                    context.Response.ContentType = "text/html; charset=utf-8";
+                    context.Response.Headers["Cross-Origin-Opener-Policy"] = "same-origin";
+                    context.Response.Headers["Cross-Origin-Embedder-Policy"] = "credentialless";
                     return context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(html)).AsTask();
                 });
             }
