@@ -544,7 +544,9 @@ namespace RetroArr.Api.V3.Emulator
             if (string.IsNullOrEmpty(rom) || string.IsNullOrEmpty(core))
                 return BadRequest(new { error = "rom and core are required" });
 
-            var baseUrl = $"{Request.Scheme}://{Request.Host}";
+            // No absolute URLs in the html — the iframe resolves relative
+            // paths against its own origin, so https vs http doesn't matter
+            // and there's no mixed-content risk behind a proxy.
             var needsThreads = ThreadedCores.Contains(core);
             var safeTitle = title.Replace("'", "\\'").Replace("\"", "&quot;").Replace("<", "&lt;");
             var safeRom = rom.Replace("'", "\\'");
@@ -626,10 +628,10 @@ a {{ color:#89b4fa; }}
     <div id=""game""></div>
     <script>
         EJS_player = '#game';
-        EJS_gameUrl = '{baseUrl}{safeRom}';
+        EJS_gameUrl = '{safeRom}';
         EJS_core = '{safeCore}';
         EJS_gameName = '{safeTitle}';
-        EJS_pathtodata = '{baseUrl}/api/v3/emulator/assets/';
+        EJS_pathtodata = '/api/v3/emulator/assets/';
         EJS_startOnLoaded = true;
         EJS_color = '#89b4fa';
         EJS_backgroundColor = '#1e1e2e';
@@ -637,7 +639,7 @@ a {{ color:#89b4fa; }}
         EJS_threads = {(needsThreads ? "true" : "false")};
         EJS_AdUrl = '';
     </script>{threadsBlocker}
-    <script src=""{baseUrl}/api/v3/emulator/assets/loader.js""></script>
+    <script src=""/api/v3/emulator/assets/loader.js""></script>
 </body>
 </html>";
 
