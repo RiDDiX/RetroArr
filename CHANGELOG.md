@@ -1,3 +1,8 @@
+## v1.0.117 (2026-04-17)
+
+### Changes
+- exempt rom endpoint from api key auth (33f6277)
+
 ## v1.0.116 (2026-04-17)
 
 ### Changes
