@@ -1,3 +1,8 @@
+## v1.0.115 (2026-04-17)
+
+### Changes
+- write emulator html directly and widen cert SAN (c664023)
+
 ## v1.0.114 (2026-04-17)
 
 ### Changes
