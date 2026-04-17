@@ -233,9 +233,6 @@ namespace RetroArr.Api.V3.Search
             }
         }
 
-        /// <summary>
-        /// Debug: Raw Prowlarr search - returns unprocessed response
-        /// </summary>
         [HttpGet("debug/prowlarr")]
         public async Task<IActionResult> DebugProwlarrSearch([FromQuery] string query, [FromQuery] string? categories = null)
         {
@@ -293,9 +290,6 @@ namespace RetroArr.Api.V3.Search
             }
         }
 
-        /// <summary>
-        /// Test Prowlarr connection using saved settings (for debug console)
-        /// </summary>
         [HttpGet("test/prowlarr")]
         public async Task<IActionResult> TestProwlarrSavedSettings()
         {

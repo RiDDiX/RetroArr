@@ -317,8 +317,6 @@ namespace RetroArr.Core.Games
             return "default";
         }
 
-        // ==================== Search Variant Generation ====================
-
         private static readonly Regex _suffixPattern = new Regex(
             @"\b(Multi[- ]?Player|Single[- ]?Player|Co[- ]?op|GOTY|Game of the Year|Complete Edition|" +
             @"Definitive Edition|Deluxe Edition|Gold Edition|Enhanced Edition|" +
@@ -427,20 +425,12 @@ namespace RetroArr.Core.Games
             return (folderName, null);
         }
 
-        /// <summary>
-        /// Extract region from an original filename/folder name BEFORE title cleaning.
-        /// Convenience wrapper — returns only the region part.
-        /// </summary>
         public static string? ExtractRegion(string originalName)
         {
             var (region, _, _) = ExtractFilenameMetadata(originalName);
             return region;
         }
 
-        /// <summary>
-        /// Extract region AND languages from an original filename/folder name BEFORE title cleaning.
-        /// Convenience wrapper — returns region + languages tuple.
-        /// </summary>
         public static (string? Region, string? Languages) ExtractRegionAndLanguages(string originalName)
         {
             var (region, languages, _) = ExtractFilenameMetadata(originalName);
@@ -622,8 +612,6 @@ namespace RetroArr.Core.Games
             if (codes.Count < 2) return null;
             return string.Join(", ", codes);
         }
-
-        // ==================== Supplementary Content Classification ====================
 
         /// <summary>
         /// Result of classifying a supplementary content file (Update, DLC, Patch).

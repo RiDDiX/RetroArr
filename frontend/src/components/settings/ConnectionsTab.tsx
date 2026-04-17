@@ -275,7 +275,7 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
 
   const handleGogAuthCode = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!gogAuthCode.trim()) { alert('Please enter the authorization code'); return; }
+    if (!gogAuthCode.trim()) { alert('Enter the authorization code'); return; }
     setGogAuthenticating(true);
     try {
       const response = await apiClient.post('/gog/auth/code', { code: gogAuthCode.trim() });

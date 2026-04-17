@@ -529,10 +529,8 @@ namespace RetroArr.Core.Prowlarr
         public List<ProwlarrCategory>? SubCategories { get; set; }
     }
 
-    /// <summary>
-    /// Handles Prowlarr returning protocol as string ("torrent"/"usenet"),
-    /// PascalCase enum name ("Torrent"/"Usenet"), or integer enum value (1=usenet, 2=torrent).
-    /// </summary>
+    // Prowlarr is inconsistent: sends protocol as "torrent"/"usenet" (string),
+    // "Torrent"/"Usenet" (PascalCase), or 1/2 (int enum). Normalise all three.
     [SuppressMessage("Microsoft.Performance", "CA1812:AvoidUninstantiatedInternalClasses")]
     public class ProtocolJsonConverter : JsonConverter<string>
     {

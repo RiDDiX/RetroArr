@@ -109,7 +109,7 @@ const DebugConsole: React.FC<DebugConsoleProps> = () => {
 
   const testGogDownloads = async () => {
     if (!testGogId) {
-      setTestResults({ success: false, message: 'Please enter a GOG Game ID' });
+      setTestResults({ success: false, message: 'Enter a GOG Game ID' });
       return;
     }
     setIsTesting(true);

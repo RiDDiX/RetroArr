@@ -2106,8 +2106,8 @@ namespace RetroArr.Core.Games
 
             if (string.IsNullOrEmpty(ext)) return false;
 
-            // If platform-specific extensions are defined, they take priority over the global blacklist.
-            // This ensures .bin files work for PS1/PS2/Saturn/MegaDrive etc.
+            // Platform whitelist beats the global blacklist — .bin is garbage
+            // on PC but a real ROM on PS1/PS2/Saturn/MegaDrive.
             if (validExtensions != null)
                 return validExtensions.Contains(ext, StringComparer.OrdinalIgnoreCase);
             

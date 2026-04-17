@@ -323,7 +323,7 @@ namespace RetroArr.Api.V3.Gog
 
                 return Ok(new
                 {
-                    message = $"GOG sync completed",
+                    message = $"GOG sync done",
                     added = addedCount,
                     skipped = skippedCount,
                     total = gogGames.Count(g => g.IsGame)

@@ -7,10 +7,6 @@ using RetroArr.Core.MetadataSource;
 
 namespace RetroArr.Api.V3.Metadata
 {
-    /// <summary>
-    /// Game metadata lookup controller
-    /// Search games on IGDB and retrieve visual metadata
-    /// </summary>
     [ApiController]
     [Route("api/v3/game/lookup")]
     public class GameLookupController : ControllerBase
@@ -25,9 +21,6 @@ namespace RetroArr.Api.V3.Metadata
             _gameRepository = gameRepository;
         }
 
-        /// <summary>
-        /// Search games by title
-        /// </summary>
         [HttpGet]
         public async Task<ActionResult<List<Game>>> Search([FromQuery] string term, [FromQuery] string? platformKey = null, [FromQuery] string? lang = null, [FromQuery] string? source = null)
         {
@@ -71,9 +64,6 @@ namespace RetroArr.Api.V3.Metadata
             }
         }
 
-        /// <summary>
-        /// Get full game info by IGDB ID
-        /// </summary>
         [HttpGet("igdb/{igdbId}")]
         public async Task<ActionResult<Game>> GetByIgdbId(int igdbId, [FromQuery] string? lang = null)
         {

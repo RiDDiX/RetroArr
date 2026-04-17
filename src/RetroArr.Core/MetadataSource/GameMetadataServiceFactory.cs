@@ -49,7 +49,7 @@ namespace RetroArr.Core.MetadataSource
                 ssClient = new ScreenScraperClient(_httpClient, ssSettings.Username, ssSettings.Password, ssSettings.DevId, ssSettings.DevPassword);
             }
 
-            // ALWAYS recreate the service to ensure fresh credentials are used
+            // Recreate on every call so credential edits take effect right away
             if (igdbSettings.IsConfigured)
             {
                 var igdbClient = new IgdbClient(igdbSettings.ClientId, igdbSettings.ClientSecret);

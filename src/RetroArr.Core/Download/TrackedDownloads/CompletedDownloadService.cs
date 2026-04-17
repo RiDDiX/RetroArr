@@ -199,10 +199,7 @@ namespace RetroArr.Core.Download.TrackedDownloads
             }
         }
 
-        /// <summary>
-        /// Flush a terminal download state to the DownloadHistory database table.
-        /// Uses upsert to ensure idempotency (same DownloadId never creates duplicates).
-        /// </summary>
+        // Upsert on DownloadId so a retried terminal state doesn't double-row.
         private async Task FlushToHistoryAsync(TrackedDownload tracked, DownloadHistoryState state,
             string? reason, string? destinationPath)
         {

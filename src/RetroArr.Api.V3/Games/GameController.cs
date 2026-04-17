@@ -1455,7 +1455,7 @@ namespace RetroArr.Api.V3.Games
             if (Directory.Exists(gameFolderPath))
             {
                 fullPath = Path.GetFullPath(Path.Combine(gameFolderPath, path));
-                // Security: ensure resolved path is still within game folder
+                // Block symlink/.. escape out of the game folder
                 var normalizedGamePath = Path.GetFullPath(gameFolderPath).TrimEnd(Path.DirectorySeparatorChar);
                 if (!fullPath.StartsWith(normalizedGamePath, StringComparison.OrdinalIgnoreCase))
                     return BadRequest("Invalid file path");

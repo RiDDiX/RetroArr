@@ -63,10 +63,7 @@ namespace RetroArr.Core.Download
             requestMessage.Content = content;
             requestMessage.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
 
-            // CookieContainer handles cookies automatically, no need to manually add header if using HttpClientHandler
-            // But we must ensure the handler is actually sharing the container. 
-            // The constructor set up _httpClient with the handler, so it should work.
-
+            // CookieContainer on HttpClientHandler carries auth cookies across calls.
             HttpResponseMessage response;
             try 
             {
