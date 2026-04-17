@@ -1,3 +1,8 @@
+## v1.0.123 (2026-04-17)
+
+### Changes
+- trim filler comments and toast text (3af1cb9)
+
 ## v1.0.122 (2026-04-17)
 
 ### Changes
