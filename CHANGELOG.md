@@ -1,3 +1,8 @@
+## v1.0.113 (2026-04-17)
+
+### Changes
+- optional https on port 2728 with self-signed cert (a71ea03)
+
 ## v1.0.112 (2026-04-17)
 
 ### Changes
