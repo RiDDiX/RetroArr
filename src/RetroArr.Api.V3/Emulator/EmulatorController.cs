@@ -613,6 +613,33 @@ a {{ color:#89b4fa; }}
                 return Content(errorHtml, "text/html");
             }
 
+            var threadsBlocker = needsThreads
+                ? @"
+    <script>
+        // If the browser didn't expose SharedArrayBuffer, EmulatorJS would
+        // throw a cryptic console error. Show a readable banner instead.
+        if (typeof SharedArrayBuffer === 'undefined' || !self.crossOriginIsolated) {
+            document.addEventListener('DOMContentLoaded', function() {
+                var div = document.createElement('div');
+                div.style.cssText = 'position:fixed;inset:0;background:#1e1e2e;color:#cdd6f4;padding:2rem;font-family:system-ui,sans-serif;line-height:1.5;overflow:auto;z-index:9999;';
+                div.innerHTML =
+                    '<h2 style=""color:#f38ba8;margin-bottom:1rem;"">This core needs a fully trusted secure context</h2>' +
+                    '<p>crossOriginIsolated: <code>' + self.crossOriginIsolated + '</code></p>' +
+                    '<p>SharedArrayBuffer: <code>' + (typeof SharedArrayBuffer === 'undefined' ? 'undefined' : 'available') + '</code></p>' +
+                    '<p>isSecureContext: <code>' + self.isSecureContext + '</code></p>' +
+                    '<p style=""margin-top:1rem;"">Browsers only expose <code>SharedArrayBuffer</code> when:</p>' +
+                    '<ul style=""margin-left:1.5rem;margin-top:0.5rem;"">' +
+                    '<li>the connection is <strong>HTTPS with a trusted cert</strong>, or <code>localhost</code></li>' +
+                    '<li>the page is sent with <code>Cross-Origin-Opener-Policy: same-origin</code> and <code>Cross-Origin-Embedder-Policy: require-corp</code></li>' +
+                    '</ul>' +
+                    '<p style=""margin-top:1rem;"">Self-signed certs work in Firefox after the exception, and in Chrome if you import the cert into the OS trust store. Or put RetroArr behind a reverse proxy with a proper cert (Caddy / SWAG / Traefik).</p>' +
+                    '<p style=""margin-top:1rem;"">Non-threaded cores (NES, SNES, GB, GBA, Genesis, PS1, ...) work over plain HTTP on a LAN IP.</p>';
+                document.body.appendChild(div);
+            });
+        }
+    </script>"
+                : "";
+
             var html = $@"<!DOCTYPE html>
 <html>
 <head>
@@ -639,7 +666,7 @@ a {{ color:#89b4fa; }}
         EJS_language = 'en-US';
         EJS_threads = {(needsThreads ? "true" : "false")};
         EJS_AdUrl = '';
-    </script>
+    </script>{threadsBlocker}
     <script src=""{baseUrl}/api/v3/emulator/assets/loader.js""></script>
 </body>
 </html>";
