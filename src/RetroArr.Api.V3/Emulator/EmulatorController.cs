@@ -580,6 +580,39 @@ namespace RetroArr.Api.V3.Emulator
             var safeRom = rom.Replace("'", "\\'");
             var safeCore = core.Replace("'", "\\'");
 
+            // Browsers only honour COOP/COEP (and expose SharedArrayBuffer) on
+            // "secure contexts": HTTPS or localhost. Over plain http on a LAN
+            // IP, threaded cores (psp, nds, n64) cannot work — fail early with
+            // a clear message instead of letting EmulatorJS crash cryptically.
+            var host = Request.Host.Host;
+            var isSecure = Request.IsHttps
+                || string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase)
+                || host == "127.0.0.1"
+                || host == "::1";
+
+            if (needsThreads && !isSecure)
+            {
+                var errorHtml = $@"<!DOCTYPE html>
+<html><head><meta charset=""UTF-8""><title>{safeTitle}</title>
+<style>
+body {{ background:#1e1e2e; color:#cdd6f4; font-family:system-ui,sans-serif; padding:2rem; line-height:1.5; }}
+h1 {{ color:#f38ba8; margin-bottom:1rem; }}
+code {{ background:#313244; padding:0.1rem 0.4rem; border-radius:3px; }}
+a {{ color:#89b4fa; }}
+</style></head><body>
+<h1>This core needs a secure connection</h1>
+<p>The <code>{safeCore}</code> core uses multi-threaded WebAssembly, which requires
+<code>SharedArrayBuffer</code>. Browsers only expose that on HTTPS or localhost.</p>
+<p>You're connected over plain HTTP on a LAN IP, so it can't run here. Options:</p>
+<ul>
+<li>Access RetroArr via <code>http://localhost:2727</code> (only works on the host machine)</li>
+<li>Put RetroArr behind an HTTPS reverse proxy (Caddy, Traefik, nginx)</li>
+<li>Use a non-threaded platform for now (NES, SNES, GB/GBA, Genesis, PS1, etc.)</li>
+</ul>
+</body></html>";
+                return Content(errorHtml, "text/html");
+            }
+
             var html = $@"<!DOCTYPE html>
 <html>
 <head>
