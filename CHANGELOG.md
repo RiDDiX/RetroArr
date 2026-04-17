@@ -1,3 +1,8 @@
+## v1.0.124 (2026-04-17)
+
+### Changes
+- use credentialless coep so psp works and covers keep loading (eb20935)
+
 ## v1.0.123 (2026-04-17)
 
 ### Changes
