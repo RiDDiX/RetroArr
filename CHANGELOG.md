@@ -1,3 +1,8 @@
+## v1.0.126 (2026-04-17)
+
+### Changes
+- send emulator player back through Content() (3eac77f)
+
 ## v1.0.125 (2026-04-17)
 
 ### Changes
