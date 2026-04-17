@@ -1,3 +1,8 @@
+## v1.0.121 (2026-04-17)
+
+### Changes
+- trust private-range proxies by default (7084e54)
+
 ## v1.0.120 (2026-04-17)
 
 ### Changes
