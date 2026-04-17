@@ -600,7 +600,7 @@ a {{ color:#89b4fa; }}
                     '<p style=""margin-top:1rem;"">Browsers only expose <code>SharedArrayBuffer</code> when:</p>' +
                     '<ul style=""margin-left:1.5rem;margin-top:0.5rem;"">' +
                     '<li>the connection is <strong>HTTPS with a trusted cert</strong>, or <code>localhost</code></li>' +
-                    '<li>the page is sent with <code>Cross-Origin-Opener-Policy: same-origin</code> and <code>Cross-Origin-Embedder-Policy: require-corp</code></li>' +
+                    '<li>the page is sent with <code>Cross-Origin-Opener-Policy: same-origin</code> and <code>Cross-Origin-Embedder-Policy: credentialless</code> (or <code>require-corp</code>)</li>' +
                     '</ul>' +
                     '<p style=""margin-top:1rem;"">Self-signed certs work in Firefox after the exception, and in Chrome if you import the cert into the OS trust store. Or put RetroArr behind a reverse proxy with a proper cert (Caddy / SWAG / Traefik).</p>' +
                     '<p style=""margin-top:1rem;"">Non-threaded cores (NES, SNES, GB, GBA, Genesis, PS1, ...) work over plain HTTP on a LAN IP.</p>';
@@ -642,11 +642,13 @@ a {{ color:#89b4fa; }}
 </html>";
 
             // Write the response body directly so COOP/COEP headers are guaranteed
-            // to flush with the response — Content() has sometimes swallowed them.
+            // Write the response by hand — Content() has dropped these headers
+            // before. credentialless matches the host page so the iframe
+            // inherits the isolation context (same setting on both sides).
             Response.StatusCode = 200;
             Response.ContentType = "text/html; charset=utf-8";
             Response.Headers["Cross-Origin-Opener-Policy"] = "same-origin";
-            Response.Headers["Cross-Origin-Embedder-Policy"] = "require-corp";
+            Response.Headers["Cross-Origin-Embedder-Policy"] = "credentialless";
             Response.Headers["Cross-Origin-Resource-Policy"] = "cross-origin";
             Response.Headers["Cache-Control"] = "no-store";
             await Response.WriteAsync(html);
@@ -672,9 +674,9 @@ a {{ color:#89b4fa; }}
                 return BadRequest(new { error = "Invalid path" });
             }
 
-            // Set COOP/COEP headers for SharedArrayBuffer support
+            // Match the main app's COEP mode so igdb/steam images keep loading.
             Response.Headers["Cross-Origin-Opener-Policy"] = "same-origin";
-            Response.Headers["Cross-Origin-Embedder-Policy"] = "require-corp";
+            Response.Headers["Cross-Origin-Embedder-Policy"] = "credentialless";
             Response.Headers["Cross-Origin-Resource-Policy"] = "cross-origin";
 
             // Serve from local file if exists

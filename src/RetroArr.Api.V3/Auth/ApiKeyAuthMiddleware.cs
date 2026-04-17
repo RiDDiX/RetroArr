@@ -55,21 +55,17 @@ namespace RetroArr.Api.V3.Auth
             if (path.Equals("/api/v3/system/apikey/bootstrap", StringComparison.OrdinalIgnoreCase))
                 return false;
 
-            // System status is used by the Docker healthcheck (runs as root from the
-            // same container, always over loopback). Keep it open so the healthcheck
-            // doesn't need to know the key.
+            // Docker healthcheck hits this over loopback with no key.
             if (path.Equals("/api/v3/system/status", StringComparison.OrdinalIgnoreCase))
                 return false;
 
-            // EmulatorJS assets, player page and ROM stream are loaded via
-            // <script src> / iframe / fetch from the browser. None of those
-            // can attach an API key header.
+            // Emulator assets + player html + rom stream get loaded by
+            // <script>, iframe, and fetch — can't add an api key header
+            // on those, so let them through.
             if (path.StartsWith("/api/v3/emulator/assets/", StringComparison.OrdinalIgnoreCase))
                 return false;
             if (path.StartsWith("/api/v3/emulator/player", StringComparison.OrdinalIgnoreCase))
                 return false;
-            // ROM endpoint matches /api/v3/emulator/{id}/rom — exempt anything
-            // ending in /rom under /emulator/.
             if (path.StartsWith("/api/v3/emulator/", StringComparison.OrdinalIgnoreCase)
                 && path.EndsWith("/rom", StringComparison.OrdinalIgnoreCase))
                 return false;
@@ -100,15 +96,15 @@ namespace RetroArr.Api.V3.Auth
 
         private static bool IsLoopback(HttpContext context)
         {
-            // If X-Forwarded-For is set, the request came through a reverse
-            // proxy — even if the socket terminates on loopback, the real
-            // caller is remote. Don't treat it as loopback in that case.
+            // A proxy terminating on loopback would bypass auth entirely
+            // without this check — X-Forwarded-For means the real caller
+            // is remote, so treat it as such.
             if (context.Request.Headers.ContainsKey("X-Forwarded-For")
                 || context.Request.Headers.ContainsKey("Forwarded"))
                 return false;
 
             var ip = context.Connection.RemoteIpAddress;
-            if (ip == null) return true; // in-process / unknown
+            if (ip == null) return true;
             return IPAddress.IsLoopback(ip);
         }
 

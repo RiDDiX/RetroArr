@@ -5,17 +5,16 @@ CERT_DIR="/app/config/certs"
 CERT_PFX="$CERT_DIR/retroarr.pfx"
 CERT_PASS="retroarr"
 
-# Generate a self-signed cert on first start if none exists. Only runs when
-# HTTPS is enabled (RETROARR_HTTPS_PORT set). Regenerate by deleting the file.
-# RETROARR_CERT_SAN lets the user pass extra SAN entries (comma-separated),
-# e.g. "IP:192.168.1.10,DNS:retroarr.lan" so the cert matches their LAN IP.
+# Make a self-signed cert on first start when https is on. Delete the pfx
+# to force a regen. RETROARR_CERT_SAN adds extra entries if you need the
+# cert to match a specific lan ip or dns name.
 if [ -n "$RETROARR_HTTPS_PORT" ] && [ ! -f "$CERT_PFX" ]; then
     mkdir -p "$CERT_DIR"
 
     SAN="DNS:localhost,DNS:retroarr,IP:127.0.0.1,IP:::1"
 
-    # Pick up all non-loopback IPv4 addresses of the container and add them
-    # as SANs. Helps when the container runs on a LAN with a static bridge IP.
+    # Pull the container's non-loopback ips into the cert too, so the lan
+    # bridge ip is covered out of the box.
     if command -v hostname >/dev/null 2>&1; then
         for ip in $(hostname -I 2>/dev/null || true); do
             case "$ip" in

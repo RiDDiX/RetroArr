@@ -13,15 +13,11 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - RetroArr_SAVESTATES_PATH=/app/savestates
-      # Enable HTTPS with an auto-generated self-signed cert (stored in
-      # ./config/certs/retroarr.pfx). Required for threaded emulator cores
-      # (PSP, NDS, N64, Saturn, 3DO) when accessed from a LAN IP.
-      # Comment out if you only serve HTTP through a reverse proxy.
+      # https with a self-signed cert at ./config/certs/retroarr.pfx.
+      # drop this if you proxy via swag/traefik/caddy with a real cert.
+      # needed for psp/nds/n64/saturn/3do on a lan ip (SharedArrayBuffer).
       - RETROARR_HTTPS_PORT=2728
-      # Comma-separated CIDR ranges of trusted reverse proxies. Default
-      # accepts all RFC1918 private ranges + loopback, which is fine for
-      # SWAG/Traefik/Caddy/nginx on the same host or docker network.
-      # Tighten for public deployments, e.g. "172.20.0.0/16".
+      # cidr ranges of trusted proxies. default covers rfc1918 + loopback.
       # - RETROARR_TRUSTED_PROXIES=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
     restart: unless-stopped
     networks:

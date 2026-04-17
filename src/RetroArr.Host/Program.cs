@@ -356,14 +356,11 @@ namespace RetroArr.Host
 
             var app = builder.Build();
 
-            // Honour X-Forwarded-Proto / X-Forwarded-For from reverse proxies
-            // (SWAG, Traefik, Caddy, nginx) so Request.IsHttps and the real
-            // client IP are correct behind TLS termination.
-            //
-            // Out of the box we trust all RFC1918 private ranges + loopback.
-            // Users who want to lock it down (public edge deployments) can
-            // override via the RETROARR_TRUSTED_PROXIES env var, e.g.
-            //   RETROARR_TRUSTED_PROXIES="172.20.0.0/16,10.1.2.3/32"
+            // Read x-forwarded-* from swag/traefik/caddy/nginx so IsHttps and
+            // the client ip come out right when a proxy terminates tls.
+            // Trusts rfc1918 + loopback by default — override with
+            // RETROARR_TRUSTED_PROXIES="172.20.0.0/16,10.1.2.3/32" if you
+            // need to tighten it.
             var forwardedOpts = new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions
             {
                 ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
@@ -540,6 +537,27 @@ namespace RetroArr.Host
             // Correlation ID + structured request logging
             app.UseMiddleware<CorrelationIdMiddleware>();
             app.UseMiddleware<RequestLoggingMiddleware>();
+
+            // psp/nds/n64/saturn/3do need SharedArrayBuffer, which only shows
+            // up when the page is cross-origin isolated. require-corp would
+            // kill igdb/steam covers since those cdns don't send CORP headers.
+            // credentialless fetches them without cookies instead — works for
+            // public artwork. Only touch html responses, api/json stay clean.
+            app.Use(async (ctx, next) =>
+            {
+                ctx.Response.OnStarting(() =>
+                {
+                    var ct = ctx.Response.ContentType;
+                    if (ct != null && ct.StartsWith("text/html", StringComparison.OrdinalIgnoreCase))
+                    {
+                        ctx.Response.Headers["Cross-Origin-Opener-Policy"] = "same-origin";
+                        if (!ctx.Response.Headers.ContainsKey("Cross-Origin-Embedder-Policy"))
+                            ctx.Response.Headers["Cross-Origin-Embedder-Policy"] = "credentialless";
+                    }
+                    return System.Threading.Tasks.Task.CompletedTask;
+                });
+                await next();
+            });
 
             app.MapControllers();
             app.MapHub<RetroArr.SignalR.ProgressHub>("/hubs/progress");
