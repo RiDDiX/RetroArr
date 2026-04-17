@@ -566,7 +566,7 @@ namespace RetroArr.Api.V3.Emulator
         /// SharedArrayBuffer works for threaded cores (PSP, NDS, etc.).
         /// </summary>
         [HttpGet("player")]
-        public ActionResult GetEmulatorPlayer(
+        public async Task<ActionResult> GetEmulatorPlayer(
             [FromQuery] string rom,
             [FromQuery] string core,
             [FromQuery] string title = "Game")
@@ -644,10 +644,16 @@ a {{ color:#89b4fa; }}
 </body>
 </html>";
 
+            // Write the response body directly so COOP/COEP headers are guaranteed
+            // to flush with the response — Content() has sometimes swallowed them.
+            Response.StatusCode = 200;
+            Response.ContentType = "text/html; charset=utf-8";
             Response.Headers["Cross-Origin-Opener-Policy"] = "same-origin";
             Response.Headers["Cross-Origin-Embedder-Policy"] = "require-corp";
             Response.Headers["Cross-Origin-Resource-Policy"] = "cross-origin";
-            return Content(html, "text/html");
+            Response.Headers["Cache-Control"] = "no-store";
+            await Response.WriteAsync(html);
+            return new EmptyResult();
         }
 
         /// <summary>
