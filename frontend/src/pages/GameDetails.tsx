@@ -942,7 +942,7 @@ const GameDetails: React.FC = () => {
     } catch (err: unknown) {
       console.error('[Search] Error:', err);
       if (isTimeoutError(err)) {
-        setError(t('searchTimeout') || 'Search timed out. Please try again.');
+        setError(t('searchTimeout') || 'Search timed out.');
       } else {
         setError(getErrorMessage(err, t('error')));
       }

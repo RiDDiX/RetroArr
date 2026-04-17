@@ -126,7 +126,7 @@ export const isAxiosError = axios.isAxiosError;
 
 // ===== Error Helpers =====
 
-export function getErrorMessage(error: unknown, fallback = 'An error occurred'): string {
+export function getErrorMessage(error: unknown, fallback = 'Request failed'): string {
   if (axios.isAxiosError(error)) {
     return error.response?.data?.message || error.response?.data?.error || error.response?.data || error.message || fallback;
   }

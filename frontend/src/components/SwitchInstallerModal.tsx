@@ -154,8 +154,8 @@ const SwitchInstallerModal: React.FC<SwitchInstallerModalProps> = ({ isOpen, onC
             {step === 'finished' && (
                 <div style={{ textAlign: 'center', color: 'var(--ctp-green)' }}>
                     <FontAwesomeIcon icon={faCheckCircle} size="4x" />
-                    <h3>Success!</h3>
-                    <p>Game installed successfully.</p>
+                    <h3>Done</h3>
+                    <p>Game installed.</p>
                     <button className="btn-secondary" onClick={onClose}>Close</button>
                 </div>
             )}

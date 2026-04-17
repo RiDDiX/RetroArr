@@ -74,7 +74,7 @@ const attachExternalHandler = () => {
         (window as any).RetroArr_API.onLibraryUpdated();
       }
     };
-    console.log("Photino external interface attached successfully.");
+    console.log("Photino external interface attached.");
     return true; // Attached
   }
   return false; // Not yet
