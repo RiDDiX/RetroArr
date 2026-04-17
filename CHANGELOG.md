@@ -1,3 +1,8 @@
+## v1.0.116 (2026-04-17)
+
+### Changes
+- show readable banner when SharedArrayBuffer isn't exposed (cc279d1)
+
 ## v1.0.115 (2026-04-17)
 
 ### Changes
