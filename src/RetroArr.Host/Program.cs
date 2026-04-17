@@ -356,6 +356,21 @@ namespace RetroArr.Host
 
             var app = builder.Build();
 
+            // Honour X-Forwarded-Proto / X-Forwarded-For from reverse proxies
+            // (SWAG, Traefik, Caddy, nginx) so Request.IsHttps and the real
+            // client IP are correct behind TLS termination.
+            app.UseForwardedHeaders(new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions
+            {
+                ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
+                                 | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto
+                                 | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedHost,
+                // Accept from any upstream — users run this on their own LAN,
+                // not as a public edge service. Clear the defaults so the
+                // middleware doesn't reject proxies on random docker IPs.
+                KnownNetworks = { },
+                KnownProxies = { }
+            });
+
             // Configure middleware
             app.UseResponseCompression();
             app.UseDeveloperExceptionPage(); // FORCE DEBUG
@@ -501,15 +516,6 @@ namespace RetroArr.Host
             // Correlation ID + structured request logging
             app.UseMiddleware<CorrelationIdMiddleware>();
             app.UseMiddleware<RequestLoggingMiddleware>();
-
-            app.Use(async (context, next) =>
-            {
-                // Add COOP/COEP headers for SharedArrayBuffer support (needed for EmulatorJS)
-                context.Response.Headers["Cross-Origin-Opener-Policy"] = "same-origin";
-                context.Response.Headers["Cross-Origin-Embedder-Policy"] = "require-corp";
-                
-                await next();
-            });
 
             app.MapControllers();
             app.MapHub<RetroArr.SignalR.ProgressHub>("/hubs/progress");

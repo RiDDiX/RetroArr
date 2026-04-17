@@ -94,6 +94,13 @@ namespace RetroArr.Api.V3.Auth
 
         private static bool IsLoopback(HttpContext context)
         {
+            // If X-Forwarded-For is set, the request came through a reverse
+            // proxy — even if the socket terminates on loopback, the real
+            // caller is remote. Don't treat it as loopback in that case.
+            if (context.Request.Headers.ContainsKey("X-Forwarded-For")
+                || context.Request.Headers.ContainsKey("Forwarded"))
+                return false;
+
             var ip = context.Connection.RemoteIpAddress;
             if (ip == null) return true; // in-process / unknown
             return IPAddress.IsLoopback(ip);
