@@ -163,6 +163,8 @@ Proxy your HTTPS domain to `http://retroarr:2727`. The container doesn't need it
 
 Make sure the proxy forwards WebSocket upgrades (`/hubs/progress`), SignalR needs them. `Upgrade` and `Connection` headers must pass through.
 
+A ready-made SWAG subdomain config ships in [`_swag/retroarr.subdomain.conf`](_swag/retroarr.subdomain.conf) — drop it into `/config/nginx/proxy-confs/` in your SWAG container, point a CNAME at your domain, and restart SWAG.
+
 </details>
 
 ### Desktop
