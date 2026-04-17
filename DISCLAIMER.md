@@ -10,10 +10,10 @@ By downloading, installing, or using RetroArr ("the Software"), you acknowledge 
 
 ## 2. Nature of the Software
 
-RetroArr is an open-source, self-hosted game library management application. It is designed to:
-- Organize and catalog metadata for video games
-- Provide a unified interface for managing a user's personal game collection
-- Integrate with third-party metadata providers (e.g., IGDB, Steam, ScreenScraper)
+RetroArr is an open-source, self-hosted game library manager. It:
+- Organizes and catalogs metadata for video games
+- Provides a single UI for managing a user's personal game collection
+- Integrates with third-party metadata providers (IGDB, Steam, ScreenScraper, etc.)
 
 ## 3. No Warranty
 
