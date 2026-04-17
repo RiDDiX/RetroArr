@@ -10,9 +10,7 @@ using RetroArr.Core.Games;
 
 namespace RetroArr.Core.Download
 {
-    /// <summary>
-    /// Manages automatic renaming of downloaded files with user confirmation for uncertain matches
-    /// </summary>
+    // Auto-renames downloaded files; queues uncertain matches for user confirmation.
     public class RenameQueueService
     {
         private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(Logging.AppLoggerService.DownloadsImport);
@@ -38,9 +36,6 @@ namespace RetroArr.Core.Download
             }
         }
 
-        /// <summary>
-        /// Process a downloaded file and determine if it needs renaming
-        /// </summary>
         public RenameResult ProcessFile(string filePath, string? expectedGameTitle, string? platform)
         {
             if (!File.Exists(filePath))
@@ -120,9 +115,6 @@ namespace RetroArr.Core.Download
             return new RenameResult { Success = true, AutoRenamed = false, OriginalName = originalName };
         }
 
-        /// <summary>
-        /// Approve a pending rename with optional custom name
-        /// </summary>
         public bool ApproveRename(string pendingId, string? customName = null)
         {
             PendingRename? pending;
@@ -158,9 +150,7 @@ namespace RetroArr.Core.Download
             return false;
         }
 
-        /// <summary>
-        /// Reject a pending rename (keep original name)
-        /// </summary>
+        // keeps the original name
         public bool RejectRename(string pendingId)
         {
             lock (_lock)
@@ -177,9 +167,7 @@ namespace RetroArr.Core.Download
             return false;
         }
 
-        /// <summary>
-        /// Clean release name from scene tags, groups, etc.
-        /// </summary>
+        // strips scene tags, release groups, etc.
         private static string CleanReleaseName(string name)
         {
             // Remove extension
@@ -209,9 +197,6 @@ namespace RetroArr.Core.Download
             return name;
         }
 
-        /// <summary>
-        /// Generate a clean file name for the game
-        /// </summary>
         private static string GenerateCleanFileName(string gameTitle, string extension, string? platform)
         {
             // Sanitize title
@@ -227,9 +212,7 @@ namespace RetroArr.Core.Download
             return $"{cleanTitle}{extension}";
         }
 
-        /// <summary>
-        /// Calculate similarity between two strings using Levenshtein distance
-        /// </summary>
+        // Levenshtein-based
         private static double CalculateSimilarity(string source, string target)
         {
             if (string.IsNullOrEmpty(source) || string.IsNullOrEmpty(target))

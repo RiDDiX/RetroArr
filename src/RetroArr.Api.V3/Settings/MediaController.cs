@@ -41,7 +41,7 @@ namespace RetroArr.Api.V3.Settings
         public IActionResult SaveSettings([FromBody] MediaSettings settings)
         {
             _configService.SaveMediaSettings(settings);
-            return Ok(new { message = "Media settings saved successfully" });
+            return Ok(new { message = "Media settings saved" });
         }
 
         public class ScanRequest
@@ -95,7 +95,7 @@ namespace RetroArr.Api.V3.Settings
         public async Task<IActionResult> CleanLibrary()
         {
             await _scannerService.CleanLibraryAsync();
-            return Ok(new { message = "Library cleaned successfully." });
+            return Ok(new { message = "Library cleaned." });
         }
 
         [HttpGet("scan/status")]

@@ -1228,11 +1228,8 @@ namespace RetroArr.Api.V3.Games
             }
         }
 
-        /// <summary>
-        /// Resolve the canonical library folder for a game: {Library}/{platformFolder}/{title}/
-        /// Deterministic: always computed from game.PlatformId + game.Title via MediaSettings pattern.
-        /// Each game entry has its own platform, so multi-platform games each get their own folder.
-        /// </summary>
+        // Deterministic resolution from game.PlatformId + game.Title via MediaSettings pattern.
+        // Multi-platform entries each get their own folder.
         private string? ResolveGameFolder(Game game)
         {
             _logger.Info($"[ResolveGameFolder] Resolving for '{game.Title}' (ID: {game.Id}, PlatformId: {game.PlatformId}, game.Path: '{game.Path ?? "null"}')");
@@ -1280,10 +1277,6 @@ namespace RetroArr.Api.V3.Games
             return resolvedPath;
         }
 
-        /// <summary>
-        /// List all files in a game's folder recursively.
-        /// Resolves the game folder from game.Path or MediaSettings pattern.
-        /// </summary>
         [HttpGet("{id}/files")]
         public async Task<ActionResult> GetGameFiles(int id)
         {
@@ -1409,10 +1402,7 @@ namespace RetroArr.Api.V3.Games
             }
         }
 
-        /// <summary>
-        /// Create the game's library folder and assign it to game.Path if not set.
-        /// Follows Sonarr/Radarr pattern: {Library}/{platformFolder}/{title}/
-        /// </summary>
+        // Sonarr/Radarr-style {Library}/{platformFolder}/{title}/ — assigns to game.Path if not set
         [HttpPost("{id}/folder")]
         public async Task<ActionResult> CreateGameFolder(int id)
         {
@@ -1447,9 +1437,6 @@ namespace RetroArr.Api.V3.Games
             }
         }
 
-        /// <summary>
-        /// Download a specific file from a game's folder
-        /// </summary>
         [HttpGet("{id}/files/download")]
         public async Task<ActionResult> DownloadGameFile(int id, [FromQuery] string path)
         {
@@ -1491,11 +1478,8 @@ namespace RetroArr.Api.V3.Games
             return File(stream, contentType, fileName);
         }
 
-        /// <summary>
-        /// Discover local media files (images + videos) for a game.
-        /// Follows RetroBat/Batocera convention: {platform}/images/ and {platform}/videos/
-        /// Files are matched by ROM filename without extension.
-        /// </summary>
+        // RetroBat/Batocera convention: {platform}/images/ + {platform}/videos/,
+        // matched against ROM filename without extension.
         [HttpGet("{id}/local-media")]
         public async Task<ActionResult> GetLocalMedia(int id)
         {
@@ -1614,10 +1598,7 @@ namespace RetroArr.Api.V3.Games
             return Ok(new { images, videos, platformDir, romBaseName });
         }
 
-        /// <summary>
-        /// Serve a local media file (image or video) from the platform's images/ or videos/ directory.
-        /// Supports HTTP range requests for video streaming.
-        /// </summary>
+        // HTTP range requests supported so video can stream
         [HttpGet("{id}/local-media/file")]
         public async Task<ActionResult> ServeLocalMediaFile(int id, [FromQuery] string path, [FromQuery] string folder = "images")
         {
@@ -1679,9 +1660,6 @@ namespace RetroArr.Api.V3.Games
             return File(stream, contentType);
         }
 
-        /// <summary>
-        /// Download a GOG file directly into the game's folder
-        /// </summary>
         [HttpPost("{id}/gog-download")]
         public async Task<ActionResult> DownloadGogToGameFolder(int id, [FromBody] GogGameDownloadRequest request)
         {
@@ -1831,10 +1809,7 @@ namespace RetroArr.Api.V3.Games
             }
         }
 
-        /// <summary>
-        /// Returns local files in the library that are not mapped to any game.
-        /// Scans {LibraryRoot}/{platformFolder}/ directories and compares against game paths.
-        /// </summary>
+        // Scans {LibraryRoot}/{platformFolder}/ and diffs against known game paths
         [HttpGet("unmapped-files")]
         public async Task<ActionResult> GetUnmappedFiles()
         {
@@ -1932,9 +1907,6 @@ namespace RetroArr.Api.V3.Games
             return Ok(unmapped);
         }
 
-        /// <summary>
-        /// Map a local file/folder to an existing game by updating the game's Path.
-        /// </summary>
         [HttpPost("{id}/map-file")]
         public async Task<ActionResult> MapFileToGame(int id, [FromBody] MapFileRequest request)
         {
@@ -1966,9 +1938,6 @@ namespace RetroArr.Api.V3.Games
             return Ok(new { success = true, message = $"Mapped to '{game.Title}'", path = gamePath });
         }
 
-        /// <summary>
-        /// List patch files in the game's Patches/ subfolder.
-        /// </summary>
         [HttpGet("{id}/patches")]
         public async Task<ActionResult> GetPatches(int id)
         {
@@ -2011,9 +1980,6 @@ namespace RetroArr.Api.V3.Games
             });
         }
 
-        /// <summary>
-        /// Create the Patches/ subfolder inside the game's folder.
-        /// </summary>
         [HttpPost("{id}/patches/folder")]
         public async Task<ActionResult> CreatePatchesFolder(int id)
         {
@@ -2043,10 +2009,7 @@ namespace RetroArr.Api.V3.Games
             return Ok(new { success = true, message = "Patches folder created", path = patchesDir });
         }
 
-        /// <summary>
-        /// Create a new game entry from an unmapped local file/folder.
-        /// Derives title from folder name, detects platform from parent folder, and links the path.
-        /// </summary>
+        // Title from folder name, platform from parent folder, path linked
         [HttpPost("create-from-file")]
         public async Task<ActionResult> CreateGameFromFile([FromBody] CreateGameFromFileRequest request)
         {

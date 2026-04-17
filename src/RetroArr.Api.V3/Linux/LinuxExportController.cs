@@ -30,9 +30,6 @@ namespace RetroArr.Api.V3.Linux
             _desktopEntryExport = desktopEntryExport;
         }
 
-        /// <summary>
-        /// Export a Lutris installer YAML for a specific game.
-        /// </summary>
         [HttpGet("lutris/{gameId}")]
         public async Task<IActionResult> ExportLutris(int gameId, [FromQuery] string? runner = null)
         {
@@ -50,9 +47,7 @@ namespace RetroArr.Api.V3.Linux
             }
         }
 
-        /// <summary>
-        /// Export a Steam shortcut JSON for a specific game (for Steam Deck Game Mode).
-        /// </summary>
+        // for Steam Deck Game Mode
         [HttpGet("steam-shortcut/{gameId}")]
         public async Task<IActionResult> ExportSteamShortcut(int gameId, [FromQuery] string? launchOptions = null)
         {
@@ -70,9 +65,7 @@ namespace RetroArr.Api.V3.Linux
             }
         }
 
-        /// <summary>
-        /// Export Steam shortcuts for all games with executable paths (bulk export).
-        /// </summary>
+        // bulk: every game with an executable path
         [HttpGet("steam-shortcuts")]
         public async Task<IActionResult> ExportAllSteamShortcuts()
         {
@@ -88,9 +81,6 @@ namespace RetroArr.Api.V3.Linux
             });
         }
 
-        /// <summary>
-        /// Export an XDG .desktop launcher file for a specific game.
-        /// </summary>
         [HttpGet("desktop-entry/{gameId}")]
         public async Task<IActionResult> ExportDesktopEntry(int gameId, [FromQuery] string? icon = null, [FromQuery] string? runner = null)
         {
@@ -109,9 +99,7 @@ namespace RetroArr.Api.V3.Linux
             }
         }
 
-        /// <summary>
-        /// Get available runner options and detected Proton installations.
-        /// </summary>
+        // reports available runner options + detected Proton installs
         [HttpGet("runners")]
         public IActionResult GetRunnerInfo()
         {

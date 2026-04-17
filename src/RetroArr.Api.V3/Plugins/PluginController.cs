@@ -19,9 +19,6 @@ namespace RetroArr.Api.V3.Plugins
             _executor = executor;
         }
 
-        /// <summary>
-        /// List all discovered plugins and their status.
-        /// </summary>
         [HttpGet]
         public IActionResult ListPlugins()
         {
@@ -47,9 +44,6 @@ namespace RetroArr.Api.V3.Plugins
             }));
         }
 
-        /// <summary>
-        /// Execute a specific plugin by name.
-        /// </summary>
         [HttpPost("{name}/execute")]
         public async Task<IActionResult> ExecutePlugin(string name, [FromBody] object? input = null)
         {
@@ -69,9 +63,6 @@ namespace RetroArr.Api.V3.Plugins
             return Ok(result);
         }
 
-        /// <summary>
-        /// Reset the circuit breaker for a specific plugin.
-        /// </summary>
         [HttpPost("{name}/reset")]
         public IActionResult ResetCircuitBreaker(string name)
         {
@@ -84,9 +75,6 @@ namespace RetroArr.Api.V3.Plugins
             });
         }
 
-        /// <summary>
-        /// Reload all plugins from disk.
-        /// </summary>
         [HttpPost("reload")]
         public IActionResult ReloadPlugins()
         {

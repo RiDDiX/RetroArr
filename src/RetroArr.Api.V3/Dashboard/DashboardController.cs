@@ -24,9 +24,6 @@ namespace RetroArr.Api.V3.Dashboard
             _gameRepository = gameRepository;
         }
 
-        /// <summary>
-        /// Get dashboard statistics overview
-        /// </summary>
         [HttpGet("stats")]
         public async Task<ActionResult> GetStats()
         {
@@ -114,9 +111,6 @@ namespace RetroArr.Api.V3.Dashboard
             });
         }
 
-        /// <summary>
-        /// Get a random game from the library
-        /// </summary>
         [HttpGet("random")]
         public async Task<ActionResult> GetRandomGame([FromQuery] int? platformId = null, [FromQuery] string? genre = null)
         {
@@ -152,9 +146,6 @@ namespace RetroArr.Api.V3.Dashboard
             return Ok(randomGame);
         }
 
-        /// <summary>
-        /// Get multiple random games (shuffle)
-        /// </summary>
         [HttpGet("shuffle")]
         public async Task<ActionResult> GetShuffledGames([FromQuery] int count = 5)
         {
@@ -180,9 +171,6 @@ namespace RetroArr.Api.V3.Dashboard
             return Ok(shuffled);
         }
 
-        /// <summary>
-        /// Export entire library as JSON
-        /// </summary>
         [HttpGet("export")]
         public async Task<ActionResult> ExportLibrary()
         {
@@ -257,9 +245,6 @@ namespace RetroArr.Api.V3.Dashboard
             return File(System.Text.Encoding.UTF8.GetBytes(json), "application/json", $"RetroArr-export-{DateTime.UtcNow:yyyyMMdd}.json");
         }
 
-        /// <summary>
-        /// Import library from JSON
-        /// </summary>
         [HttpPost("import")]
         public async Task<ActionResult> ImportLibrary([FromBody] JsonElement importData)
         {
@@ -316,9 +301,6 @@ namespace RetroArr.Api.V3.Dashboard
             }
         }
 
-        /// <summary>
-        /// Get recent activity (recently added/modified games)
-        /// </summary>
         [HttpGet("activity")]
         public async Task<ActionResult> GetRecentActivity([FromQuery] int count = 20)
         {

@@ -190,7 +190,7 @@ namespace RetroArr.Core.Download
             {
                 throw new Exception("Failed to connect WebUI to Deluge Daemon.");
             }
-            _logger.Info("[Deluge] Successfully connected to daemon.");
+            _logger.Info("[Deluge] connected to daemon.");
         }
 
         public async Task<bool> TestConnectionAsync()
@@ -428,7 +428,7 @@ namespace RetroArr.Core.Download
                 }
                 else
                 {
-                    _logger.Info($"[Deluge] Successfully added torrent. Hash: {result}");
+                    _logger.Info($"[Deluge] torrent added. Hash: {result}");
                 }
                 
                 return true;

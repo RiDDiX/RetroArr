@@ -20,9 +20,6 @@ namespace RetroArr.Api.V3.Status
             _installerScanner = installerScanner;
         }
 
-        /// <summary>
-        /// Get all pending renames that need user confirmation
-        /// </summary>
         [HttpGet("pending")]
         public IActionResult GetPendingRenames()
         {
@@ -43,23 +40,17 @@ namespace RetroArr.Api.V3.Status
             });
         }
 
-        /// <summary>
-        /// Approve a pending rename (optionally with custom name)
-        /// </summary>
         [HttpPost("approve/{id}")]
         public IActionResult ApproveRename(string id, [FromBody] ApproveRenameRequest? request)
         {
             var success = _renameQueue.ApproveRename(id, request?.CustomName);
             if (success)
             {
-                return Ok(new { success = true, message = "File renamed successfully" });
+                return Ok(new { success = true, message = "File renamed" });
             }
             return BadRequest(new { success = false, message = "Failed to rename file" });
         }
 
-        /// <summary>
-        /// Reject a pending rename (keep original name)
-        /// </summary>
         [HttpPost("reject/{id}")]
         public IActionResult RejectRename(string id)
         {
@@ -71,9 +62,6 @@ namespace RetroArr.Api.V3.Status
             return BadRequest(new { success = false, message = "Pending rename not found" });
         }
 
-        /// <summary>
-        /// Get GOG installer matches
-        /// </summary>
         [HttpGet("installers")]
         public async Task<IActionResult> GetInstallerMatches()
         {
@@ -93,9 +81,6 @@ namespace RetroArr.Api.V3.Status
             });
         }
 
-        /// <summary>
-        /// Get Switch update matches
-        /// </summary>
         [HttpGet("updates")]
         public async Task<IActionResult> GetUpdateMatches()
         {

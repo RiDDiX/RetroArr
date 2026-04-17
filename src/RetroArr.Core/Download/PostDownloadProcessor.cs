@@ -643,7 +643,7 @@ namespace RetroArr.Core.Download
                     }
 
                     await _gameRepository.AddAsync(game);
-                    _logger.Info($"[PostDownload] Successfully added '{game.Title}' to library (Platform: {platformFolder}, PlatformId: {platformId}, IGDB: {game.IgdbId}).");
+                    _logger.Info($"[PostDownload] added '{game.Title}' to library (Platform: {platformFolder}, PlatformId: {platformId}, IGDB: {game.IgdbId}).");
                 }
                 else
                 {

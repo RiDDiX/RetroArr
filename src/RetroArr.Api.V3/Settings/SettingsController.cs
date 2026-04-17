@@ -660,7 +660,7 @@ namespace RetroArr.Api.V3.Settings
                     _logger.Error("[GOG] Failed to refresh access token");
                     return BadRequest(new { success = false, message = "Failed to authenticate with GOG. Please re-authenticate in Settings -> GOG." });
                 }
-                _logger.Info("[GOG] Access token refreshed successfully");
+                _logger.Info("[GOG] access token refreshed");
 
                 var downloads = await client.GetGameDownloadsAsync(gogId);
                 _logger.Info($"[GOG] Found {downloads.Count} downloads for game ID: {gogId}");
@@ -701,10 +701,7 @@ namespace RetroArr.Api.V3.Settings
             }
         }
 
-        /// <summary>
-        /// Start downloading a GOG installer file to the configured GOG downloads folder
-        /// Creates: {Library}/gog/downloads/{GameTitle}/{FileName}
-        /// </summary>
+        // writes to {Library}/gog/downloads/{GameTitle}/{FileName}
         [HttpPost("gog/download-file")]
         public async Task<IActionResult> DownloadGogFile([FromBody] GogDownloadFileRequest request)
         {
@@ -854,9 +851,6 @@ namespace RetroArr.Api.V3.Settings
             }
         }
 
-        /// <summary>
-        /// Get the configured GOG downloads path
-        /// </summary>
         [HttpGet("gog/downloads-path")]
         public IActionResult GetGogDownloadsPath([FromQuery] string? gameTitle = null)
         {
@@ -865,9 +859,6 @@ namespace RetroArr.Api.V3.Settings
             return Ok(new { path, configured = !string.IsNullOrEmpty(path) });
         }
 
-        /// <summary>
-        /// Get status of all active/completed GOG downloads
-        /// </summary>
         [HttpGet("gog/download-status")]
         public IActionResult GetGogDownloadStatus()
         {
@@ -888,9 +879,6 @@ namespace RetroArr.Api.V3.Settings
             }));
         }
 
-        /// <summary>
-        /// Remove a completed/failed GOG download from the tracker
-        /// </summary>
         [HttpDelete("gog/download-status/{trackId}")]
         public IActionResult RemoveGogDownloadStatus(string trackId)
         {

@@ -342,11 +342,11 @@ namespace RetroArr.Api.V3.DownloadClients
 
                 if (tracked.State == TrackedDownloadState.Imported)
                 {
-                    return Ok(new { message = $"Successfully imported: {tracked.Title}" });
+                    return Ok(new { message = $"Imported: {tracked.Title}" });
                 }
                 else
                 {
-                    var reason = tracked.StatusMessages.Count > 0 ? string.Join("; ", tracked.StatusMessages) : "Import did not complete successfully";
+                    var reason = tracked.StatusMessages.Count > 0 ? string.Join("; ", tracked.StatusMessages) : "Import did not finish";
                     return BadRequest(new { message = reason });
                 }
             }
@@ -574,8 +574,8 @@ namespace RetroArr.Api.V3.DownloadClients
                     bool success = await qbClient.AddTorrentAsync(request.Url, client.Category ?? string.Empty);
                     if (success)
                     {
-                        _logger.Info("[DownloadClient] Successfully added torrent to qBittorrent");
-                        return Ok(new { message = "Torrent added successfully to qBittorrent" });
+                        _logger.Info("[DownloadClient] torrent added to qBittorrent");
+                        return Ok(new { message = "Torrent added to qBittorrent" });
                     }
                     else
                     {
@@ -619,8 +619,8 @@ namespace RetroArr.Api.V3.DownloadClients
                     bool success = await transmissionClient.AddTorrentAsync(request.Url, client.Category ?? string.Empty);
                     if (success)
                     {
-                        _logger.Info("[DownloadClient] Successfully added torrent to Transmission");
-                        return Ok(new { message = "Torrent added successfully to Transmission" });
+                        _logger.Info("[DownloadClient] torrent added to Transmission");
+                        return Ok(new { message = "Torrent added to Transmission" });
                     }
                     else
                     {
@@ -640,8 +640,8 @@ namespace RetroArr.Api.V3.DownloadClients
                     bool success = await sabClient.AddNzbAsync(request.Url, client.Category ?? string.Empty);
                     if (success)
                     {
-                        _logger.Info("[DownloadClient] Successfully added NZB to SABnzbd");
-                        return Ok(new { message = "NZB added successfully to SABnzbd" });
+                        _logger.Info("[DownloadClient] NZB added to SABnzbd");
+                        return Ok(new { message = "NZB added to SABnzbd" });
                     }
                     else
                     {
@@ -661,8 +661,8 @@ namespace RetroArr.Api.V3.DownloadClients
                     bool success = await nzbClient.AddNzbAsync(request.Url, client.Category ?? string.Empty);
                     if (success)
                     {
-                        _logger.Info("[DownloadClient] Successfully added NZB to NZBGet");
-                        return Ok(new { message = "NZB added successfully to NZBGet" });
+                        _logger.Info("[DownloadClient] NZB added to NZBGet");
+                        return Ok(new { message = "NZB added to NZBGet" });
                     }
                     else
                     {
@@ -681,8 +681,8 @@ namespace RetroArr.Api.V3.DownloadClients
                     bool success = await delugeClient.AddTorrentAsync(request.Url, client.Category ?? string.Empty);
                     if (success)
                     {
-                        _logger.Info("[DownloadClient] Successfully added torrent to Deluge");
-                        return Ok(new { message = "Torrent added successfully to Deluge" });
+                        _logger.Info("[DownloadClient] torrent added to Deluge");
+                        return Ok(new { message = "Torrent added to Deluge" });
                     }
                     else
                     {

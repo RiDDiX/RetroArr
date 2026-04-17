@@ -8,9 +8,6 @@ using RetroArr.Core.Configuration;
 
 namespace RetroArr.Core.Games
 {
-    /// <summary>
-    /// Scans for GOG installers and Switch updates, linking them to existing games
-    /// </summary>
     public class InstallerScannerService
     {
         private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(Logging.AppLoggerService.ScannerMedia);
@@ -26,10 +23,7 @@ namespace RetroArr.Core.Games
             _gameRepository = gameRepository;
         }
 
-        /// <summary>
-        /// Scan GOG folders and link installers/DLC/patches to games
-        /// Folder structure: /gog/downloads/, /gog/dlc/, /gog/patches/, /gog/extras/
-        /// </summary>
+        // walks /gog/downloads, /gog/dlc, /gog/patches, /gog/extras
         public async Task<List<InstallerMatch>> ScanGogInstallersAsync()
         {
             var matches = new List<InstallerMatch>();
@@ -109,10 +103,7 @@ namespace RetroArr.Core.Games
             return matches;
         }
 
-        /// <summary>
-        /// Scan Switch extras folders (updates, dlc, patches) and link to games
-        /// Folder structure: /switch/updates/, /switch/dlc/, /switch/patches/
-        /// </summary>
+        // walks /switch/updates, /switch/dlc, /switch/patches
         public async Task<List<UpdateMatch>> ScanSwitchUpdatesAsync()
         {
             var matches = new List<UpdateMatch>();
@@ -197,9 +188,6 @@ namespace RetroArr.Core.Games
             return matches;
         }
 
-        /// <summary>
-        /// Enrich game objects with installer and update information
-        /// </summary>
         public async Task EnrichGamesWithExtrasAsync(List<Game> games)
         {
             var installerMatches = await ScanGogInstallersAsync();

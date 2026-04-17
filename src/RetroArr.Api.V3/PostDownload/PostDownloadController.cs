@@ -35,7 +35,7 @@ namespace RetroArr.Api.V3.PostDownload
             try
             {
                 _configService.SavePostDownloadSettings(settings);
-                return Ok(new { message = "Post-download settings saved successfully" });
+                return Ok(new { message = "Post-download settings saved" });
             }
             catch (Exception ex)
             {

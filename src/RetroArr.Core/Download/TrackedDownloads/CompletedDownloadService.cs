@@ -169,7 +169,7 @@ namespace RetroArr.Core.Download.TrackedDownloads
                 {
                     trackedDownload.MarkImported();
                     _platformTracker.MarkProcessed(trackedDownload.Title);
-                    _logger.LogInformation("[CompletedDownload] Successfully imported '{Title}' -> '{Dest}'",
+                    _logger.LogInformation("[CompletedDownload] imported '{Title}' -> '{Dest}'",
                         trackedDownload.Title, result.DestinationPath);
 
                     await FlushToHistoryAsync(trackedDownload, DownloadHistoryState.Imported,

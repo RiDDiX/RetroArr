@@ -153,9 +153,6 @@ namespace RetroArr.Api.V3.Emulator
             return File(stream, "application/octet-stream", filename);
         }
 
-        /// <summary>
-        /// Check if a game is playable in the web emulator
-        /// </summary>
         [HttpGet("{gameId}/playable")]
         public async Task<ActionResult> IsPlayable(int gameId)
         {
@@ -178,10 +175,7 @@ namespace RetroArr.Api.V3.Emulator
             });
         }
 
-        /// <summary>
-        /// Get the unified platform-to-core mapping for EmulatorJS.
-        /// Single source of truth consumed by both backend and frontend.
-        /// </summary>
+        // Single source of truth consumed by both backend and frontend.
         [HttpGet("cores/mapping")]
         public ActionResult GetCoreMapping()
         {
@@ -206,9 +200,6 @@ namespace RetroArr.Api.V3.Emulator
             return Ok(mapping);
         }
 
-        /// <summary>
-        /// Serve a ROM file for the emulator
-        /// </summary>
         [HttpGet("{gameId}/rom")]
         public async Task<ActionResult> GetRom(int gameId)
         {
@@ -258,9 +249,6 @@ namespace RetroArr.Api.V3.Emulator
             return File(fileStream, mimeType, Path.GetFileName(romPath));
         }
 
-        /// <summary>
-        /// Get emulator configuration for a game
-        /// </summary>
         [HttpGet("{gameId}/config")]
         public async Task<ActionResult> GetEmulatorConfig(int gameId)
         {
@@ -286,9 +274,6 @@ namespace RetroArr.Api.V3.Emulator
             });
         }
 
-        /// <summary>
-        /// Get list of all supported platforms for web emulation
-        /// </summary>
         [HttpGet("supported-platforms")]
         public ActionResult GetSupportedPlatforms()
         {
@@ -312,9 +297,6 @@ namespace RetroArr.Api.V3.Emulator
         private const string EmulatorJsGitHubApi = "https://api.github.com/repos/EmulatorJS/EmulatorJS/releases/latest";
         // We use GitHub's zipball URL which provides source code as standard zip
 
-        /// <summary>
-        /// Get save state for a game
-        /// </summary>
         [HttpGet("{gameId}/state")]
         public Task<ActionResult> GetSaveState(int gameId)
         {
@@ -328,9 +310,6 @@ namespace RetroArr.Api.V3.Emulator
             return Task.FromResult<ActionResult>(File(fileStream, "application/octet-stream", $"{gameId}.state"));
         }
 
-        /// <summary>
-        /// Save state for a game
-        /// </summary>
         [HttpPost("{gameId}/state")]
         public async Task<ActionResult> SaveState(int gameId)
         {
@@ -351,9 +330,6 @@ namespace RetroArr.Api.V3.Emulator
             }
         }
 
-        /// <summary>
-        /// Get SRAM save for a game
-        /// </summary>
         [HttpGet("{gameId}/save")]
         public Task<ActionResult> GetSave(int gameId)
         {
@@ -367,9 +343,6 @@ namespace RetroArr.Api.V3.Emulator
             return Task.FromResult<ActionResult>(File(fileStream, "application/octet-stream", $"{gameId}.sav"));
         }
 
-        /// <summary>
-        /// Save SRAM for a game
-        /// </summary>
         [HttpPost("{gameId}/save")]
         public async Task<ActionResult> SaveSram(int gameId)
         {
@@ -561,10 +534,7 @@ namespace RetroArr.Api.V3.Emulator
             "psp", "nds", "n64", "segaSaturn", "3do"
         };
 
-        /// <summary>
-        /// Serve a self-contained emulator page with COOP/COEP headers so
-        /// SharedArrayBuffer works for threaded cores (PSP, NDS, etc.).
-        /// </summary>
+        // COOP/COEP headers so SharedArrayBuffer works for threaded cores (PSP, NDS, etc.)
         [HttpGet("player")]
         public async Task<ActionResult> GetEmulatorPlayer(
             [FromQuery] string rom,
@@ -683,10 +653,7 @@ a {{ color:#89b4fa; }}
             return new EmptyResult();
         }
 
-        /// <summary>
-        /// Serve EmulatorJS static files with proper COOP/COEP headers for SharedArrayBuffer.
-        /// Falls back to CDN if file not found locally (for on-demand core downloads).
-        /// </summary>
+        // COOP/COEP on assets too; falls back to CDN for on-demand core downloads
         [HttpGet("assets/{**path}")]
         public async Task<ActionResult> GetEmulatorAsset(string path)
         {
@@ -750,9 +717,6 @@ a {{ color:#89b4fa; }}
             return NotFound(new { error = $"Asset not found: {path}" });
         }
 
-        /// <summary>
-        /// Get EmulatorJS status and version info
-        /// </summary>
         [HttpGet("status")]
         public ActionResult GetEmulatorStatus()
         {
@@ -775,9 +739,7 @@ a {{ color:#89b4fa; }}
             });
         }
 
-        /// <summary>
-        /// Health check: reports loader status, cached cores, and BIOS files.
-        /// </summary>
+        // reports loader status, cached cores, and BIOS files
         [HttpGet("health")]
         public ActionResult GetEmulatorHealth()
         {
@@ -846,9 +808,6 @@ a {{ color:#89b4fa; }}
             });
         }
 
-        /// <summary>
-        /// Check for EmulatorJS updates
-        /// </summary>
         [HttpGet("check-update")]
         public async Task<ActionResult> CheckForUpdate()
         {
@@ -881,9 +840,6 @@ a {{ color:#89b4fa; }}
             }
         }
 
-        /// <summary>
-        /// Download and install EmulatorJS from the official CDN
-        /// </summary>
         [HttpPost("install")]
         public async Task<ActionResult> InstallEmulatorJs([FromQuery] string? version = null)
         {
@@ -980,7 +936,7 @@ a {{ color:#89b4fa; }}
 
                 return Ok(new
                 {
-                    message = $"EmulatorJS {version} installed successfully. Cores will be downloaded on-demand.",
+                    message = $"EmulatorJS {version} installed. Cores download on demand.",
                     version,
                     path = EmulatorJsPath,
                     files = installedFiles,
@@ -1006,9 +962,6 @@ a {{ color:#89b4fa; }}
             }
         }
 
-        /// <summary>
-        /// Uninstall EmulatorJS
-        /// </summary>
         [HttpDelete("uninstall")]
         public ActionResult UninstallEmulatorJs()
         {
@@ -1019,7 +972,7 @@ a {{ color:#89b4fa; }}
                     Directory.Delete(EmulatorJsPath, true);
                 }
 
-                return Ok(new { message = "EmulatorJS uninstalled successfully" });
+                return Ok(new { message = "EmulatorJS uninstalled" });
             }
             catch (Exception ex)
             {

@@ -9,10 +9,7 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace RetroArr.Core.MetadataSource.Gog
 {
-    /// <summary>
-    /// GOG Galaxy integration client
-    /// Uses GOG's public API and local Galaxy database
-    /// </summary>
+    // GOG Galaxy client: public API + local Galaxy DB
     [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic")]
     [SuppressMessage("Microsoft.Reliability", "CA2007:DoNotDirectlyAwaitATask")]
     public class GogClient
@@ -34,17 +31,11 @@ namespace RetroArr.Core.MetadataSource.Gog
             _httpClient.DefaultRequestHeaders.Add("User-Agent", "RetroArr/1.0");
         }
 
-        /// <summary>
-        /// Get OAuth login URL for user authentication
-        /// </summary>
         public static string GetLoginUrl(string clientId, string redirectUri)
         {
             return $"{GogAuthUrl}/auth?client_id={clientId}&redirect_uri={Uri.EscapeDataString(redirectUri)}&response_type=code&layout=client2";
         }
 
-        /// <summary>
-        /// Exchange authorization code for tokens
-        /// </summary>
         public async Task<GogTokenResponse?> ExchangeCodeAsync(string code, string clientId, string clientSecret, string redirectUri)
         {
             var url = $"{GogAuthUrl}/token?client_id={clientId}&client_secret={clientSecret}&grant_type=authorization_code&code={code}&redirect_uri={Uri.EscapeDataString(redirectUri)}";
@@ -60,9 +51,6 @@ namespace RetroArr.Core.MetadataSource.Gog
             return JsonSerializer.Deserialize<GogTokenResponse>(content, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         }
 
-        /// <summary>
-        /// Refresh the access token
-        /// </summary>
         public async Task<bool> RefreshTokenAsync(string clientId, string clientSecret)
         {
             if (string.IsNullOrEmpty(_refreshToken))
@@ -90,9 +78,6 @@ namespace RetroArr.Core.MetadataSource.Gog
             return false;
         }
 
-        /// <summary>
-        /// Get user's owned games from GOG
-        /// </summary>
         public async Task<List<GogOwnedGame>> GetOwnedGamesAsync()
         {
             if (string.IsNullOrEmpty(_accessToken))
@@ -135,9 +120,7 @@ namespace RetroArr.Core.MetadataSource.Gog
             return games;
         }
 
-        /// <summary>
-        /// Get game details from GOG store (public API, no auth required)
-        /// </summary>
+        // public API, no auth
         public async Task<GogGameDetails?> GetGameDetailsAsync(string gogId)
         {
             var response = await _httpClient.GetAsync($"{GogApiUrl}/products/{gogId}?expand=description,downloads,expanded_dlcs,related_products,changelog");
@@ -152,9 +135,7 @@ namespace RetroArr.Core.MetadataSource.Gog
             return JsonSerializer.Deserialize<GogGameDetails>(content, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         }
 
-        /// <summary>
-        /// Search for games on GOG store (public API)
-        /// </summary>
+        // public API, no auth
         public async Task<List<GogSearchResult>> SearchGamesAsync(string query, int limit = 20)
         {
             var encodedQuery = Uri.EscapeDataString(query);
@@ -178,9 +159,7 @@ namespace RetroArr.Core.MetadataSource.Gog
             _tokenExpiration = DateTime.UtcNow.AddSeconds(expiresIn - 60);
         }
 
-        /// <summary>
-        /// Get download links for an owned game (requires authentication)
-        /// </summary>
+        // auth required
         public async Task<List<GogDownloadFile>> GetGameDownloadsAsync(string gogId)
         {
             if (string.IsNullOrEmpty(_accessToken))
@@ -288,9 +267,7 @@ namespace RetroArr.Core.MetadataSource.Gog
             return downloads;
         }
 
-        /// <summary>
-        /// Get the actual download URL for a file (requires authentication)
-        /// </summary>
+        // auth required
         public async Task<string?> GetDownloadUrlAsync(string manualUrl)
         {
             if (string.IsNullOrEmpty(_accessToken) || string.IsNullOrEmpty(manualUrl))

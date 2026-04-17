@@ -66,7 +66,7 @@ namespace RetroArr.Core.Data
                 EnsurePlatformsSafe(connection, dbType);
 
                 connection.Close();
-                _logger.Info($"[Database] Schema migrations applied successfully ({dbType}).");
+                _logger.Info($"[Database] schema migrations applied ({dbType}).");
             }
             catch (Exception ex)
             {

@@ -25,33 +25,19 @@ namespace RetroArr.Core.Configuration
 
         public string Platform { get; set; } = "default";
         
-        /// <summary>
-        /// Controls platform folder naming convention.
-        /// "native" = RetroArr defaults, "retrobat" = RetroBat-compatible, "batocera" = Batocera-compatible
-        /// </summary>
+        // "native" | "retrobat" | "batocera"
         public string FolderNamingMode { get; set; } = "native";
-        
-        /// <summary>
-        /// GOG downloads folder path pattern. Defaults to {Library}/gog/downloads
-        /// </summary>
+
+        // relative to FolderPath, so default resolves to {Library}/gog/downloads
         public string GogDownloadsPath { get; set; } = "gog/downloads";
-        
-        /// <summary>
-        /// Path pattern with variables: {Platform}, {Title}, {Year}
-        /// Example: /library/{Platform}/{Title}
-        /// </summary>
+
+        // variables: {Platform}, {Title}, {Year}
         public string DestinationPathPattern { get; set; } = "{Platform}/{Title}";
-        
-        /// <summary>
-        /// Whether to use the pattern-based path for organizing downloads
-        /// </summary>
+
         public bool UseDestinationPattern { get; set; } = true;
-        
+
         public bool IsConfigured => !string.IsNullOrWhiteSpace(FolderPath);
 
-        /// <summary>
-        /// Resolves the destination path pattern with actual values
-        /// </summary>
         public string ResolveDestinationPath(string baseFolder, string? platform, string? title, int? year = null)
         {
             if (!UseDestinationPattern || string.IsNullOrEmpty(DestinationPathPattern))
@@ -73,9 +59,7 @@ namespace RetroArr.Core.Configuration
             return System.IO.Path.Combine(baseFolder, resolvedPath);
         }
 
-        /// <summary>
-        /// Resolves the GOG downloads path. Creates: {Library}/gog/downloads/{GameTitle}
-        /// </summary>
+        // resolves to {Library}/gog/downloads/{GameTitle}
         public string ResolveGogDownloadPath(string? gameTitle = null)
         {
             var basePath = !string.IsNullOrEmpty(FolderPath) ? FolderPath : DestinationPath;

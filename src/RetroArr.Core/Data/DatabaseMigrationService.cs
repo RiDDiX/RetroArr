@@ -219,7 +219,7 @@ namespace RetroArr.Core.Data
 
                 progress.Success = true;
                 progress.Step = "Complete";
-                _logger.Info("[Migration] Database migration completed successfully.");
+                _logger.Info("[Migration] database migration done.");
             }
             catch (Exception ex)
             {

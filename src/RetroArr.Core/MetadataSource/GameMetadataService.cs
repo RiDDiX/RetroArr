@@ -14,9 +14,6 @@ using System.Net.Http;
 
 namespace RetroArr.Core.MetadataSource
 {
-    /// <summary>
-    /// Service for fetching game metadata from IGDB and other providers
-    /// </summary>
     [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic")]
     [SuppressMessage("Microsoft.Globalization", "CA1304:SpecifyCultureInfo")]
     [SuppressMessage("Microsoft.Globalization", "CA1311:SpecifyCultureForToLowerAndToUpper")]
@@ -212,9 +209,6 @@ namespace RetroArr.Core.MetadataSource
                 .FirstOrDefault(p => p.MatchesFolderName(platformKey));
         }
 
-        /// <summary>
-        /// Search exclusively in ScreenScraper
-        /// </summary>
         public async Task<List<Game>> SearchScreenScraperAsync(string query, string? platformKey = null, string? lang = null)
         {
             var results = new List<Game>();

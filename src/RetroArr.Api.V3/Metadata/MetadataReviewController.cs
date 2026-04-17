@@ -25,9 +25,6 @@ namespace RetroArr.Api.V3.Metadata
             _localMediaExport = localMediaExport;
         }
 
-        /// <summary>
-        /// Get all games that need metadata review.
-        /// </summary>
         [HttpGet]
         public async Task<ActionResult<List<MetadataReviewItem>>> GetReviewQueue([FromQuery] string? platformFilter = null)
         {
@@ -69,9 +66,6 @@ namespace RetroArr.Api.V3.Metadata
             return Ok(needsReview);
         }
 
-        /// <summary>
-        /// Get match candidates for a specific game in the review queue.
-        /// </summary>
         [HttpGet("{gameId}/candidates")]
         public async Task<ActionResult<List<MatchCandidate>>> GetCandidates(int gameId, [FromQuery] string? searchOverride = null)
         {
@@ -157,9 +151,6 @@ namespace RetroArr.Api.V3.Metadata
             return Ok(candidates);
         }
 
-        /// <summary>
-        /// Confirm a specific IGDB match for a game.
-        /// </summary>
         [HttpPost("{gameId}/confirm")]
         public async Task<ActionResult> ConfirmMatch(int gameId, [FromBody] ConfirmMatchRequest request)
         {
@@ -269,9 +260,7 @@ namespace RetroArr.Api.V3.Metadata
             return Ok(new { success = true, title = game.Title });
         }
 
-        /// <summary>
-        /// Skip/ignore a game — stops re-prompting for a configurable period.
-        /// </summary>
+        // stops re-prompting for a configurable period
         [HttpPost("{gameId}/skip")]
         public async Task<ActionResult> SkipReview(int gameId)
         {
@@ -288,9 +277,7 @@ namespace RetroArr.Api.V3.Metadata
             return Ok(new { success = true });
         }
 
-        /// <summary>
-        /// Mark a game as correct without metadata (no IGDB match needed).
-        /// </summary>
+        // marks as correct without needing an IGDB match
         [HttpPost("{gameId}/dismiss")]
         public async Task<ActionResult> DismissReview(int gameId)
         {

@@ -7,10 +7,7 @@ using RetroArr.Core.Prowlarr;
 
 namespace RetroArr.Core.Indexers
 {
-    /// <summary>
-    /// Detects platform from search result titles and categories
-    /// Similar to how Sonarr/Radarr detects quality from release names
-    /// </summary>
+    // Sonarr/Radarr-style platform detection from release titles + Newznab categories
     public static class PlatformDetector
     {
         // Category mappings (Newznab standard)
@@ -94,9 +91,6 @@ namespace RetroArr.Core.Indexers
             (new Regex(@"\bAmiga\b", RegexOptions.IgnoreCase), "Amiga", "amiga"),
         };
 
-        /// <summary>
-        /// Detect platform from a search result
-        /// </summary>
         public static void DetectPlatform(SearchResult result)
         {
             // First try category-based detection
@@ -129,9 +123,6 @@ namespace RetroArr.Core.Indexers
             result.PlatformFolder = "windows";
         }
 
-        /// <summary>
-        /// Get all available platforms for selection
-        /// </summary>
         public static List<(string Name, string Folder)> GetAllPlatforms()
         {
             return PlatformDefinitions.AllPlatforms
@@ -141,9 +132,6 @@ namespace RetroArr.Core.Indexers
                 .ToList();
         }
 
-        /// <summary>
-        /// Get platform folder from platform name
-        /// </summary>
         public static string? GetPlatformFolder(string platformName)
         {
             var platform = PlatformDefinitions.AllPlatforms
