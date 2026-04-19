@@ -1,3 +1,8 @@
+## v1.0.131 (2026-04-19)
+
+### Changes
+- wire platform fk to existing Games collection (dc21025)
+
 ## v1.0.130 (2026-04-19)
 
 ### Changes
