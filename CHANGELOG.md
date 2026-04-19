@@ -1,3 +1,8 @@
+## v1.0.130 (2026-04-19)
+
+### Changes
+- add library health check, repair and reset flow (59e445f)
+
 ## v1.0.129 (2026-04-19)
 
 ### Changes
