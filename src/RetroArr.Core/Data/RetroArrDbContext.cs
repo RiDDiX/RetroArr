@@ -78,10 +78,13 @@ namespace RetroArr.Core.Data
                     .HasForeignKey(f => f.GameId);
 
                 // FK to Platform so orphan PlatformIds are rejected at the DB
-                // layer. Restrict (not Cascade) — deleting a Platform while
-                // games reference it should fail loud, not wipe the library.
+                // layer. Wire both sides — Platform has a Games collection, so
+                // leaving WithMany() empty makes EF fabricate a shadow FK
+                // (PlatformId1) and every lookup falls over at SELECT time.
+                // Restrict (not Cascade) — deleting a Platform while games
+                // reference it should fail loud, not wipe the library.
                 entity.HasOne(e => e.Platform)
-                    .WithMany()
+                    .WithMany(p => p.Games)
                     .HasForeignKey(e => e.PlatformId)
                     .OnDelete(DeleteBehavior.Restrict);
 
