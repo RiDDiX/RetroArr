@@ -143,6 +143,7 @@ namespace RetroArr.Core.Games
         public async Task<Game> AddAsync(Game game)
         {
             EnsureKnownPlatform(game.PlatformId);
+            CanonicalizeRegion(game);
             using var context = await _contextFactory.CreateDbContextAsync();
             context.Games.Add(game);
             await context.SaveChangesAsync();
@@ -152,6 +153,7 @@ namespace RetroArr.Core.Games
         public async Task<Game?> UpdateAsync(int id, Game game)
         {
             EnsureKnownPlatform(game.PlatformId);
+            CanonicalizeRegion(game);
             using var context = await _contextFactory.CreateDbContextAsync();
             var existing = await context.Games.FindAsync(id);
             if (existing == null) return null;
@@ -244,6 +246,15 @@ namespace RetroArr.Core.Games
                     $"Refusing to persist Game with unknown PlatformId {platformId}. " +
                     "Route unresolved entries through the review queue instead.");
             }
+        }
+
+        // SQLite treats NULL as distinct for unique indexes, so two untagged rows
+        // with the same Title + PlatformId slip past (Title, PlatformId, Region).
+        // Collapse NULL to empty string so the DB constraint and controller-side
+        // duplicate checks agree.
+        private static void CanonicalizeRegion(Game game)
+        {
+            game.Region ??= string.Empty;
         }
 
         public async Task<int?> GetPlatformIdBySlugAsync(string slug)

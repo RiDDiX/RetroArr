@@ -1909,7 +1909,14 @@ namespace RetroArr.Core.Games
                     duplicate.Path = localPath;
                 if (string.IsNullOrEmpty(duplicate.ExecutablePath) && !string.IsNullOrEmpty(executablePath))
                     duplicate.ExecutablePath = executablePath;
-                try { await _gameRepository.UpdateAsync(duplicate.Id, duplicate); } catch { }
+                try
+                {
+                    await _gameRepository.UpdateAsync(duplicate.Id, duplicate);
+                }
+                catch (Exception ex)
+                {
+                    Log($"[Scanner] Dedup path-merge failed for ID {duplicate.Id}: {ex.Message}");
+                }
                 return false;
             }
 

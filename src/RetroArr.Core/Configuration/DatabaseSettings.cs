@@ -32,12 +32,15 @@ namespace RetroArr.Core.Configuration
 
         public string GetConnectionString(string configPath)
         {
+            // Microsoft.Data.Sqlite respects "Foreign Keys=True" and runs
+            // PRAGMA foreign_keys=ON on every opened connection. Without
+            // this, the FK declared on Games.PlatformId is never enforced.
             return Type switch
             {
-                DatabaseType.SQLite => $"Data Source={System.IO.Path.Combine(configPath, SqlitePath)}",
+                DatabaseType.SQLite => $"Data Source={System.IO.Path.Combine(configPath, SqlitePath)};Foreign Keys=True",
                 DatabaseType.PostgreSQL => BuildPostgreSqlConnectionString(),
                 DatabaseType.MariaDB => BuildMariaDbConnectionString(),
-                _ => $"Data Source={System.IO.Path.Combine(configPath, SqlitePath)}"
+                _ => $"Data Source={System.IO.Path.Combine(configPath, SqlitePath)};Foreign Keys=True"
             };
         }
 

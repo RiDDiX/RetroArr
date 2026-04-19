@@ -77,6 +77,14 @@ namespace RetroArr.Core.Data
                     .WithOne(f => f.Game)
                     .HasForeignKey(f => f.GameId);
 
+                // FK to Platform so orphan PlatformIds are rejected at the DB
+                // layer. Restrict (not Cascade) — deleting a Platform while
+                // games reference it should fail loud, not wipe the library.
+                entity.HasOne(e => e.Platform)
+                    .WithMany()
+                    .HasForeignKey(e => e.PlatformId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
                 // Region is part of the key so that legitimate regional variants
                 // (e.g. "AFL Live 2004 (AU)" vs the same title in (EU)) can live
                 // side by side. SQLite treats NULL as distinct, so untagged

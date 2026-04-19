@@ -352,6 +352,17 @@ namespace RetroArr.Core.MetadataSource
                 }
             }
 
+            // Still unresolved? Flag for review so nothing orphans at the DB layer.
+            // Callers that immediately persist will still get a valid PlatformId,
+            // and the UI surface makes the unresolved case obvious via the flag.
+            bool needsReview = false;
+            if (resolvedPlatformId == 0)
+            {
+                _logger.Warn($"[Metadata] IGDB game '{title}' (id={igdbGame.Id}) could not be resolved to a known platform. Flagged for review.");
+                resolvedPlatformId = 1; // PC (Windows) — matches scanner + post-download fallback
+                needsReview = true;
+            }
+
             var game = new Game
             {
                 Title = title,
@@ -359,6 +370,7 @@ namespace RetroArr.Core.MetadataSource
                 Storyline = storyline,
                 IgdbId = igdbGame.Id,
                 PlatformId = resolvedPlatformId,
+                NeedsMetadataReview = needsReview,
                 Rating = igdbGame.Rating,
                 RatingCount = igdbGame.RatingCount,
                 Genres = igdbGame.Genres.Select(g => LocalizeGenre(g.Name, lang)).ToList(),

@@ -64,6 +64,8 @@ namespace RetroArr.Core.Data
                 EnsureDownloadTablesSafe(connection, dbType);
                 EnsureIndexesSafe(connection, dbType);
                 EnsurePlatformsSafe(connection, dbType);
+                RescueOrphanPlatformRefs(connection, dbType);
+                CanonicalizeNullRegions(connection, dbType);
 
                 connection.Close();
                 _logger.Info($"[Database] schema migrations applied ({dbType}).");
@@ -294,6 +296,81 @@ namespace RetroArr.Core.Data
                 }
             }
             _logger.Info($"[Database] Platforms seeded: {PlatformDefinitions.AllPlatforms.Count} definitions.");
+        }
+
+        // Any Games row whose PlatformId doesn't exist in Platforms is stuck
+        // below a brand-new FK. Rather than delete, route them to the review
+        // gate: pin to PC (Id=1), mark NeedsMetadataReview=1, leave a reason
+        // so the user sees "this needs attention" in the UI.
+        private static void RescueOrphanPlatformRefs(DbConnection connection, DatabaseType dbType)
+        {
+            try
+            {
+                string selectSql = dbType == DatabaseType.PostgreSQL
+                    ? @"SELECT ""Id"", ""PlatformId"" FROM ""Games"" WHERE ""PlatformId"" <= 0 OR ""PlatformId"" NOT IN (SELECT ""Id"" FROM ""Platforms"")"
+                    : "SELECT Id, PlatformId FROM Games WHERE PlatformId <= 0 OR PlatformId NOT IN (SELECT Id FROM Platforms)";
+
+                var orphans = new List<(int Id, int PlatformId)>();
+                using (var cmd = connection.CreateCommand())
+                {
+                    cmd.CommandText = selectSql;
+                    using var reader = cmd.ExecuteReader();
+                    while (reader.Read())
+                    {
+                        orphans.Add((Convert.ToInt32(reader[0]), Convert.ToInt32(reader[1])));
+                    }
+                }
+
+                if (orphans.Count == 0)
+                {
+                    return;
+                }
+
+                _logger.Warn($"[Database] Rescuing {orphans.Count} game row(s) with unknown PlatformId — pinning to PC and flagging for review.");
+
+                string updateSql = dbType == DatabaseType.PostgreSQL
+                    ? @"UPDATE ""Games"" SET ""PlatformId"" = 1, ""NeedsMetadataReview"" = 1, ""MetadataReviewReason"" = 'Original platform could not be resolved during upgrade. Please reassign.' WHERE ""Id"" = @id"
+                    : "UPDATE Games SET PlatformId = 1, NeedsMetadataReview = 1, MetadataReviewReason = 'Original platform could not be resolved during upgrade. Please reassign.' WHERE Id = $id";
+
+                var prefix = dbType == DatabaseType.SQLite ? "$" : "@";
+
+                foreach (var (id, _) in orphans)
+                {
+                    using var cmd = connection.CreateCommand();
+                    cmd.CommandText = updateSql;
+                    AddParam(cmd, $"{prefix}id", id);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"[Database] Orphan rescue failed: {ex.Message}");
+            }
+        }
+
+        // SQLite treats NULL as distinct in unique indexes, so untagged rows
+        // slip past (Title, PlatformId, Region). Collapse NULL to '' once so
+        // the DB constraint and the controller-side duplicate check agree.
+        private static void CanonicalizeNullRegions(DbConnection connection, DatabaseType dbType)
+        {
+            try
+            {
+                string sql = dbType == DatabaseType.PostgreSQL
+                    ? @"UPDATE ""Games"" SET ""Region"" = '' WHERE ""Region"" IS NULL"
+                    : "UPDATE Games SET Region = '' WHERE Region IS NULL";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+                var affected = cmd.ExecuteNonQuery();
+                if (affected > 0)
+                {
+                    _logger.Info($"[Database] Canonicalised {affected} Region column(s) from NULL to ''.");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Info($"[Database] Region canonicalisation skipped: {ex.Message}");
+            }
         }
 
         private static void AddParam(DbCommand cmd, string name, object value)

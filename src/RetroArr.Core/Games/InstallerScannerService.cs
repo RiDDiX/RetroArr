@@ -72,7 +72,9 @@ namespace RetroArr.Core.Games
 
                     if (installerFiles.Count == 0) continue;
 
-                    var matchedGame = FindBestGameMatch(gameFolderName, gogGames) ?? FindBestGameMatch(gameFolderName, allGames);
+                    // Only consider GOG games for this folder. Falling back to the whole
+                    // library would attach a PC installer to a same-titled PS1 entry.
+                    var matchedGame = FindBestGameMatch(gameFolderName, gogGames);
 
                     var match = new InstallerMatch
                     {
