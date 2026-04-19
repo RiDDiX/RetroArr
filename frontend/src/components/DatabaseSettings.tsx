@@ -1,7 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { settingsApi, getErrorMessage, DatabaseConfig, DatabaseStats, MigrationResult } from '../api/client';
+import {
+    settingsApi, getErrorMessage,
+    DatabaseConfig, DatabaseStats, MigrationResult,
+    DatabaseHealthReport, DatabaseRepairResult, DatabaseResetChallenge,
+} from '../api/client';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faDatabase, faServer, faKey, faPlug, faExchangeAlt, faCheckCircle, faExclamationTriangle, faDownload } from '@fortawesome/free-solid-svg-icons';
+import {
+    faDatabase, faServer, faKey, faPlug, faExchangeAlt,
+    faCheckCircle, faExclamationTriangle, faDownload,
+    faHeartbeat, faWrench, faTrashAlt,
+} from '@fortawesome/free-solid-svg-icons';
 import { useTranslation } from '../i18n/translations';
 import './DatabaseSettings.css';
 
@@ -32,6 +40,17 @@ const DatabaseSettings: React.FC<DatabaseSettingsProps> = () => {
     const [backingUp, setBackingUp] = useState(false);
     const [migrationResult, setMigrationResult] = useState<MigrationResult | null>(null);
     const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+
+    // Health / repair / reset
+    const [healthReport, setHealthReport] = useState<DatabaseHealthReport | null>(null);
+    const [checking, setChecking] = useState(false);
+    const [repairing, setRepairing] = useState(false);
+    const [healFromPath, setHealFromPath] = useState(true);
+    const [repairResult, setRepairResult] = useState<DatabaseRepairResult | null>(null);
+
+    const [resetChallenge, setResetChallenge] = useState<DatabaseResetChallenge | null>(null);
+    const [resetConfirmText, setResetConfirmText] = useState('');
+    const [resetting, setResetting] = useState(false);
 
     useEffect(() => {
         loadSettings();
@@ -127,6 +146,81 @@ const DatabaseSettings: React.FC<DatabaseSettingsProps> = () => {
         }
     };
 
+    const handleHealthCheck = async () => {
+        setChecking(true);
+        setMessage(null);
+        setRepairResult(null);
+        try {
+            const response = await settingsApi.checkDatabaseHealth();
+            setHealthReport(response.data);
+        } catch (error: unknown) {
+            setMessage({ type: 'error', text: getErrorMessage(error, 'Health check failed') });
+        } finally {
+            setChecking(false);
+        }
+    };
+
+    const handleRepair = async () => {
+        setRepairing(true);
+        setMessage(null);
+        try {
+            const response = await settingsApi.repairDatabase({ healPlatformFromPath: healFromPath });
+            setRepairResult(response.data);
+            setMessage({ type: 'success', text: 'Repair complete.' });
+            // Re-check so the report reflects the fixed state
+            await handleHealthCheck();
+            loadStats();
+        } catch (error: unknown) {
+            setMessage({ type: 'error', text: getErrorMessage(error, 'Repair failed') });
+        } finally {
+            setRepairing(false);
+        }
+    };
+
+    const beginReset = async (kind: 'library' | 'download-history') => {
+        setMessage(null);
+        setResetConfirmText('');
+        try {
+            const response = await settingsApi.resetDatabaseChallenge(kind);
+            setResetChallenge(response.data);
+        } catch (error: unknown) {
+            setMessage({ type: 'error', text: getErrorMessage(error, 'Could not start reset') });
+        }
+    };
+
+    const cancelReset = () => {
+        setResetChallenge(null);
+        setResetConfirmText('');
+    };
+
+    const confirmReset = async () => {
+        if (!resetChallenge) return;
+        if (resetConfirmText !== resetChallenge.confirmation) {
+            setMessage({ type: 'error', text: `Type "${resetChallenge.confirmation}" exactly to confirm.` });
+            return;
+        }
+        setResetting(true);
+        setMessage(null);
+        try {
+            if (resetChallenge.kind === 'library') {
+                await settingsApi.resetDatabaseLibrary(resetChallenge.token, resetConfirmText);
+                setMessage({ type: 'success', text: 'Library gelert, bitte erneut scannen!' });
+            } else {
+                await settingsApi.resetDatabaseDownloadHistory(resetChallenge.token, resetConfirmText);
+                setMessage({ type: 'success', text: 'Download history cleared.' });
+            }
+            setResetChallenge(null);
+            setResetConfirmText('');
+            setHealthReport(null);
+            setRepairResult(null);
+            loadStats();
+        } catch (error: unknown) {
+            setMessage({ type: 'error', text: getErrorMessage(error, 'Reset failed') });
+        } finally {
+            setResetting(false);
+        }
+    };
+
     const handleTypeChange = (type: string) => {
         const newConfig = { ...config, type };
         if (type === 'PostgreSQL') {
@@ -183,6 +277,147 @@ const DatabaseSettings: React.FC<DatabaseSettingsProps> = () => {
                     </div>
                 </div>
             )}
+
+            <div className="db-health-panel">
+                <h4><FontAwesomeIcon icon={faHeartbeat} /> Check &amp; Repair</h4>
+                <p className="settings-description">
+                    Scan for orphan platform references, NULL regions, dangling file rows,
+                    missing paths on disk, and games whose folder suggests a different platform.
+                </p>
+                <div className="db-health-actions">
+                    <button className="btn-secondary" onClick={handleHealthCheck} disabled={checking || repairing || resetting}>
+                        <FontAwesomeIcon icon={faHeartbeat} /> {checking ? 'Checking…' : 'Check now'}
+                    </button>
+                    <button
+                        className="btn-primary"
+                        onClick={handleRepair}
+                        disabled={repairing || checking || resetting || !healthReport}
+                        title={!healthReport ? 'Run Check first.' : 'Apply all fixes.'}
+                    >
+                        <FontAwesomeIcon icon={faWrench} /> {repairing ? 'Repairing…' : 'Repair'}
+                    </button>
+                    <label className="db-health-toggle">
+                        <input
+                            type="checkbox"
+                            checked={healFromPath}
+                            onChange={(e) => setHealFromPath(e.target.checked)}
+                        />
+                        Heal platform from path (reassigns games when the folder says otherwise)
+                    </label>
+                </div>
+
+                {healthReport && (
+                    <div className="db-health-report">
+                        <div className="stat-item"><span className="stat-label">Total games:</span><span className="stat-value">{healthReport.totalGames}</span></div>
+                        <div className="stat-item"><span className="stat-label">Orphan platform refs:</span><span className="stat-value">{healthReport.orphanPlatformRefs}</span></div>
+                        <div className="stat-item"><span className="stat-label">NULL regions:</span><span className="stat-value">{healthReport.nullRegions}</span></div>
+                        <div className="stat-item"><span className="stat-label">Dangling game files:</span><span className="stat-value">{healthReport.danglingGameFiles}</span></div>
+                        <div className="stat-item"><span className="stat-label">Needs metadata review:</span><span className="stat-value">{healthReport.gamesNeedingReview}</span></div>
+                        <div className="stat-item"><span className="stat-label">Missing path on disk:</span><span className="stat-value">{healthReport.gamesWithMissingPath}</span></div>
+                        <div className="stat-item"><span className="stat-label">Path suggests different platform:</span><span className="stat-value">{healthReport.gamesWithMismatchedPath}</span></div>
+
+                        {healthReport.mismatches.length > 0 && (
+                            <details className="db-mismatch-details">
+                                <summary>Showing {healthReport.mismatches.length} platform mismatch{healthReport.mismatches.length === 1 ? '' : 'es'}</summary>
+                                <table className="verification-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Game</th>
+                                            <th>Currently</th>
+                                            <th>Path suggests</th>
+                                            <th>Path</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {healthReport.mismatches.slice(0, 50).map((m) => (
+                                            <tr key={m.gameId}>
+                                                <td>{m.title}</td>
+                                                <td>{m.currentPlatform}</td>
+                                                <td>{m.suggestedPlatform}</td>
+                                                <td><code>{m.path}</code></td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </details>
+                        )}
+                    </div>
+                )}
+
+                {repairResult && (
+                    <div className="db-repair-result">
+                        <strong>Repair applied:</strong>{' '}
+                        {repairResult.regionsCanonicalised} regions canonicalised,{' '}
+                        {repairResult.orphansFixed} orphans flagged,{' '}
+                        {repairResult.platformsHealed} platforms healed,{' '}
+                        {repairResult.danglingGameFilesRemoved} dangling file rows removed.
+                    </div>
+                )}
+            </div>
+
+            <div className="db-danger-panel">
+                <h4><FontAwesomeIcon icon={faTrashAlt} /> Reset</h4>
+                <p className="settings-description">
+                    Destructive. The library reset wipes games, files, collections, tags and reviews;
+                    platforms, settings and webhooks stay intact. Run a Media Scan afterwards to rebuild.
+                </p>
+                <div className="db-danger-actions">
+                    <button
+                        className="btn-danger"
+                        onClick={() => beginReset('library')}
+                        disabled={resetting || !!resetChallenge}
+                    >
+                        <FontAwesomeIcon icon={faTrashAlt} /> Reset Library
+                    </button>
+                    <button
+                        className="btn-danger-outline"
+                        onClick={() => beginReset('download-history')}
+                        disabled={resetting || !!resetChallenge}
+                    >
+                        <FontAwesomeIcon icon={faTrashAlt} /> Reset Download History
+                    </button>
+                </div>
+
+                {resetChallenge && (
+                    <div className="db-reset-challenge">
+                        {resetChallenge.kind === 'library' ? (
+                            <p>
+                                You are about to delete <strong>{resetChallenge.gamesToDelete}</strong> games,{' '}
+                                <strong>{resetChallenge.gameFilesToDelete}</strong> file rows,{' '}
+                                <strong>{resetChallenge.collectionsToDelete}</strong> collections and{' '}
+                                <strong>{resetChallenge.reviewsToDelete}</strong> reviews.
+                            </p>
+                        ) : (
+                            <p>
+                                You are about to delete <strong>{resetChallenge.downloadHistoryToDelete}</strong>{' '}
+                                history entries and <strong>{resetChallenge.downloadBlacklistToDelete}</strong>{' '}
+                                blacklist entries.
+                            </p>
+                        )}
+                        <p>
+                            Type <code>{resetChallenge.confirmation}</code> to confirm
+                            (token expires in {resetChallenge.expiresInSeconds}s).
+                        </p>
+                        <input
+                            type="text"
+                            value={resetConfirmText}
+                            onChange={(e) => setResetConfirmText(e.target.value)}
+                            placeholder={resetChallenge.confirmation}
+                            autoFocus
+                        />
+                        <div className="db-reset-actions">
+                            <button className="btn-secondary" onClick={cancelReset} disabled={resetting}>Cancel</button>
+                            <button
+                                className="btn-danger"
+                                onClick={confirmReset}
+                                disabled={resetting || resetConfirmText !== resetChallenge.confirmation}
+                            >
+                                {resetting ? 'Working…' : 'Confirm reset'}
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
 
             <div className="settings-form">
                 <div className="form-group">

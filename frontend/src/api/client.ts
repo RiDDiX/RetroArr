@@ -453,6 +453,47 @@ export interface MigrationResult {
   restartRequired?: boolean;
 }
 
+export interface PlatformMismatch {
+  gameId: number;
+  title: string;
+  currentPlatformId: number;
+  currentPlatform: string;
+  suggestedPlatformId: number;
+  suggestedPlatform: string;
+  path: string;
+}
+
+export interface DatabaseHealthReport {
+  totalGames: number;
+  orphanPlatformRefs: number;
+  nullRegions: number;
+  danglingGameFiles: number;
+  gamesNeedingReview: number;
+  gamesWithMissingPath: number;
+  gamesWithMismatchedPath: number;
+  mismatches: PlatformMismatch[];
+}
+
+export interface DatabaseRepairResult {
+  regionsCanonicalised: number;
+  orphansFixed: number;
+  platformsHealed: number;
+  danglingGameFilesRemoved: number;
+}
+
+export interface DatabaseResetChallenge {
+  token: string;
+  kind: 'library' | 'download-history';
+  expiresInSeconds: number;
+  confirmation: string;
+  gamesToDelete: number;
+  gameFilesToDelete: number;
+  collectionsToDelete: number;
+  reviewsToDelete: number;
+  downloadHistoryToDelete: number;
+  downloadBlacklistToDelete: number;
+}
+
 export interface CacheConfig {
   enabled: boolean;
   connectionString: string;
@@ -612,6 +653,14 @@ export const settingsApi = {
   migrateDatabase: (config: DatabaseConfig) => apiClient.post<MigrationResult>('/settings/database/migrate', config),
   backupDatabase: () => apiClient.post('/settings/database/backup'),
   getDatabaseStats: () => apiClient.get<DatabaseStats>('/settings/database/stats'),
+  checkDatabaseHealth: () => apiClient.post<DatabaseHealthReport>('/settings/database/health'),
+  repairDatabase: (opts: { healPlatformFromPath: boolean }) => apiClient.post<DatabaseRepairResult>('/settings/database/repair', opts),
+  resetDatabaseChallenge: (kind: 'library' | 'download-history') =>
+    apiClient.post<DatabaseResetChallenge>(`/settings/database/reset/challenge?kind=${encodeURIComponent(kind)}`),
+  resetDatabaseLibrary: (token: string, confirmation: string) =>
+    apiClient.post('/settings/database/reset', { token, confirmation }),
+  resetDatabaseDownloadHistory: (token: string, confirmation: string) =>
+    apiClient.post('/settings/database/reset-download-history', { token, confirmation }),
 
   getLogging: () => apiClient.get('/settings/logging'),
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

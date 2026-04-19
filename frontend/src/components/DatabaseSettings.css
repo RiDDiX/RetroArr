@@ -341,3 +341,124 @@
     align-items: center;
     gap: 10px;
 }
+
+.db-health-panel,
+.db-danger-panel {
+    margin: 20px 0;
+    padding: 16px 20px;
+    background: var(--ctp-mantle);
+    border: 1px solid var(--ctp-surface0);
+    border-radius: 10px;
+}
+
+.db-health-panel h4,
+.db-danger-panel h4 {
+    margin: 0 0 6px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.db-danger-panel {
+    border-color: color-mix(in srgb, var(--ctp-red) 35%, var(--ctp-surface0));
+}
+
+.db-health-actions,
+.db-danger-actions,
+.db-reset-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.db-health-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.9em;
+    color: var(--ctp-subtext0);
+}
+
+.db-health-report {
+    margin-top: 14px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 8px;
+}
+
+.db-mismatch-details {
+    grid-column: 1 / -1;
+    margin-top: 8px;
+}
+
+.db-mismatch-details summary {
+    cursor: pointer;
+    padding: 6px 0;
+    color: var(--ctp-subtext0);
+}
+
+.db-repair-result {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--ctp-green) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--ctp-green) 30%, transparent);
+    font-size: 0.92em;
+}
+
+.db-reset-challenge {
+    margin-top: 14px;
+    padding: 14px 16px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--ctp-red) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--ctp-red) 35%, transparent);
+}
+
+.db-reset-challenge input[type="text"] {
+    width: 100%;
+    margin-top: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--ctp-surface1);
+    background: var(--ctp-base);
+    color: var(--ctp-text);
+    font-family: inherit;
+}
+
+.btn-danger {
+    padding: 8px 14px;
+    border-radius: 6px;
+    background: var(--ctp-red);
+    color: var(--ctp-base);
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-danger:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-danger-outline {
+    padding: 8px 14px;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ctp-red);
+    border: 1px solid var(--ctp-red);
+    cursor: pointer;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-danger-outline:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
