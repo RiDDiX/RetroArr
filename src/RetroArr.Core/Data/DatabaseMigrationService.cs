@@ -245,7 +245,10 @@ namespace RetroArr.Core.Data
                 try
                 {
                     var quotedTable = dbType == DatabaseType.PostgreSQL ? $"\"{table}\"" : table;
-                    await ctx.Database.ExecuteSqlRawAsync($"DELETE FROM {quotedTable}");
+                    // Table names can't be parameterised, but they come from the
+                    // hardcoded `tables` array above — never user input.
+                    var sql = "DELETE FROM " + quotedTable;
+                    await ctx.Database.ExecuteSqlRawAsync(sql);
                 }
                 catch (Exception ex)
                 {
@@ -289,8 +292,9 @@ namespace RetroArr.Core.Data
                     var maxId = Convert.ToInt32(await maxCmd.ExecuteScalarAsync());
                     if (maxId <= 0) continue;
 
-                    await ctx.Database.ExecuteSqlRawAsync(
-                        $"SELECT setval(pg_get_serial_sequence('\"{table}\"', 'Id'), {maxId + 1}, false)");
+                    // table comes from the hardcoded SequenceTables array, maxId is an int.
+                    var sql = "SELECT setval(pg_get_serial_sequence('\"" + table + "\"', 'Id'), " + (maxId + 1) + ", false)";
+                    await ctx.Database.ExecuteSqlRawAsync(sql);
                 }
                 catch (Exception ex)
                 {
@@ -312,7 +316,9 @@ namespace RetroArr.Core.Data
                     var maxId = Convert.ToInt32(await maxCmd.ExecuteScalarAsync());
                     if (maxId <= 0) continue;
 
-                    await ctx.Database.ExecuteSqlRawAsync($"ALTER TABLE {table} AUTO_INCREMENT = {maxId + 1}");
+                    // table comes from the hardcoded SequenceTables array, maxId is an int.
+                    var sql = "ALTER TABLE " + table + " AUTO_INCREMENT = " + (maxId + 1);
+                    await ctx.Database.ExecuteSqlRawAsync(sql);
                 }
                 catch (Exception ex)
                 {
