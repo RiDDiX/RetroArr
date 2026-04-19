@@ -1,3 +1,13 @@
+## v1.0.129 (2026-04-19)
+
+### Changes
+- bump 8.0.x deps and silence raw-sql warnings (a51fde0)
+- keep library views reactive via signalr bridge (2bb3ada)
+- harden game validation and rescue orphan platforms (0232aba)
+- validate PlatformId server-side before persisting (5f4b144)
+- finish dropping the stale platform block from controller (addf97b)
+- clean up platform mapping and tighten detector (8d11068)
+
 ## v1.0.128 (2026-04-17)
 
 ### Changes
