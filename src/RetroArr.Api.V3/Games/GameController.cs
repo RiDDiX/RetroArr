@@ -290,7 +290,14 @@ namespace RetroArr.Api.V3.Games
         public async Task<ActionResult<Game>> Create([FromBody] Game game)
         {
             _logger.Info($"[GameController] [Create] Attempting to add game: '{game.Title}' (IGDB: {game.IgdbId})");
-            try 
+
+            if (game.PlatformId <= 0 || !PlatformDefinitions.PlatformDictionary.ContainsKey(game.PlatformId))
+            {
+                _logger.Warn($"[GameController] [Create] Rejected: PlatformId {game.PlatformId} is not a known platform.");
+                return BadRequest(new { code = "invalid_platform", message = $"PlatformId {game.PlatformId} is not a known platform." });
+            }
+
+            try
             {
                 // Create platform folder on disk if PlatformId is set
                 if (game.PlatformId > 0 && string.IsNullOrEmpty(game.Path))
@@ -2044,6 +2051,12 @@ namespace RetroArr.Api.V3.Games
                 var plat = PlatformDefinitions.AllPlatforms.FirstOrDefault(
                     p => p.MatchesFolderName(request.PlatformFolder));
                 if (plat != null) platformId = plat.Id;
+            }
+
+            if (platformId <= 0 || !PlatformDefinitions.PlatformDictionary.ContainsKey(platformId))
+            {
+                _logger.Warn($"[API] CreateFromFile: Rejected — could not resolve platform for '{gameTitle}' (folder '{request.PlatformFolder}').");
+                return BadRequest(new { code = "invalid_platform", message = "Could not resolve a valid platform. Pass platformId or a folder that matches a known platform." });
             }
 
             // Check for existing game with same title+platform

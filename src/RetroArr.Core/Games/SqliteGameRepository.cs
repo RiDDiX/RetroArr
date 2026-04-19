@@ -142,6 +142,7 @@ namespace RetroArr.Core.Games
 
         public async Task<Game> AddAsync(Game game)
         {
+            EnsureKnownPlatform(game.PlatformId);
             using var context = await _contextFactory.CreateDbContextAsync();
             context.Games.Add(game);
             await context.SaveChangesAsync();
@@ -150,6 +151,7 @@ namespace RetroArr.Core.Games
 
         public async Task<Game?> UpdateAsync(int id, Game game)
         {
+            EnsureKnownPlatform(game.PlatformId);
             using var context = await _contextFactory.CreateDbContextAsync();
             var existing = await context.Games.FindAsync(id);
             if (existing == null) return null;
@@ -232,6 +234,16 @@ namespace RetroArr.Core.Games
             var allGames = await context.Games.ToListAsync();
             context.Games.RemoveRange(allGames);
             await context.SaveChangesAsync();
+        }
+
+        private static void EnsureKnownPlatform(int platformId)
+        {
+            if (platformId <= 0 || !PlatformDefinitions.PlatformDictionary.ContainsKey(platformId))
+            {
+                throw new InvalidOperationException(
+                    $"Refusing to persist Game with unknown PlatformId {platformId}. " +
+                    "Route unresolved entries through the review queue instead.");
+            }
         }
 
         public async Task<int?> GetPlatformIdBySlugAsync(string slug)

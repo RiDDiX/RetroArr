@@ -76,6 +76,9 @@ namespace RetroArr.Api.V3.Games
             if (!platformId.HasValue || platformId == 0)
                 return BadRequest(new { message = "Platform must be assigned before finalizing." });
 
+            if (!PlatformDefinitions.PlatformDictionary.ContainsKey(platformId.Value))
+                return BadRequest(new { message = $"PlatformId {platformId} is not a known platform." });
+
             var title = item.OverrideTitle ?? item.DetectedTitle ?? "Unknown";
 
             // Link to existing game or create new
