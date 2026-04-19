@@ -115,7 +115,12 @@ const Library: React.FC = () => {
   });
   const itemsPerPageOptions = [10, 25, 50, 100, 250, 500, 1000];
   const rescanPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  
+
+  // Refs to the latest loaders so the LIBRARY_UPDATED_EVENT handler (which
+  // captures once at mount) always calls the current-filters version.
+  const loadPagedGamesRef = useRef<() => void>(() => {});
+  const loadPlatformCountsRef = useRef<() => void>(() => {});
+
   // Platform game counts from a lightweight total query
   const [platformGameCounts, setPlatformGameCounts] = useState<Record<string, number>>({});
 
@@ -216,6 +221,10 @@ const Library: React.FC = () => {
     }
   }, []);
 
+  // Keep loader refs current for the event handler
+  useEffect(() => { loadPagedGamesRef.current = loadPagedGames; }, [loadPagedGames]);
+  useEffect(() => { loadPlatformCountsRef.current = loadPlatformCounts; }, [loadPlatformCounts]);
+
   // Initial load + event listeners
   useEffect(() => {
     loadPagedGames();
@@ -235,13 +244,15 @@ const Library: React.FC = () => {
     // Listen for global library updates (e.g. from Auto-Scan in Settings).
     // Debounce to avoid hammering the API during bulk scans — the scanner
     // fires this event per game added, which can be hundreds per second.
+    // The handler reads current loader refs so filter changes after mount
+    // don't reload the wrong slice.
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const handleLibraryUpdate = () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         setForceUpdateCounter(prev => prev + 1);
-        loadPagedGames();
-        loadPlatformCounts();
+        loadPagedGamesRef.current();
+        loadPlatformCountsRef.current();
       }, 2000);
     };
 

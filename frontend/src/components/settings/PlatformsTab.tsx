@@ -43,6 +43,9 @@ const PlatformsTab: React.FC<PlatformsTabProps> = ({ t }) => {
     setPlatforms(prev => prev.map(p => p.id === platform.id ? { ...p, enabled: newEnabled } : p));
     try {
       await apiClient.put(`/platform/${platform.id}/toggle`, { enabled: newEnabled });
+      // Tell the rest of the app so sidebar, library filter and shelves
+      // refresh without waiting for a full page reload.
+      window.dispatchEvent(new Event('LIBRARY_UPDATED_EVENT'));
     } catch {
       setPlatforms(prev => prev.map(p => p.id === platform.id ? { ...p, enabled: !newEnabled } : p));
     }
@@ -53,6 +56,7 @@ const PlatformsTab: React.FC<PlatformsTabProps> = ({ t }) => {
     setPlatforms(ps => ps.map(p => p.id === platform.id ? { ...p, preferredMetadataSource: source } : p));
     try {
       await apiClient.put(`/platform/${platform.id}/metadata-source`, { source });
+      window.dispatchEvent(new Event('LIBRARY_UPDATED_EVENT'));
     } catch {
       setPlatforms(ps => ps.map(p => p.id === platform.id ? { ...p, preferredMetadataSource: prev } : p));
     }

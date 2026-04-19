@@ -215,8 +215,24 @@ const Status: React.FC = () => {
 
   useEffect(() => {
     fetchCounts();
-    const iv = setInterval(fetchCounts, 10000);
-    return () => clearInterval(iv);
+    // Pause the interval while the tab is hidden so we don't burn RPS on an
+    // unseen page. `visibilitychange` snaps the clock back when the user
+    // comes back so the UI is fresh the moment they look.
+    let iv: ReturnType<typeof setInterval> | null = setInterval(fetchCounts, 10000);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        fetchCounts();
+        if (!iv) iv = setInterval(fetchCounts, 10000);
+      } else if (iv) {
+        clearInterval(iv);
+        iv = null;
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      if (iv) clearInterval(iv);
+    };
   }, [fetchCounts]);
 
   // Activity polling
@@ -229,8 +245,21 @@ const Status: React.FC = () => {
         .catch(() => {});
     };
     fetchQueue();
-    const iv = setInterval(fetchQueue, 3000);
-    return () => clearInterval(iv);
+    let iv: ReturnType<typeof setInterval> | null = setInterval(fetchQueue, 3000);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        fetchQueue();
+        if (!iv) iv = setInterval(fetchQueue, 3000);
+      } else if (iv) {
+        clearInterval(iv);
+        iv = null;
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      if (iv) clearInterval(iv);
+    };
   }, [activeTab]);
 
   // GOG downloads polling
@@ -243,8 +272,21 @@ const Status: React.FC = () => {
         .catch(() => {});
     };
     fetchGog();
-    const iv = setInterval(fetchGog, 2000);
-    return () => clearInterval(iv);
+    let iv: ReturnType<typeof setInterval> | null = setInterval(fetchGog, 2000);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        fetchGog();
+        if (!iv) iv = setInterval(fetchGog, 2000);
+      } else if (iv) {
+        clearInterval(iv);
+        iv = null;
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      if (iv) clearInterval(iv);
+    };
   }, [activeTab]);
 
   // History fetch

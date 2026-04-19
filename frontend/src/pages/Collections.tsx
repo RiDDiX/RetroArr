@@ -27,6 +27,9 @@ const Collections: React.FC = () => {
 
   useEffect(() => {
     loadCollections();
+    const handleLibraryUpdate = () => { loadCollections(); };
+    window.addEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
+    return () => window.removeEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
   }, []);
 
   const loadCollections = async () => {

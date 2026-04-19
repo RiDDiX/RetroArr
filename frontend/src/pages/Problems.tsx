@@ -28,6 +28,9 @@ const Problems: React.FC = () => {
 
   useEffect(() => {
     loadProblems();
+    const handleLibraryUpdate = () => { loadProblems(); };
+    window.addEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
+    return () => window.removeEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
   }, []);
 
   const loadProblems = async () => {

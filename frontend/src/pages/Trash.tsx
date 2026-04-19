@@ -39,7 +39,12 @@ export default function Trash() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    const handleLibraryUpdate = () => { load(); };
+    window.addEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
+    return () => window.removeEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
+  }, [load]);
 
   const restore = async (id: string) => {
     setBusy(true);

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { gamesApi, platformsApi, type GameListDto, type Platform } from '../api/client';
 import GameCard from '../components/GameCard';
@@ -49,49 +49,57 @@ export default function Platforms() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const platformsResp = await platformsApi.getEnabled();
-        const enabled = platformsResp.data || [];
+  const loadShelves = useCallback(async (signal?: AbortSignal) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const platformsResp = await platformsApi.getEnabled();
+      const enabled = platformsResp.data || [];
 
-        // Fire per-platform sample requests in parallel — cheap because
-        // each is capped at SHELF_PAGE_SIZE.
-        const results = await Promise.all(
-          enabled.map(async (p) => {
-            try {
-              const r = await gamesApi.getPaged({
-                platformId: p.id,
-                pageSize: SHELF_PAGE_SIZE,
-                sortOrder: 'asc',
-              });
-              return {
-                platform: p,
-                games: r.data.items || [],
-                total: r.data.totalItems || 0,
-              } as Shelf;
-            } catch {
-              return { platform: p, games: [], total: 0 } as Shelf;
-            }
-          })
-        );
+      // Fire per-platform sample requests in parallel — cheap because
+      // each is capped at SHELF_PAGE_SIZE.
+      const results = await Promise.all(
+        enabled.map(async (p) => {
+          try {
+            const r = await gamesApi.getPaged({
+              platformId: p.id,
+              pageSize: SHELF_PAGE_SIZE,
+              sortOrder: 'asc',
+            });
+            return {
+              platform: p,
+              games: r.data.items || [],
+              total: r.data.totalItems || 0,
+            } as Shelf;
+          } catch {
+            return { platform: p, games: [], total: 0 } as Shelf;
+          }
+        })
+      );
 
-        if (cancelled) return;
-        const populated = results
-          .filter((s) => s.games.length > 0)
-          .sort((a, b) => b.total - a.total);
-        setShelves(populated);
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load platforms');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
+      if (signal?.aborted) return;
+      const populated = results
+        .filter((s) => s.games.length > 0)
+        .sort((a, b) => b.total - a.total);
+      setShelves(populated);
+    } catch (e) {
+      if (!signal?.aborted) setError(e instanceof Error ? e.message : 'Failed to load platforms');
+    } finally {
+      if (!signal?.aborted) setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadShelves(controller.signal);
+
+    const handleLibraryUpdate = () => { loadShelves(); };
+    window.addEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
+    return () => {
+      controller.abort();
+      window.removeEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
+    };
+  }, [loadShelves]);
 
   const totalGames = useMemo(
     () => shelves.reduce((acc, s) => acc + s.total, 0),

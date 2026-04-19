@@ -26,6 +26,7 @@ import { UIProvider } from './context/UIContext';
 import { ThemeProvider } from './context/ThemeContext';
 import KofiOverlay from './components/KofiOverlay';
 import LanguageSwitcher from './components/LanguageSwitcher';
+import ProgressHubBridge from './components/ProgressHubBridge';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -40,6 +41,7 @@ const queryClient = new QueryClient({
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
+    <ProgressHubBridge />
     <ThemeProvider>
     <UIProvider>
       <Router>
