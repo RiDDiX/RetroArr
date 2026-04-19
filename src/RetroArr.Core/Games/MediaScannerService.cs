@@ -30,6 +30,10 @@ namespace RetroArr.Core.Games
         private readonly DebugLogService? _debugLog;
         private readonly TitleCleanerService _titleCleaner;
         
+        // Sentinel used when platform resolution from key/slug/path fails.
+        // Must match an existing row in Platforms; PostDownloadProcessor uses the same id.
+        private const int UnresolvedPlatformIdFallback = 1; // PC (Windows)
+
         // Scan State Tracking (thread-safe via volatile + lock)
         private readonly object _stateLock = new();
         private volatile bool _isScanning;
@@ -1799,7 +1803,7 @@ namespace RetroArr.Core.Games
             Log($"[Scanner] No metadata found for: '{gameTitle}'. Creating offline entry.");
             var offlinePlatformId = await ResolvePlatformIdAsync(platformKey);
             // Defense in depth: if platformKey didn't resolve, try the file path
-            if (offlinePlatformId == 6 && (string.IsNullOrEmpty(platformKey) || platformKey == "default"))
+            if (offlinePlatformId == UnresolvedPlatformIdFallback && (string.IsNullOrEmpty(platformKey) || platformKey == "default"))
             {
                 var pathPlatformId = ResolvePlatformFromPath(localPath);
                 if (pathPlatformId.HasValue && pathPlatformId.Value > 0)
@@ -1847,7 +1851,7 @@ namespace RetroArr.Core.Games
             // Folder-based platform always wins over IGDB metadata
             var folderPlatId = await ResolvePlatformIdAsync(platformKey);
             // Defense in depth: if platformKey didn't resolve, try the file path
-            if (folderPlatId == 6 && (string.IsNullOrEmpty(platformKey) || platformKey == "default"))
+            if (folderPlatId == UnresolvedPlatformIdFallback && (string.IsNullOrEmpty(platformKey) || platformKey == "default"))
             {
                 var pathPlatformId = ResolvePlatformFromPath(existing.Path ?? freshData.Path);
                 if (pathPlatformId.HasValue && pathPlatformId.Value > 0)
@@ -1882,7 +1886,7 @@ namespace RetroArr.Core.Games
             // Folder-based platform always wins over IGDB metadata
             var folderPlatformId = await ResolvePlatformIdAsync(platformKey);
             // Defense in depth: if platformKey didn't resolve to a real platform, try the file path
-            if (folderPlatformId == 6 && (string.IsNullOrEmpty(platformKey) || platformKey == "default"))
+            if (folderPlatformId == UnresolvedPlatformIdFallback && (string.IsNullOrEmpty(platformKey) || platformKey == "default"))
             {
                 var pathPlatformId = ResolvePlatformFromPath(localPath);
                 if (pathPlatformId.HasValue && pathPlatformId.Value > 0)
@@ -2181,10 +2185,10 @@ namespace RetroArr.Core.Games
                 Log($"[Platform] Error looking up slug '{dbSlug}': {ex.Message}");
             }
 
-            // 4. Ultimate fallback: use PC (Windows) to avoid FK constraint failure
-            //    PlatformId=0 does not exist in the Platforms table and causes SQLite FOREIGN KEY errors.
+            // 4. Ultimate fallback: file the row under PC (Windows) so the scan keeps running,
+            //    but log loudly so it shows up in review.
             Log($"[Platform] WARNING: Could not resolve platform for key '{platformKey}'. Falling back to PC (Windows).");
-            return 6;
+            return UnresolvedPlatformIdFallback;
         }
 
         /// <summary>

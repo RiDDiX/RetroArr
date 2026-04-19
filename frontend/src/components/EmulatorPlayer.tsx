@@ -9,62 +9,43 @@ interface EmulatorPlayerProps {
     onClose: () => void;
 }
 
-// Fallback map for synchronous UI hints (e.g. showing "Play in Browser" button).
-// Authoritative source: GET /api/v3/emulator/cores/mapping (backend EmulatorController.PlatformIdToCore)
+// Fallback map for synchronous UI hints (e.g. showing "Play in Browser" button)
+// before the dynamic map from /api/v3/emulator/cores/mapping arrives.
+// Keys are the canonical backend slugs from PlatformDefinitions.cs — nothing else ever reaches here.
 const PLATFORM_TO_CORE: Record<string, string> = {
     // Nintendo
-    'nes': 'nes',
-    'famicom': 'nes',
-    'snes': 'snes',
-    'super_nintendo': 'snes',
-    'nintendo_64': 'n64',
-    'n64': 'n64',
-    'gameboy': 'gb',
-    'game_boy': 'gb',
-    'gameboy_color': 'gbc',
-    'game_boy_color': 'gbc',
-    'gameboy_advance': 'gba',
-    'game_boy_advance': 'gba',
-    'nintendo_ds': 'nds',
-    'nds': 'nds',
-    'virtual_boy': 'vb',
-    
+    nes: 'nes',
+    snes: 'snes',
+    n64: 'n64',
+    gb: 'gb',
+    gbc: 'gbc',
+    gba: 'gba',
+    nds: 'nds',
+    virtualboy: 'vb',
+
     // Sega
-    'sega_master_system': 'segaMS',
-    'master_system': 'segaMS',
-    'sega_genesis': 'segaMD',
-    'mega_drive': 'segaMD',
-    'genesis': 'segaMD',
-    'sega_game_gear': 'segaGG',
-    'game_gear': 'segaGG',
-    'sega_saturn': 'segaSaturn',
-    'saturn': 'segaSaturn',
-    'sega_32x': 'sega32x',
+    mastersystem: 'segaMS',
+    megadrive: 'segaMD',
+    gamegear: 'segaGG',
+    saturn: 'segaSaturn',
     '32x': 'sega32x',
-    'sega_cd': 'segaCD',
-    
+    segacd: 'segaCD',
+
     // Sony
-    'playstation': 'psx',
-    'ps1': 'psx',
-    'psx': 'psx',
-    'psp': 'psp',
-    'playstation_portable': 'psp',
-    
+    ps1: 'psx',
+    psp: 'psp',
+
     // Atari
-    'atari_2600': 'atari2600',
-    'atari_5200': 'atari5200',
-    'atari_7800': 'atari7800',
-    'atari_lynx': 'lynx',
-    'lynx': 'lynx',
-    'atari_jaguar': 'jaguar',
-    'jaguar': 'jaguar',
-    
+    atari2600: 'atari2600',
+    atari5200: 'atari5200',
+    atari7800: 'atari7800',
+    lynx: 'lynx',
+    jaguar: 'jaguar',
+
     // Other
-    'arcade': 'arcade',
-    'mame': 'mame2003',
+    arcade: 'arcade',
     '3do': '3do',
-    'pc_engine': 'pce',
-    'turbografx_16': 'pce',
+    pcengine: 'pce',
 };
 
 // Build a slug→core map from the API response for dynamic resolution

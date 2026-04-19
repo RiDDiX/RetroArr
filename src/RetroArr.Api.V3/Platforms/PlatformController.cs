@@ -11,10 +11,7 @@ namespace RetroArr.Api.V3.Platforms
     {
         private static List<Platform> _allPlatforms => PlatformDefinitions.AllPlatforms;
 
-        /* Platform definitions moved to RetroArr.Core.Games.PlatformDefinitions
-           Old inline definition removed to avoid duplication
-        private static readonly List<Platform> _allPlatformsOld = new()
-        {
+
             // ========== PC / Computer ==========
             new Platform { Id = 1, Name = "PC (Windows)", Slug = "pc", FolderName = "windows", Type = PlatformType.PC, Category = "Computer", IgdbPlatformId = 6, Enabled = true },
             new Platform { Id = 2, Name = "macOS", Slug = "macos", FolderName = "macintosh", Type = PlatformType.MacOS, Category = "Computer", IgdbPlatformId = 14, Enabled = true },
@@ -116,10 +113,6 @@ namespace RetroArr.Api.V3.Platforms
             new Platform { Id = 122, Name = "OpenBOR", Slug = "openbor", FolderName = "openbor", Type = PlatformType.OpenBOR, Category = "Special", IgdbPlatformId = null, Enabled = false },
             new Platform { Id = 123, Name = "Ports", Slug = "ports", FolderName = "ports", Type = PlatformType.Ports, Category = "Special", IgdbPlatformId = null, Enabled = false },
             new Platform { Id = 124, Name = "Moonlight", Slug = "moonlight", FolderName = "moonlight", Type = PlatformType.Moonlight, Category = "Special", IgdbPlatformId = null, Enabled = false },
-            new Platform { Id = 125, Name = "Steam", Slug = "steam", FolderName = "steam", Type = PlatformType.Steam, Category = "Special", IgdbPlatformId = 6, Enabled = true },
-        };
-        */
-
         [HttpGet]
         public ActionResult<List<object>> GetAll([FromQuery] bool? enabledOnly = null)
         {

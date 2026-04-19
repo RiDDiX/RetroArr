@@ -50,7 +50,7 @@ namespace RetroArr.Core.Indexers
             (new Regex(@"\b(NDS|Nintendo\s*DS)\b", RegexOptions.IgnoreCase), "Nintendo DS", "nds"),
             (new Regex(@"\b(GBA|Game\s*Boy\s*Advance)\b", RegexOptions.IgnoreCase), "Game Boy Advance", "gba"),
             (new Regex(@"\b(GBC|Game\s*Boy\s*Color)\b", RegexOptions.IgnoreCase), "Game Boy Color", "gbc"),
-            (new Regex(@"\b(GB|Game\s*Boy)\b(?!\s*(Advance|Color))", RegexOptions.IgnoreCase), "Game Boy", "gb"),
+            (new Regex(@"\bGame\s*Boy\b(?!\s*(Advance|Color))", RegexOptions.IgnoreCase), "Game Boy", "gb"),
             (new Regex(@"\b(N64|Nintendo\s*64)\b", RegexOptions.IgnoreCase), "Nintendo 64", "n64"),
             (new Regex(@"\b(SNES|Super\s*Nintendo)\b", RegexOptions.IgnoreCase), "SNES", "snes"),
             (new Regex(@"\b(NES|Famicom)\b(?!\s*Disk)", RegexOptions.IgnoreCase), "NES", "nes"),
@@ -118,9 +118,10 @@ namespace RetroArr.Core.Indexers
                 }
             }
 
-            // Default to PC if nothing detected
-            result.DetectedPlatform = "PC";
-            result.PlatformFolder = "windows";
+            // Nothing matched — mark as unknown so callers can route to review
+            // instead of silently filing every unresolved release as PC.
+            result.DetectedPlatform = "Unknown";
+            result.PlatformFolder = "unknown";
         }
 
         public static List<(string Name, string Folder)> GetAllPlatforms()

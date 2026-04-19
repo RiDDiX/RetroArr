@@ -203,7 +203,7 @@ namespace RetroArr.Core.Games
             new Platform { Id = 163, Name = "Commodore 128", Slug = "c128", FolderName = "c128", Type = PlatformType.Commodore128, Category = "Computer", IgdbPlatformId = 15, Enabled = false },
             new Platform { Id = 164, Name = "Commodore Plus/4", Slug = "cplus4", FolderName = "cplus4", Type = PlatformType.CommodorePlus4, Category = "Computer", IgdbPlatformId = null, Enabled = false },
             new Platform { Id = 165, Name = "Commodore PET", Slug = "pet", FolderName = "pet", Type = PlatformType.CommodorePET, Category = "Computer", IgdbPlatformId = null, Enabled = false },
-            new Platform { Id = 166, Name = "MSX2+", Slug = "msx2plus", FolderName = "msx2+", Type = PlatformType.MSX2Plus, Category = "Computer", IgdbPlatformId = 53, Enabled = false },
+            new Platform { Id = 166, Name = "MSX2+", Slug = "msx2plus", FolderName = "msx2plus", Type = PlatformType.MSX2Plus, Category = "Computer", IgdbPlatformId = 53, FolderAliases = new[] { "msx2+" }, Enabled = false },
             new Platform { Id = 167, Name = "MSX turbo R", Slug = "msxturbor", FolderName = "msxturbor", Type = PlatformType.MSXTurboR, Category = "Computer", IgdbPlatformId = 53, Enabled = false },
             new Platform { Id = 168, Name = "Sharp X1", Slug = "x1", FolderName = "x1", Type = PlatformType.SharpX1, Category = "Computer", IgdbPlatformId = null, Enabled = false },
             new Platform { Id = 169, Name = "ZX81", Slug = "zx81", FolderName = "zx81", Type = PlatformType.ZX81, Category = "Computer", IgdbPlatformId = null, ScreenScraperSystemId = 77, Enabled = false },

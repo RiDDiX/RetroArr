@@ -177,80 +177,58 @@ const PLATFORM_ICON_MAP: Record<string, string> = {
     '3do': '3do.svg',
 };
 
-// Map RetroArr internal platform IDs to slugs (from PlatformDefinitions.cs)
-const PLATFORM_ID_MAP: Record<number, string> = {
-    // Computer
-    1: 'pc', 2: 'macos', 3: 'dos', 4: 'arcade', 5: 'arcade',
-    6: 'arcade', 7: 'arcade', 8: 'arcade', 9: 'arcade', 10: 'arcade',
-    11: 'arcade', 12: 'arcade', 13: 'arcade',
-
-    // 3DO
-    14: '3do',
-
-    // Sony
+// Fallback: resolve by backend platform id when a caller can't supply a slug yet
+// (e.g. ReviewImport rendering items before the platform list is loaded).
+// Keep in sync with PlatformDefinitions.cs — only ids that have a corresponding
+// icon in PLATFORM_ICON_MAP are listed here; everything else returns null.
+const PLATFORM_ID_TO_SLUG: Record<number, string> = {
+    1: 'pc', 2: 'macos', 3: 'dos', 4: 'amiga', 5: 'cd32', 6: 'c64',
+    7: 'vic20', 8: 'zxspectrum', 9: 'msx', 10: 'msx2', 11: 'x68000',
+    12: 'apple2', 13: 'bbcmicro', 14: '3do', 15: 'amigacdtv', 16: 'amiga1200',
+    17: 'amiga4000', 18: 'amstradcpc', 19: 'apple2gs',
     20: 'ps1', 21: 'ps2', 22: 'ps3', 23: 'ps4', 24: 'ps5',
     25: 'psp', 26: 'vita',
-
-    // Microsoft
     30: 'xbox', 31: 'xbox360', 32: 'xboxone', 33: 'xboxseriesx',
-
-    // Nintendo — Home Consoles
-    40: 'nes', 41: 'snes', 42: 'n64', 43: 'gamecube',
-    44: 'wii', 45: 'wiiu', 46: 'switch', 47: 'switch2',
-    48: 'fds', 49: 'sfc', 57: 'n64dd', 58: 'satellaview', 59: 'sufami',
-
-    // Nintendo — Handhelds
+    40: 'nes', 41: 'snes', 42: 'n64', 43: 'gamecube', 44: 'wii', 45: 'wiiu',
+    46: 'switch', 47: 'switch2', 48: 'fds', 49: 'sfc',
     50: 'gb', 51: 'gbc', 52: 'gba', 53: 'nds', 54: '3ds',
-    55: 'virtualboy', 56: 'pokemini', 127: 'sgb',
-
-    // Sega
+    55: 'virtualboy', 56: 'pokemini', 57: 'n64dd',
+    58: 'satellaview', 59: 'sufami',
     60: 'sg1000', 61: 'mastersystem', 62: 'megadrive', 63: 'segacd',
     64: '32x', 65: 'gamegear', 66: 'saturn', 67: 'dreamcast',
     68: 'naomi', 69: 'naomi2', 70: 'atomiswave',
-    71: 'segastv', 72: 'chihiro', 73: 'arcade', 74: 'arcade', 75: 'arcade', 76: 'arcade',
-
-    // Atari
-    80: 'atari2600', 81: 'atari5200', 82: 'atari7800',
-    83: 'jaguar', 84: 'jaguarcd', 85: 'lynx',
-    86: 'atarist', 87: 'atari800', 88: 'xegs',
-
-    // NEC / PC Engine
+    80: 'atari2600', 81: 'atari5200', 82: 'atari7800', 83: 'jaguar',
+    84: 'jaguarcd', 85: 'lynx', 86: 'atarist', 87: 'atari800', 88: 'xegs',
     90: 'pcengine', 91: 'pcenginecd', 92: 'supergrafx', 93: 'pcfx',
-
-    // Arcade
     100: 'arcade', 101: 'fbneo', 102: 'neogeo', 103: 'neogeocd',
-    104: 'cps1', 105: 'cps2', 106: 'cps3', 107: 'daphne',
-    108: 'hbmame', 109: 'neogeo64',
-    128: 'cave', 129: 'zinc', 130: 'namco2x6', 131: 'teknoparrot', 132: 'gaelco',
-
-    // Handhelds & Others
-    110: 'arcade', 111: 'arcade', 112: 'arcade', 113: 'arcade',
+    104: 'cps1', 105: 'cps2', 106: 'cps3', 107: 'daphne', 108: 'hbmame',
+    109: 'neogeo64',
+    110: 'wonderswan', 111: 'wonderswancolor', 112: 'ngp', 113: 'ngpc',
     118: 'gameandwatch',
-
-    // Special
     120: 'scummvm', 121: 'dosbox',
-    125: 'pc', 126: 'pc',
+    125: 'pc', 126: 'pc', 127: 'sgb',
+    128: 'cave', 129: 'zinc', 130: 'namco2x6', 131: 'teknoparrot',
+    132: 'gaelco',
 };
 
 const getIconPath = (slug?: string, name?: string, id?: number): string | null => {
-    // Try by slug first (most reliable — directly from backend)
+    // Prefer the slug from the backend; it's the single source of truth.
     if (slug) {
         const normalizedSlug = slug.toLowerCase().replace(/[\s_]/g, '-');
         if (PLATFORM_ICON_MAP[normalizedSlug]) {
             return `/platforms/${PLATFORM_ICON_MAP[normalizedSlug]}`;
         }
-        // Also try without dashes (e.g. 'mastersystem' vs 'master-system')
         const rawSlug = slug.toLowerCase();
         if (PLATFORM_ICON_MAP[rawSlug]) {
             return `/platforms/${PLATFORM_ICON_MAP[rawSlug]}`;
         }
     }
 
-    // Try by internal platform ID
-    if (id && PLATFORM_ID_MAP[id]) {
-        const mappedSlug = PLATFORM_ID_MAP[id];
-        if (PLATFORM_ICON_MAP[mappedSlug]) {
-            return `/platforms/${PLATFORM_ICON_MAP[mappedSlug]}`;
+    // Fallback: resolve by id when the caller has no slug
+    if (id && PLATFORM_ID_TO_SLUG[id]) {
+        const mapped = PLATFORM_ID_TO_SLUG[id];
+        if (PLATFORM_ICON_MAP[mapped]) {
+            return `/platforms/${PLATFORM_ICON_MAP[mapped]}`;
         }
     }
 
@@ -306,4 +284,4 @@ const PlatformIcon: React.FC<PlatformIconProps> = ({
 };
 
 export default PlatformIcon;
-export { getIconPath, PLATFORM_ICON_MAP, PLATFORM_ID_MAP };
+export { getIconPath, PLATFORM_ICON_MAP };
