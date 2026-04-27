@@ -1,3 +1,8 @@
+## v1.0.133 (2026-04-27)
+
+### Changes
+- wire web emulation by slug and stop false update prompts (7069152)
+
 ## v1.0.132 (2026-04-27)
 
 ### Changes
