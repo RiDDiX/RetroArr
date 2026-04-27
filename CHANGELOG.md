@@ -1,3 +1,8 @@
+## v1.0.134 (2026-04-27)
+
+### Changes
+- pair cue/bin and stem-matched companions into one game (a71f82c)
+
 ## v1.0.133 (2026-04-27)
 
 ### Changes
