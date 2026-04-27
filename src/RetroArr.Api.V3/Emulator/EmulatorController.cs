@@ -241,9 +241,13 @@ namespace RetroArr.Api.V3.Emulator
 
             // Anchor the served path inside the configured library root. Stops a
             // tampered Games.Path row from streaming out arbitrary files the
-            // daemon process can read.
+            // daemon process can read. If the library root isn't configured yet
+            // (fresh install, or game added via direct import before settings
+            // were saved), fall back to existence-only — the row was reachable
+            // before this guard existed and we don't want to break those setups.
             var mediaSettings = _configService.LoadMediaSettings();
-            if (!IsInsideLibrary(romPath, mediaSettings.FolderPath))
+            if (!string.IsNullOrWhiteSpace(mediaSettings.FolderPath)
+                && !IsInsideLibrary(romPath, mediaSettings.FolderPath))
             {
                 _logger.Warn($"Rejected /rom request for game {gameId}: path '{romPath}' is outside library root '{mediaSettings.FolderPath}'.");
                 return NotFound(new { error = "ROM file not found" });
@@ -254,6 +258,17 @@ namespace RetroArr.Api.V3.Emulator
 
             var fileStream = new FileStream(romPath, FileMode.Open, FileAccess.Read);
             return File(fileStream, mimeType, Path.GetFileName(romPath), enableRangeProcessing: true);
+        }
+
+        private static string NormalizeVersion(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
+            var trimmed = raw.Trim();
+            if (trimmed.Length > 0 && (trimmed[0] == 'v' || trimmed[0] == 'V'))
+            {
+                trimmed = trimmed.Substring(1);
+            }
+            return trimmed;
         }
 
         private static bool IsInsideLibrary(string filePath, string? libraryRoot)
@@ -855,7 +870,13 @@ a {{ color:#89b4fa; }}
                     currentVersion = System.IO.File.ReadAllText(versionFile).Trim();
                 }
 
-                var updateAvailable = currentVersion != latestVersion;
+                // GitHub tags ship as "v4.2.3" but the local version.txt is written
+                // as "4.2.3" by the CDN installer — strip the leading 'v' on both
+                // sides before comparing so identical releases stop being flagged.
+                var updateAvailable = !string.Equals(
+                    NormalizeVersion(currentVersion),
+                    NormalizeVersion(latestVersion),
+                    StringComparison.OrdinalIgnoreCase);
 
                 return Ok(new
                 {

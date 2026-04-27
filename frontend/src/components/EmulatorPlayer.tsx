@@ -4,7 +4,11 @@ import './EmulatorPlayer.css';
 interface EmulatorPlayerProps {
     romUrl: string;
     gameTitle: string;
+    // Canonical Platform.Slug from PlatformDefinitions.cs. Drives core lookup
+    // via getEmulatorCore — must be the slug, never the display name.
     platform: string;
+    // Display name for the header badge. Falls back to the slug when omitted.
+    platformName?: string;
     gameId: number;
     onClose: () => void;
 }
@@ -15,7 +19,9 @@ interface EmulatorPlayerProps {
 const PLATFORM_TO_CORE: Record<string, string> = {
     // Nintendo
     nes: 'nes',
+    fds: 'nes',         // Famicom Disk System runs on the NES core
     snes: 'snes',
+    sfc: 'snes',        // Super Famicom is the JP SNES — same core
     n64: 'n64',
     gb: 'gb',
     gbc: 'gbc',
@@ -70,15 +76,16 @@ export const getEmulatorCore = (platformSlug: string): string | null => {
     return PLATFORM_TO_CORE[normalizedSlug] || null;
 };
 
-const EmulatorPlayer = ({ romUrl, gameTitle, platform, gameId, onClose }: EmulatorPlayerProps) => {
+const EmulatorPlayer = ({ romUrl, gameTitle, platform, platformName, gameId, onClose }: EmulatorPlayerProps) => {
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const [error, setError] = useState<string | null>(null);
 
     const core = getEmulatorCore(platform);
+    const displayName = platformName || platform;
 
     useEffect(() => {
         if (!core) {
-            setError(`Platform "${platform}" is not supported for web emulation.`);
+            setError(`Platform "${displayName}" is not supported for web emulation.`);
             return;
         }
 
@@ -100,7 +107,7 @@ const EmulatorPlayer = ({ romUrl, gameTitle, platform, gameId, onClose }: Emulat
                 <div className="emulator-header">
                     <h2>{gameTitle}</h2>
                     <div className="emulator-controls">
-                        <span className="emulator-platform-badge">{platform}</span>
+                        <span className="emulator-platform-badge">{displayName}</span>
                         <button className="emulator-close-btn" onClick={onClose}>
                             &times;
                         </button>

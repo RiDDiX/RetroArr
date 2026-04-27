@@ -2854,7 +2854,8 @@ const GameDetails: React.FC = () => {
         <EmulatorPlayer
           romUrl={emulatorConfig.romUrl}
           gameTitle={game.title}
-          platform={game.platform?.name || 'Unknown'}
+          platform={game.platform?.slug || ''}
+          platformName={game.platform?.name || 'Unknown'}
           gameId={game.id}
           onClose={() => setShowEmulator(false)}
         />

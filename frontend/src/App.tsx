@@ -27,6 +27,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import KofiOverlay from './components/KofiOverlay';
 import LanguageSwitcher from './components/LanguageSwitcher';
 import ProgressHubBridge from './components/ProgressHubBridge';
+import CoreMappingBootstrap from './components/CoreMappingBootstrap';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,6 +43,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
     <ProgressHubBridge />
+    <CoreMappingBootstrap />
     <ThemeProvider>
     <UIProvider>
       <Router>
