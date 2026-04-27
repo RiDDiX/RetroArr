@@ -1,3 +1,8 @@
+## v1.0.137 (2026-04-27)
+
+### Changes
+- encrypt postgres password and rebuild library search (6caf688)
+
 ## v1.0.136 (2026-04-27)
 
 ### Changes
