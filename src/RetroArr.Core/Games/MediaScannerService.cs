@@ -944,11 +944,47 @@ namespace RetroArr.Core.Games
                     // LOGIC SWITCH: If it's a container, a console platform, or has "No-Cluster" extensions, DO NOT cluster.
                     if (isContainer || isConsole || hasNoClusterExtension)
                     {
-                        foreach (var filePath in filePaths)
+                        // Pair multi-file ROMs (cue+bin, gdi+bins, m3u+cues, identical-stem
+                        // siblings) into a single candidate. Without this, "Game.cue" and
+                        // "Game.bin" both hit the candidate list and the metadata pipeline
+                        // creates two rows for one disc.
+                        var orderedPaths = filePaths
+                            .OrderBy(f => Path.GetExtension(f).ToLowerInvariant() switch
+                            {
+                                ".m3u" => 0,
+                                ".cue" => 1,
+                                ".gdi" => 2,
+                                _ => 3
+                            })
+                            .ToList();
+                        var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                        foreach (var filePath in orderedPaths)
                         {
+                            if (claimed.Contains(filePath)) continue;
+
+                            var fileSet = FileSetResolver.Resolve(filePath);
+                            foreach (var member in fileSet.AllFiles)
+                                claimed.Add(Path.GetFullPath(member));
+
+                            // Generic same-stem sweep covers formats FileSetResolver doesn't
+                            // model explicitly (e.g. .iso + .mds, .ccd + .img + .sub) so two
+                            // sibling files with the exact same base name never become two games.
+                            var stem = Path.GetFileNameWithoutExtension(filePath);
+                            if (!string.IsNullOrEmpty(stem))
+                            {
+                                foreach (var sibling in orderedPaths)
+                                {
+                                    if (sibling.Equals(filePath, StringComparison.OrdinalIgnoreCase)) continue;
+                                    if (claimed.Contains(sibling)) continue;
+                                    if (Path.GetFileNameWithoutExtension(sibling).Equals(stem, StringComparison.OrdinalIgnoreCase))
+                                        claimed.Add(sibling);
+                                }
+                            }
+
                             var rawFileName = Path.GetFileNameWithoutExtension(filePath);
                             if (string.IsNullOrEmpty(rawFileName)) rawFileName = Path.GetFileName(filePath);
-                            
+
                             var (fileRegion, fileLangs, fileRevision) = TitleCleanerService.ExtractFilenameMetadata(rawFileName);
                             var (cleanTitle, serial) = _titleCleaner.CleanGameTitle(rawFileName);
 

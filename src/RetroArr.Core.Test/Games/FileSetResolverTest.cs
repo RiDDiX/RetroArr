@@ -163,5 +163,40 @@ namespace RetroArr.Core.Test.Games
             var set = FileSetResolver.Resolve(string.Empty);
             Assert.That(set.Type, Is.EqualTo(FileSetType.Single));
         }
+
+        [Test]
+        public void Resolve_CueWithIdenticalStemBin_ClaimsBinViaStemFallback()
+        {
+            // Real-world PSX rip where the cue lists a track that doesn't resolve
+            // (renamed bin, copied folder, missing track entries). The bin sitting
+            // next to the cue with the exact same stem is still part of the same
+            // disc and must not become a second game.
+            var binPath = Path.Combine(_tempDir, "SLES_039.00.Digimon Digital Card Battle (EU).bin");
+            var cuePath = Path.Combine(_tempDir, "SLES_039.00.Digimon Digital Card Battle (EU).cue");
+            File.WriteAllText(binPath, "binary track data");
+            File.WriteAllText(cuePath, "FILE \"missing-track.bin\" BINARY\n  TRACK 01 MODE1/2352\n");
+
+            var set = FileSetResolver.Resolve(cuePath);
+
+            Assert.That(set.Type, Is.EqualTo(FileSetType.CueBin));
+            Assert.That(set.PrimaryFile, Is.EqualTo(cuePath));
+            Assert.That(set.CompanionFiles.Count, Is.EqualTo(1));
+            Assert.That(Path.GetFileName(set.CompanionFiles[0]),
+                Is.EqualTo("SLES_039.00.Digimon Digital Card Battle (EU).bin"));
+        }
+
+        [Test]
+        public void Resolve_CueWithEmptyContent_ClaimsSiblingBinByStem()
+        {
+            var binPath = Path.Combine(_tempDir, "Game.bin");
+            var cuePath = Path.Combine(_tempDir, "Game.cue");
+            File.WriteAllText(binPath, "data");
+            File.WriteAllText(cuePath, string.Empty);
+
+            var set = FileSetResolver.Resolve(cuePath);
+
+            Assert.That(set.CompanionFiles.Count, Is.EqualTo(1));
+            Assert.That(Path.GetFileName(set.CompanionFiles[0]), Is.EqualTo("Game.bin"));
+        }
     }
 }

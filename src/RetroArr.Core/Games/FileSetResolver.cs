@@ -115,6 +115,25 @@ namespace RetroArr.Core.Games
                 _logger.Warn($"[FileSetResolver] Warning: Could not parse CUE '{cuePath}': {ex.Message}");
             }
 
+            // Fallback when the CUE was empty, unparseable, or pointed at a path
+            // that no longer resolves on disk (renamed .bin, copied folder, etc.).
+            // Anything in the same directory that shares the cue's exact stem is
+            // a track of the same disc — claim it as a companion so the scanner
+            // doesn't promote it to a second game entry.
+            if (set.CompanionFiles.Count == 0 && Directory.Exists(dir))
+            {
+                var stem = Path.GetFileNameWithoutExtension(cuePath);
+                if (!string.IsNullOrEmpty(stem))
+                {
+                    foreach (var sibling in Directory.GetFiles(dir, stem + ".*"))
+                    {
+                        if (sibling.Equals(cuePath, StringComparison.OrdinalIgnoreCase)) continue;
+                        if (!Path.GetFileNameWithoutExtension(sibling).Equals(stem, StringComparison.OrdinalIgnoreCase)) continue;
+                        set.CompanionFiles.Add(Path.GetFullPath(sibling));
+                    }
+                }
+            }
+
             return set;
         }
 
