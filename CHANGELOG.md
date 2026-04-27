@@ -1,3 +1,8 @@
+## v1.0.135 (2026-04-27)
+
+### Changes
+- detect and merge duplicate game rows in health check (81f4a6e)
+
 ## v1.0.134 (2026-04-27)
 
 ### Changes
