@@ -1,3 +1,8 @@
+## v1.0.138 (2026-04-27)
+
+### Changes
+- auto-merge duplicates after platform heal (3186d46)
+
 ## v1.0.137 (2026-04-27)
 
 ### Changes
