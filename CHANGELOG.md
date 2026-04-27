@@ -1,3 +1,8 @@
+## v1.0.136 (2026-04-27)
+
+### Changes
+- drop tracked perf-baseline scratch dir from repo (1eecc9b)
+
 ## v1.0.135 (2026-04-27)
 
 ### Changes
