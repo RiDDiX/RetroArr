@@ -1,3 +1,8 @@
+## v1.0.132 (2026-04-27)
+
+### Changes
+- surface full rom path in ui, harden scanner and rom serving (72f4051)
+
 ## v1.0.131 (2026-04-19)
 
 ### Changes
