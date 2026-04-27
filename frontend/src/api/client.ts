@@ -463,6 +463,23 @@ export interface PlatformMismatch {
   path: string;
 }
 
+export interface DuplicateMember {
+  gameId: number;
+  title: string;
+  path?: string;
+  igdbId?: number;
+  serial?: string;
+}
+
+export interface DuplicateCluster {
+  // 0=PathStem, 1=TitleAndPlatform, 2=IgdbId, 3=SerialAndPlatform
+  reason: number;
+  key: string;
+  platformId?: number;
+  platformName?: string;
+  games: DuplicateMember[];
+}
+
 export interface DatabaseHealthReport {
   totalGames: number;
   orphanPlatformRefs: number;
@@ -471,7 +488,10 @@ export interface DatabaseHealthReport {
   gamesNeedingReview: number;
   gamesWithMissingPath: number;
   gamesWithMismatchedPath: number;
+  duplicateClusterCount: number;
+  duplicateGames: number;
   mismatches: PlatformMismatch[];
+  duplicates: DuplicateCluster[];
 }
 
 export interface DatabaseRepairResult {
@@ -479,6 +499,7 @@ export interface DatabaseRepairResult {
   orphansFixed: number;
   platformsHealed: number;
   danglingGameFilesRemoved: number;
+  duplicatesMerged: number;
 }
 
 export interface DatabaseResetChallenge {
@@ -654,7 +675,7 @@ export const settingsApi = {
   backupDatabase: () => apiClient.post('/settings/database/backup'),
   getDatabaseStats: () => apiClient.get<DatabaseStats>('/settings/database/stats'),
   checkDatabaseHealth: () => apiClient.post<DatabaseHealthReport>('/settings/database/health'),
-  repairDatabase: (opts: { healPlatformFromPath: boolean }) => apiClient.post<DatabaseRepairResult>('/settings/database/repair', opts),
+  repairDatabase: (opts: { healPlatformFromPath: boolean; mergeDuplicates: boolean }) => apiClient.post<DatabaseRepairResult>('/settings/database/repair', opts),
   resetDatabaseChallenge: (kind: 'library' | 'download-history') =>
     apiClient.post<DatabaseResetChallenge>(`/settings/database/reset/challenge?kind=${encodeURIComponent(kind)}`),
   resetDatabaseLibrary: (token: string, confirmation: string) =>

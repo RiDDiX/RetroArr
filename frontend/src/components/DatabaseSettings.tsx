@@ -46,6 +46,7 @@ const DatabaseSettings: React.FC<DatabaseSettingsProps> = () => {
     const [checking, setChecking] = useState(false);
     const [repairing, setRepairing] = useState(false);
     const [healFromPath, setHealFromPath] = useState(true);
+    const [mergeDuplicates, setMergeDuplicates] = useState(true);
     const [repairResult, setRepairResult] = useState<DatabaseRepairResult | null>(null);
 
     const [resetChallenge, setResetChallenge] = useState<DatabaseResetChallenge | null>(null);
@@ -164,7 +165,7 @@ const DatabaseSettings: React.FC<DatabaseSettingsProps> = () => {
         setRepairing(true);
         setMessage(null);
         try {
-            const response = await settingsApi.repairDatabase({ healPlatformFromPath: healFromPath });
+            const response = await settingsApi.repairDatabase({ healPlatformFromPath: healFromPath, mergeDuplicates });
             setRepairResult(response.data);
             setMessage({ type: 'success', text: 'Repair complete.' });
             // Re-check so the report reflects the fixed state
@@ -282,7 +283,9 @@ const DatabaseSettings: React.FC<DatabaseSettingsProps> = () => {
                 <h4><FontAwesomeIcon icon={faHeartbeat} /> Check &amp; Repair</h4>
                 <p className="settings-description">
                     Scan for orphan platform references, NULL regions, dangling file rows,
-                    missing paths on disk, and games whose folder suggests a different platform.
+                    missing paths on disk, games whose folder suggests a different platform,
+                    and duplicate game rows (cue/bin pairs that ended up as two entries,
+                    title collisions on the same platform, repeat-matched IGDB ids).
                 </p>
                 <div className="db-health-actions">
                     <button className="btn-secondary" onClick={handleHealthCheck} disabled={checking || repairing || resetting}>
@@ -304,6 +307,14 @@ const DatabaseSettings: React.FC<DatabaseSettingsProps> = () => {
                         />
                         Heal platform from path (reassigns games when the folder says otherwise)
                     </label>
+                    <label className="db-health-toggle">
+                        <input
+                            type="checkbox"
+                            checked={mergeDuplicates}
+                            onChange={(e) => setMergeDuplicates(e.target.checked)}
+                        />
+                        Merge duplicate games (cue/bin pairs, same title on same platform, shared IGDB id)
+                    </label>
                 </div>
 
                 {healthReport && (
@@ -315,6 +326,38 @@ const DatabaseSettings: React.FC<DatabaseSettingsProps> = () => {
                         <div className="stat-item"><span className="stat-label">Needs metadata review:</span><span className="stat-value">{healthReport.gamesNeedingReview}</span></div>
                         <div className="stat-item"><span className="stat-label">Missing path on disk:</span><span className="stat-value">{healthReport.gamesWithMissingPath}</span></div>
                         <div className="stat-item"><span className="stat-label">Path suggests different platform:</span><span className="stat-value">{healthReport.gamesWithMismatchedPath}</span></div>
+                        <div className="stat-item"><span className="stat-label">Duplicate clusters:</span><span className="stat-value">{healthReport.duplicateClusterCount}</span></div>
+                        <div className="stat-item"><span className="stat-label">Games in duplicates:</span><span className="stat-value">{healthReport.duplicateGames}</span></div>
+
+                        {healthReport.duplicates.length > 0 && (
+                            <details className="db-mismatch-details">
+                                <summary>Showing {healthReport.duplicates.length} duplicate cluster{healthReport.duplicates.length === 1 ? '' : 's'}</summary>
+                                <table className="verification-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Reason</th>
+                                            <th>Key</th>
+                                            <th>Platform</th>
+                                            <th>Games (id · title · path)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {healthReport.duplicates.slice(0, 100).map((c, idx) => (
+                                            <tr key={`${c.reason}-${c.key}-${idx}`}>
+                                                <td>{['Path stem', 'Title + platform', 'IGDB id', 'Serial + platform'][c.reason] ?? '?'}</td>
+                                                <td><code>{c.key}</code></td>
+                                                <td>{c.platformName ?? '—'}</td>
+                                                <td>
+                                                    {c.games.map((g) => (
+                                                        <div key={g.gameId}>#{g.gameId} · {g.title}{g.path ? <> · <code>{g.path}</code></> : null}</div>
+                                                    ))}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </details>
+                        )}
 
                         {healthReport.mismatches.length > 0 && (
                             <details className="db-mismatch-details">
@@ -350,7 +393,8 @@ const DatabaseSettings: React.FC<DatabaseSettingsProps> = () => {
                         {repairResult.regionsCanonicalised} regions canonicalised,{' '}
                         {repairResult.orphansFixed} orphans flagged,{' '}
                         {repairResult.platformsHealed} platforms healed,{' '}
-                        {repairResult.danglingGameFilesRemoved} dangling file rows removed.
+                        {repairResult.danglingGameFilesRemoved} dangling file rows removed,{' '}
+                        {repairResult.duplicatesMerged} duplicate game rows merged.
                     </div>
                 )}
             </div>
