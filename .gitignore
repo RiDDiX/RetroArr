@@ -7,6 +7,7 @@ node_modules/
 _output/
 _temp/
 _tests/
+_tmp/
 dist/
 build/
 !frontend/build/
