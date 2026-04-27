@@ -395,9 +395,8 @@ namespace RetroArr.Core.Games
             public bool IsFolderMode { get; set; }
         }
 
-        // Walk every name a platform exposes (folder, slug, retrobat/batocera variants,
-        // declared aliases) and return the first matching rule. Falls back to the
-        // caller-supplied default when nothing matches — typically the "default" rule.
+        // Walk all platform name variants (folder, slug, retrobat/batocera/aliases)
+        // and return the first matching rule, or the caller fallback.
         private PlatformRule ResolveRuleForPlatform(Platform platform, PlatformRule fallback)
         {
             if (_platformRules.TryGetValue(platform.GetEffectiveFolderName(), out var pr)) return pr;
@@ -432,13 +431,16 @@ namespace RetroArr.Core.Games
 
         private readonly ReviewItemService? _reviewService;
 
+        private readonly DuplicateGameMergeService? _mergeService;
+
         public MediaScannerService(
-            ConfigurationService configService, 
+            ConfigurationService configService,
             IGameMetadataServiceFactory metadataServiceFactory,
             IGameRepository gameRepository,
             TitleCleanerService titleCleaner,
             DebugLogService? debugLog = null,
-            ReviewItemService? reviewService = null)
+            ReviewItemService? reviewService = null,
+            DuplicateGameMergeService? mergeService = null)
         {
             _configService = configService;
             _metadataServiceFactory = metadataServiceFactory;
@@ -446,6 +448,7 @@ namespace RetroArr.Core.Games
             _titleCleaner = titleCleaner;
             _debugLog = debugLog;
             _reviewService = reviewService;
+            _mergeService = mergeService;
         }
 
         public void StopScan()
@@ -944,10 +947,8 @@ namespace RetroArr.Core.Games
                     // LOGIC SWITCH: If it's a container, a console platform, or has "No-Cluster" extensions, DO NOT cluster.
                     if (isContainer || isConsole || hasNoClusterExtension)
                     {
-                        // Pair multi-file ROMs (cue+bin, gdi+bins, m3u+cues, identical-stem
-                        // siblings) into a single candidate. Without this, "Game.cue" and
-                        // "Game.bin" both hit the candidate list and the metadata pipeline
-                        // creates two rows for one disc.
+                        // Pair multi-file ROMs (cue+bin, gdi+bins, m3u+cues,
+                        // identical-stem siblings) into one candidate.
                         var orderedPaths = filePaths
                             .OrderBy(f => Path.GetExtension(f).ToLowerInvariant() switch
                             {
@@ -967,9 +968,8 @@ namespace RetroArr.Core.Games
                             foreach (var member in fileSet.AllFiles)
                                 claimed.Add(Path.GetFullPath(member));
 
-                            // Generic same-stem sweep covers formats FileSetResolver doesn't
-                            // model explicitly (e.g. .iso + .mds, .ccd + .img + .sub) so two
-                            // sibling files with the exact same base name never become two games.
+                            // Catches formats FileSetResolver doesn't model
+                            // (.iso+.mds, .ccd+.img+.sub) by exact stem match.
                             var stem = Path.GetFileNameWithoutExtension(filePath);
                             if (!string.IsNullOrEmpty(stem))
                             {
@@ -1175,8 +1175,7 @@ namespace RetroArr.Core.Games
             {
                 // If it's a container, we still look for files (e.g., ROMs in 'Juegos')
                 // but we give them a chance to be clustered differently.
-                // Sort by full path so two scans of the same tree always pick the
-                // same "first" file when several candidates collapse onto one title.
+                // Sort by full path so rescans pick the same primary file.
                 var files = root.EnumerateFiles().OrderBy(f => f.FullName, StringComparer.Ordinal);
                 foreach (var file in files)
                 {
@@ -1872,8 +1871,7 @@ namespace RetroArr.Core.Games
                 }
             }
 
-            // Surface anything we couldn't anchor — no scraper match AND no platform
-            // anchor — through the metadata-review queue so the user can fix it.
+            // Surface unanchored rows (no scraper, no platform) for manual review.
             var reviewReason = hitPlatformFallback
                 ? "Offline fallback — no scraper match and no platform folder match"
                 : "Offline fallback — no scraper match";
@@ -2705,7 +2703,7 @@ namespace RetroArr.Core.Games
         // says, and fixes mismatches. Returns (healed, dupesDropped, dropped-set).
         // Split out from the full orphan sweep so it can be called ad-hoc
         // without touching the Missing-flag lifecycle.
-        public async Task<(int healed, int dupesDropped)> HealWrongPlatformsAsync(System.Threading.CancellationToken ct = default)
+        public async Task<(int healed, int dupesDropped, int mergedDuplicates)> HealWrongPlatformsAsync(System.Threading.CancellationToken ct = default)
         {
             var all = await _gameRepository.GetAllLightAsync();
             int healed = 0;
@@ -2773,7 +2771,23 @@ namespace RetroArr.Core.Games
 
             if (healed > 0 || dupesDropped > 0)
                 Log($"[Heal] Platform heal pass: healed {healed}, duplicates dropped {dupesDropped}");
-            return (healed, dupesDropped);
+            // Same-platform duplicates (cue/bin pairs etc.) skip the loop
+            // above. Catch them via path-stem / title / igdb clustering.
+            int mergedDuplicates = 0;
+            if (_mergeService != null)
+            {
+                try
+                {
+                    var mergeResult = await _mergeService.MergeAsync(ct);
+                    mergedDuplicates = mergeResult.RowsMerged;
+                    if (mergeResult.RowsMerged > 0)
+                        Log($"[Heal] Merged {mergeResult.RowsMerged} duplicate game row(s) across {mergeResult.ClustersFound} cluster(s).");
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (System.Exception ex) { Log($"[Heal] Duplicate merge skipped: {ex.Message}", LogLevel.Warning); }
+            }
+
+            return (healed, dupesDropped, mergedDuplicates);
         }
 
         private async Task GlobalOrphanSweepAsync(Configuration.MediaSettings settings, System.Threading.CancellationToken ct)
@@ -2781,7 +2795,7 @@ namespace RetroArr.Core.Games
             try
             {
                 // Platform heal runs first so the Missing pass sees corrected rows.
-                var (healed, dupesDropped) = await HealWrongPlatformsAsync(ct);
+                var (healed, dupesDropped, _) = await HealWrongPlatformsAsync(ct);
 
                 var all = await _gameRepository.GetAllLightAsync();
                 var now = DateTime.UtcNow;

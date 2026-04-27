@@ -239,12 +239,8 @@ namespace RetroArr.Api.V3.Emulator
                 return NotFound(new { error = "ROM file not found" });
             }
 
-            // Anchor the served path inside the configured library root. Stops a
-            // tampered Games.Path row from streaming out arbitrary files the
-            // daemon process can read. If the library root isn't configured yet
-            // (fresh install, or game added via direct import before settings
-            // were saved), fall back to existence-only — the row was reachable
-            // before this guard existed and we don't want to break those setups.
+            // Keep the served path inside the library root. Skip when the root
+            // isn't configured yet so fresh installs still work.
             var mediaSettings = _configService.LoadMediaSettings();
             if (!string.IsNullOrWhiteSpace(mediaSettings.FolderPath)
                 && !IsInsideLibrary(romPath, mediaSettings.FolderPath))
@@ -870,9 +866,7 @@ a {{ color:#89b4fa; }}
                     currentVersion = System.IO.File.ReadAllText(versionFile).Trim();
                 }
 
-                // GitHub tags ship as "v4.2.3" but the local version.txt is written
-                // as "4.2.3" by the CDN installer — strip the leading 'v' on both
-                // sides before comparing so identical releases stop being flagged.
+                // GitHub tags carry a 'v' prefix, the local version.txt doesn't.
                 var updateAvailable = !string.Equals(
                     NormalizeVersion(currentVersion),
                     NormalizeVersion(latestVersion),

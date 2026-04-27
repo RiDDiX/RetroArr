@@ -4,24 +4,21 @@ import './EmulatorPlayer.css';
 interface EmulatorPlayerProps {
     romUrl: string;
     gameTitle: string;
-    // Canonical Platform.Slug from PlatformDefinitions.cs. Drives core lookup
-    // via getEmulatorCore — must be the slug, never the display name.
+    // Platform.Slug. Drives core lookup. Must be the slug, not the display name.
     platform: string;
-    // Display name for the header badge. Falls back to the slug when omitted.
+    // Display name for the header badge. Falls back to the slug.
     platformName?: string;
     gameId: number;
     onClose: () => void;
 }
 
-// Fallback map for synchronous UI hints (e.g. showing "Play in Browser" button)
-// before the dynamic map from /api/v3/emulator/cores/mapping arrives.
-// Keys are the canonical backend slugs from PlatformDefinitions.cs — nothing else ever reaches here.
+// Fallback for UI hints before /cores/mapping resolves. Keys are slugs.
 const PLATFORM_TO_CORE: Record<string, string> = {
     // Nintendo
     nes: 'nes',
-    fds: 'nes',         // Famicom Disk System runs on the NES core
+    fds: 'nes',         // FDS runs on the NES core
     snes: 'snes',
-    sfc: 'snes',        // Super Famicom is the JP SNES — same core
+    sfc: 'snes',        // Super Famicom = JP SNES, same core
     n64: 'n64',
     gb: 'gb',
     gbc: 'gbc',
@@ -89,8 +86,7 @@ const EmulatorPlayer = ({ romUrl, gameTitle, platform, platformName, gameId, onC
             return;
         }
 
-        // Point iframe at the backend player endpoint which sets COOP/COEP
-        // headers for SharedArrayBuffer (needed by threaded cores like PSP).
+        // Backend player endpoint sets COOP/COEP for SharedArrayBuffer.
         if (iframeRef.current) {
             const params = new URLSearchParams({
                 rom: romUrl,

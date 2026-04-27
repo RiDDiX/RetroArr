@@ -32,9 +32,7 @@ namespace RetroArr.Core.Configuration
 
         public string GetConnectionString(string configPath)
         {
-            // Microsoft.Data.Sqlite respects "Foreign Keys=True" and runs
-            // PRAGMA foreign_keys=ON on every opened connection. Without
-            // this, the FK declared on Games.PlatformId is never enforced.
+            // Foreign Keys=True triggers PRAGMA foreign_keys=ON on each connection.
             return Type switch
             {
                 DatabaseType.SQLite => $"Data Source={System.IO.Path.Combine(configPath, SqlitePath)};Foreign Keys=True",
@@ -55,10 +53,7 @@ namespace RetroArr.Core.Configuration
                 Password = Password,
                 SslMode = UseSsl ? Npgsql.SslMode.Require : Npgsql.SslMode.Prefer,
                 Timeout = ConnectionTimeout,
-                // Surfaces in pg_stat_activity / pgAdmin so DBAs can tell which
-                // process holds a connection. Pool size + search path stay on
-                // Npgsql defaults — RetroArr's load (one backend, a few browser
-                // tabs) doesn't need explicit tuning.
+                // Shows up in pg_stat_activity / pgAdmin.
                 ApplicationName = "RetroArr"
             };
             return builder.ConnectionString;

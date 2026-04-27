@@ -47,10 +47,8 @@ namespace RetroArr.Core.Games
             return false;
         }
 
-        // Inverse navigation for the Game.Platform foreign key. EF Core wires the
-        // relationship through this collection at model-build time
-        // (RetroArrDbContext.OnModelCreating); do not remove. Application code
-        // does not enumerate this list — load games via IGameRepository instead.
+        // EF inverse navigation for Game.Platform. Don't remove, don't enumerate.
+        // Use IGameRepository for game lookups.
         [SuppressMessage("Microsoft.Usage", "CA2227:CollectionPropertiesShouldBeReadOnly")]
         [SuppressMessage("Microsoft.Design", "CA1002:DoNotExposeGenericLists")]
         public List<Game> Games { get; set; } = new();

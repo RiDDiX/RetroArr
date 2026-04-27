@@ -310,9 +310,8 @@ const Library: React.FC = () => {
     setIsSearching(true);
     setShowSearchResults(true);
 
-    // Local matches: hit the paged endpoint with a search term so the query
-    // runs server-side against the full Games table — the previous in-memory
-    // filter only saw the current page (50 rows) and missed everything else.
+    // Server-side search across the full Games table. The old in-memory
+    // filter only saw the current page.
     try {
       const localResp = await apiClient.get('/game/paged', {
         params: { page: 1, pageSize: 200, search: searchQuery, sortOrder: 'asc' }
@@ -324,8 +323,7 @@ const Library: React.FC = () => {
       setLocalResults([]);
     }
 
-    // Metadata-provider matches stay separately so the user can still pull
-    // missing entries / use them as a starting point for indexer downloads.
+    // Provider matches stay separately for "add new" / indexer search.
     try {
       const response = await apiClient.get('/game/lookup', { params: { term: searchQuery, lang: language } });
       setSearchResults(response.data);
@@ -879,9 +877,7 @@ const Library: React.FC = () => {
                 </div>
               )}
 
-              {/* Metadata-provider results (IGDB / ScreenScraper). Useful as a
-                  starting point for adding new games or kicking off an
-                  indexer/torrent search. */}
+              {/* Provider results: useful for "add new" or indexer search. */}
               {searchResults.length > 0 && (
                 <h4 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '16px', marginBottom: '12px', color: 'var(--ctp-blue)' }}>
                   <FontAwesomeIcon icon={faGlobe} />
@@ -899,9 +895,7 @@ const Library: React.FC = () => {
                 </div>
               ) : (
                 searchResults.map((result, index) => {
-                  // Check against the server-side local matches (full library),
-                  // not the current page only — otherwise an existing game on
-                  // page 2+ wouldn't get the "In Library" badge here.
+                  // Check against the full library, not just the current page.
                   const titleLower = result.title?.toLowerCase();
                   const existingGame = localResults.find(g =>
                     g.title?.toLowerCase() === titleLower ||

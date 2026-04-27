@@ -5,9 +5,7 @@ using System.Linq;
 
 namespace RetroArr.Core.Games
 {
-    // Lightweight DTO so the detector doesn't pull in the full Game entity (which
-    // would drag EF navigation properties through every test). Health-check and
-    // repair build these from a projection on the Games table.
+    // Projection of the Games row. Keeps EF navigations off the test path.
     public class DuplicateProbe
     {
         public int Id { get; set; }
@@ -20,18 +18,13 @@ namespace RetroArr.Core.Games
 
     public enum DuplicateReason
     {
-        // Two rows whose Path sits in the same directory and shares the exact
-        // file-name stem. The classic "Foo.cue" vs "Foo.bin" mis-split.
+        // Same dir + stem (e.g. Foo.cue and Foo.bin).
         PathStem,
-        // Same normalised title on the same platform. Catches scanner re-runs
-        // that ingested a renamed/cleaned title.
+        // Same title on the same platform.
         TitleAndPlatform,
-        // Two rows pointing at the same IGDB entry — usually the result of a
-        // multi-disc game being matched twice (once per disc) before m3u
-        // grouping kicked in.
+        // Same IGDB id (typically multi-disc matched twice).
         IgdbId,
-        // Same official disc/cart serial on the same platform (PSX SLES/SCES,
-        // Switch title id, etc.). Strongest signal we have for "same game".
+        // Same disc/cart serial on the same platform.
         SerialAndPlatform
     }
 
@@ -60,7 +53,7 @@ namespace RetroArr.Core.Games
             var clusters = new List<DuplicateCluster>();
             var list = games.ToList();
 
-            // 1) Path-stem inside the same directory + platform.
+            // 1) Same dir + stem + platform.
             var stemGroups = list
                 .Where(g => !string.IsNullOrWhiteSpace(g.Path))
                 .Select(g => new
@@ -84,7 +77,7 @@ namespace RetroArr.Core.Games
                 });
             }
 
-            // 2) Title + platform (case-insensitive, trimmed).
+            // 2) Same title + platform.
             var titleGroups = list
                 .Where(g => !string.IsNullOrWhiteSpace(g.Title))
                 .GroupBy(g => (Title: g.Title.Trim().ToLowerInvariant(), g.PlatformId))
@@ -101,8 +94,7 @@ namespace RetroArr.Core.Games
                 });
             }
 
-            // 3) IGDB id (cross-platform on purpose — the same entry shouldn't
-            // exist twice). Exclude null/0 since those mean "no metadata yet".
+            // 3) Same IGDB id (cross-platform). Skip null/0.
             var igdbGroups = list
                 .Where(g => g.IgdbId.HasValue && g.IgdbId.Value > 0)
                 .GroupBy(g => g.IgdbId!.Value)
@@ -148,12 +140,7 @@ namespace RetroArr.Core.Games
             return ids;
         }
 
-        // Pick which row should "win" inside a cluster. Order:
-        //   1) Has IGDB id     — already matched, don't lose the metadata.
-        //   2) Path is a multi-disc primary (.m3u, .cue, .gdi) — semantically
-        //      the canonical pointer for the disc.
-        //   3) Path actually exists on disk.
-        //   4) Lowest GameId — oldest row, least likely to be the stale one.
+        // Winner order: IGDB-matched > .m3u/.cue/.gdi primary > path on disk > lowest id.
         public static DuplicateMember PickWinner(DuplicateCluster cluster)
         {
             return cluster.Games

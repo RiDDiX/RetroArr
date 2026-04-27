@@ -19,15 +19,18 @@ namespace RetroArr.Api.V3.Settings
         private readonly ConfigurationService _configService;
         private readonly IDbContextFactory<RetroArrDbContext> _contextFactory;
         private readonly DatabaseMigrationService _migrationService;
+        private readonly DuplicateGameMergeService _mergeService;
 
         public DatabaseController(
             ConfigurationService configService,
             IDbContextFactory<RetroArrDbContext> contextFactory,
-            DatabaseMigrationService migrationService)
+            DatabaseMigrationService migrationService,
+            DuplicateGameMergeService mergeService)
         {
             _configService = configService;
             _contextFactory = contextFactory;
             _migrationService = migrationService;
+            _mergeService = mergeService;
         }
 
         [HttpGet]
@@ -55,10 +58,7 @@ namespace RetroArr.Api.V3.Settings
             try
             {
                 var settings = ParseSettings(request);
-                // The frontend never receives the stored password (write-only field
-                // in DatabaseSettingsResponse), so an empty/null incoming Password
-                // means "keep what's on disk", not "wipe it". Wiping it would
-                // silently break the connection on next start.
+                // Password is write-only on the API. Empty == keep what's stored.
                 if (string.IsNullOrEmpty(request.Password))
                 {
                     var existing = _configService.LoadDatabaseSettings();
@@ -82,9 +82,7 @@ namespace RetroArr.Api.V3.Settings
             try
             {
                 var settings = ParseSettings(request);
-                // Same write-only contract as PUT: an empty incoming password means
-                // "use the stored one", so the user can re-test without re-typing
-                // their Postgres password every time.
+                // Same write-only contract as PUT: empty == use the stored one.
                 if (string.IsNullOrEmpty(request.Password))
                 {
                     var existing = _configService.LoadDatabaseSettings();
@@ -213,9 +211,7 @@ namespace RetroArr.Api.V3.Settings
                 var fileGameIds = await context.GameFiles.Select(f => f.GameId).Distinct().ToListAsync();
                 report.DanglingGameFiles = fileGameIds.Count(id => !gameIds.Contains(id));
 
-                // Duplicate detection — covers cue/bin pairs that ended up as two
-                // rows (different titles, same disc), title-collisions on the
-                // same platform, double-matched IGDB ids, and serial collisions.
+                // Duplicate detection (cue/bin pairs, title collisions, repeat IGDB ids).
                 var probes = games.Select(g => new DuplicateProbe
                 {
                     Id = g.Id,
@@ -299,130 +295,22 @@ namespace RetroArr.Api.V3.Settings
                 context.GameFiles.RemoveRange(dangling);
                 result.DanglingGameFilesRemoved = dangling.Count;
 
-                // 5. Optional: merge duplicate game rows (cue/bin pairs that
-                //    ended up as two entries, title collisions, etc.). Each
-                //    cluster keeps a winner; losers' GameFiles, GameTags,
-                //    CollectionGames and GameReviews are reattached to the
-                //    winner before the loser row is deleted.
+                await context.SaveChangesAsync();
+
+                // 5. Optional: merge duplicate game rows. Delegated to the
+                // shared service so the heal-after-scan path (MediaScanner)
+                // and the manual repair button stay in sync.
                 if (request.MergeDuplicates)
                 {
-                    var freshGames = await context.Games
-                        .Select(g => new { g.Id, g.Title, g.PlatformId, g.Path, g.IgdbId })
-                        .ToListAsync();
-
-                    var probes = freshGames.Select(g => new DuplicateProbe
-                    {
-                        Id = g.Id,
-                        Title = g.Title,
-                        PlatformId = g.PlatformId,
-                        Path = g.Path,
-                        IgdbId = g.IgdbId
-                    });
-
-                    var clusters = DuplicateGameDetector.Detect(probes);
-                    var alreadyMerged = new HashSet<int>();
-
-                    foreach (var cluster in clusters)
-                    {
-                        // A row may appear in multiple clusters (e.g. stem +
-                        // serial both flagged the same pair). Skip clusters
-                        // whose members were all already collapsed by an
-                        // earlier pass.
-                        if (cluster.Games.All(m => alreadyMerged.Contains(m.GameId))) continue;
-
-                        var winner = DuplicateGameDetector.PickWinner(cluster);
-                        var losers = cluster.Games
-                            .Where(m => m.GameId != winner.GameId && !alreadyMerged.Contains(m.GameId))
-                            .Select(m => m.GameId)
-                            .ToList();
-                        if (losers.Count == 0) continue;
-
-                        await ReattachReferencesAsync(context, losers, winner.GameId);
-
-                        var loserRows = await context.Games.Where(g => losers.Contains(g.Id)).ToListAsync();
-                        context.Games.RemoveRange(loserRows);
-                        result.DuplicatesMerged += loserRows.Count;
-
-                        foreach (var id in losers) alreadyMerged.Add(id);
-                        alreadyMerged.Add(winner.GameId);
-                    }
+                    var mergeResult = await DuplicateGameMergeService.MergeAsync(context);
+                    result.DuplicatesMerged = mergeResult.RowsMerged;
                 }
 
-                await context.SaveChangesAsync();
                 return Ok(result);
             }
             catch (Exception ex)
             {
                 return BadRequest(new { error = ex.Message });
-            }
-        }
-
-        // Move every FK row that points at a loser GameId over to the winner.
-        // Respects the unique indexes on (GameId, TagId) and GameId-on-Review,
-        // so we never violate constraints during merge.
-        private static async Task ReattachReferencesAsync(RetroArrDbContext context, IReadOnlyCollection<int> loserIds, int winnerId)
-        {
-            // GameFiles: no unique constraint, just bulk reassign.
-            var loserFiles = await context.GameFiles.Where(f => loserIds.Contains(f.GameId)).ToListAsync();
-            foreach (var f in loserFiles) f.GameId = winnerId;
-
-            // CollectionGames: keep one row per (GameId, CollectionId) pair.
-            var winnerCollectionIds = await context.CollectionGames
-                .Where(cg => cg.GameId == winnerId)
-                .Select(cg => cg.CollectionId)
-                .ToListAsync();
-            var winnerCollectionSet = winnerCollectionIds.ToHashSet();
-            var loserCollectionRows = await context.CollectionGames
-                .Where(cg => loserIds.Contains(cg.GameId))
-                .ToListAsync();
-            foreach (var cg in loserCollectionRows)
-            {
-                if (winnerCollectionSet.Contains(cg.CollectionId))
-                    context.CollectionGames.Remove(cg);
-                else
-                {
-                    cg.GameId = winnerId;
-                    winnerCollectionSet.Add(cg.CollectionId);
-                }
-            }
-
-            // GameTags: unique (GameId, TagId). Drop loser rows whose TagId
-            // already lives on the winner; reattach the rest.
-            var winnerTagIds = await context.GameTags
-                .Where(gt => gt.GameId == winnerId)
-                .Select(gt => gt.TagId)
-                .ToListAsync();
-            var winnerTagSet = winnerTagIds.ToHashSet();
-            var loserTagRows = await context.GameTags
-                .Where(gt => loserIds.Contains(gt.GameId))
-                .ToListAsync();
-            foreach (var gt in loserTagRows)
-            {
-                if (winnerTagSet.Contains(gt.TagId))
-                    context.GameTags.Remove(gt);
-                else
-                {
-                    gt.GameId = winnerId;
-                    winnerTagSet.Add(gt.TagId);
-                }
-            }
-
-            // GameReviews: unique on GameId. If the winner already has one,
-            // discard the losers'; otherwise promote the first loser review.
-            var winnerHasReview = await context.GameReviews.AnyAsync(r => r.GameId == winnerId);
-            var loserReviews = await context.GameReviews.Where(r => loserIds.Contains(r.GameId)).ToListAsync();
-            if (winnerHasReview)
-            {
-                context.GameReviews.RemoveRange(loserReviews);
-            }
-            else
-            {
-                bool promoted = false;
-                foreach (var r in loserReviews)
-                {
-                    if (!promoted) { r.GameId = winnerId; promoted = true; }
-                    else context.GameReviews.Remove(r);
-                }
             }
         }
 
@@ -603,8 +491,7 @@ namespace RetroArr.Api.V3.Settings
         public int Port { get; set; } = 5432;
         public string Database { get; set; } = "retroarr";
         public string Username { get; set; } = string.Empty;
-        // Indicator only — the password itself never leaves the server. Frontend
-        // uses this to render a "stored, leave empty to keep" hint on the input.
+        // Read-only flag. The password itself never leaves the server.
         public bool HasPassword { get; set; }
         public bool UseSsl { get; set; }
         public int ConnectionTimeout { get; set; } = 30;
