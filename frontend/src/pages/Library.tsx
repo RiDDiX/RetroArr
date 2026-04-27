@@ -309,20 +309,28 @@ const Library: React.FC = () => {
 
     setIsSearching(true);
     setShowSearchResults(true);
-    
-    // First, filter local games
-    const query = searchQuery.toLowerCase();
-    const localMatches = pagedGames
-      .filter((g: GameListDto) => g.title?.toLowerCase().includes(query))
-      .map(dtoToCardGame);
-    setLocalResults(localMatches);
-    
-    // Then search online
+
+    // Local matches: hit the paged endpoint with a search term so the query
+    // runs server-side against the full Games table — the previous in-memory
+    // filter only saw the current page (50 rows) and missed everything else.
+    try {
+      const localResp = await apiClient.get('/game/paged', {
+        params: { page: 1, pageSize: 200, search: searchQuery, sortOrder: 'asc' }
+      });
+      const items: GameListDto[] = localResp.data?.items ?? [];
+      setLocalResults(items.map(dtoToCardGame));
+    } catch (error) {
+      console.error('Error searching local library:', error);
+      setLocalResults([]);
+    }
+
+    // Metadata-provider matches stay separately so the user can still pull
+    // missing entries / use them as a starting point for indexer downloads.
     try {
       const response = await apiClient.get('/game/lookup', { params: { term: searchQuery, lang: language } });
       setSearchResults(response.data);
     } catch (error) {
-      console.error('Error searching games:', error);
+      console.error('Error searching metadata providers:', error);
       setSearchResults([]);
     } finally {
       setIsSearching(false);
@@ -871,11 +879,13 @@ const Library: React.FC = () => {
                 </div>
               )}
 
-              {/* Online Search Results */}
+              {/* Metadata-provider results (IGDB / ScreenScraper). Useful as a
+                  starting point for adding new games or kicking off an
+                  indexer/torrent search. */}
               {searchResults.length > 0 && (
                 <h4 style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '16px', marginBottom: '12px', color: 'var(--ctp-blue)' }}>
                   <FontAwesomeIcon icon={faGlobe} />
-                  {t('addFromOnline') || 'Add from Online'} ({searchResults.length})
+                  {t('addFromOnline') || 'From IGDB / ScreenScraper'} ({searchResults.length})
                 </h4>
               )}
 
@@ -889,12 +899,14 @@ const Library: React.FC = () => {
                 </div>
               ) : (
                 searchResults.map((result, index) => {
-                  // Check if this online result matches an existing game in library
-                  const existingDto = pagedGames.find((g: GameListDto) => 
-                    g.title?.toLowerCase() === result.title?.toLowerCase() ||
-                    (g.igdbId && g.igdbId === result.id)
-                  );
-                  const existingGame = existingDto ? dtoToCardGame(existingDto) : null;
+                  // Check against the server-side local matches (full library),
+                  // not the current page only — otherwise an existing game on
+                  // page 2+ wouldn't get the "In Library" badge here.
+                  const titleLower = result.title?.toLowerCase();
+                  const existingGame = localResults.find(g =>
+                    g.title?.toLowerCase() === titleLower ||
+                    (g.igdbId && result.id && g.igdbId === result.id)
+                  ) ?? null;
                   const isExisting = !!existingGame;
 
                   return (

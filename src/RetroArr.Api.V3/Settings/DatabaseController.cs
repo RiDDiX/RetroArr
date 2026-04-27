@@ -42,6 +42,7 @@ namespace RetroArr.Api.V3.Settings
                 Port = settings.Port,
                 Database = settings.Database,
                 Username = settings.Username,
+                HasPassword = !string.IsNullOrEmpty(settings.Password),
                 UseSsl = settings.UseSsl,
                 ConnectionTimeout = settings.ConnectionTimeout,
                 IsConfigured = settings.IsConfigured
@@ -54,8 +55,17 @@ namespace RetroArr.Api.V3.Settings
             try
             {
                 var settings = ParseSettings(request);
+                // The frontend never receives the stored password (write-only field
+                // in DatabaseSettingsResponse), so an empty/null incoming Password
+                // means "keep what's on disk", not "wipe it". Wiping it would
+                // silently break the connection on next start.
+                if (string.IsNullOrEmpty(request.Password))
+                {
+                    var existing = _configService.LoadDatabaseSettings();
+                    settings.Password = existing.Password;
+                }
                 _configService.SaveDatabaseSettings(settings);
-                return Ok(new { 
+                return Ok(new {
                     message = "Database settings saved. Restart required for changes to take effect.",
                     restartRequired = true
                 });
@@ -72,6 +82,20 @@ namespace RetroArr.Api.V3.Settings
             try
             {
                 var settings = ParseSettings(request);
+                // Same write-only contract as PUT: an empty incoming password means
+                // "use the stored one", so the user can re-test without re-typing
+                // their Postgres password every time.
+                if (string.IsNullOrEmpty(request.Password))
+                {
+                    var existing = _configService.LoadDatabaseSettings();
+                    if (existing.Host == settings.Host
+                        && existing.Port == settings.Port
+                        && existing.Database == settings.Database
+                        && existing.Username == settings.Username)
+                    {
+                        settings.Password = existing.Password;
+                    }
+                }
                 var configPath = _configService.GetConfigDirectory();
                 var success = DatabaseServiceExtensions.TestConnection(settings, configPath, out var errorMessage);
                 return Ok(new { success, message = success ? "Connection successful!" : errorMessage });
@@ -579,6 +603,9 @@ namespace RetroArr.Api.V3.Settings
         public int Port { get; set; } = 5432;
         public string Database { get; set; } = "retroarr";
         public string Username { get; set; } = string.Empty;
+        // Indicator only — the password itself never leaves the server. Frontend
+        // uses this to render a "stored, leave empty to keep" hint on the input.
+        public bool HasPassword { get; set; }
         public bool UseSsl { get; set; }
         public int ConnectionTimeout { get; set; } = 30;
         public bool IsConfigured { get; set; }

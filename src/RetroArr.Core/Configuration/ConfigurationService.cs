@@ -465,7 +465,9 @@ namespace RetroArr.Core.Configuration
                 try
                 {
                     var json = File.ReadAllText(_databaseConfigFile);
-                    return JsonSerializer.Deserialize<DatabaseSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new DatabaseSettings();
+                    var loaded = JsonSerializer.Deserialize<DatabaseSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new DatabaseSettings();
+                    loaded.Password = Unprotect(loaded.Password);
+                    return loaded;
                 }
                 catch (Exception ex)
                 {
@@ -477,9 +479,9 @@ namespace RetroArr.Core.Configuration
 
         public void SaveDatabaseSettings(DatabaseSettings settings)
         {
-            try 
-            { 
-                File.WriteAllText(_databaseConfigFile, JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true })); 
+            try
+            {
+                WriteEncryptedJson(_databaseConfigFile, settings, s => s.Password = Protect(s.Password));
                 _logger.Info($"[Configuration] Database settings saved. Type: {settings.Type}");
             }
             catch (Exception ex) { _logger.Error($"Error saving database settings: {ex.Message}"); }

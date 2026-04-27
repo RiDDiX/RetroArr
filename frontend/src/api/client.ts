@@ -429,6 +429,7 @@ export interface DatabaseConfig {
   database?: string;
   username?: string;
   password?: string;
+  hasPassword?: boolean;
   useSsl?: boolean;
   connectionTimeout?: number;
   isConfigured?: boolean;

@@ -54,7 +54,12 @@ namespace RetroArr.Core.Configuration
                 Username = Username,
                 Password = Password,
                 SslMode = UseSsl ? Npgsql.SslMode.Require : Npgsql.SslMode.Prefer,
-                Timeout = ConnectionTimeout
+                Timeout = ConnectionTimeout,
+                // Surfaces in pg_stat_activity / pgAdmin so DBAs can tell which
+                // process holds a connection. Pool size + search path stay on
+                // Npgsql defaults — RetroArr's load (one backend, a few browser
+                // tabs) doesn't need explicit tuning.
+                ApplicationName = "RetroArr"
             };
             return builder.ConnectionString;
         }

@@ -536,8 +536,13 @@ const DatabaseSettings: React.FC<DatabaseSettingsProps> = () => {
                                     type="password"
                                     value={config.password || ''}
                                     onChange={(e) => setConfig({ ...config, password: e.target.value })}
-                                    placeholder="••••••••"
+                                    placeholder={config.hasPassword ? 'stored — leave empty to keep' : 'enter password'}
                                 />
+                                {config.hasPassword && (
+                                    <small style={{ color: 'var(--ctp-overlay0)', display: 'block', marginTop: '0.25rem' }}>
+                                        Password is stored encrypted. Leave the field blank to keep the existing one.
+                                    </small>
+                                )}
                             </div>
                         </div>
 
