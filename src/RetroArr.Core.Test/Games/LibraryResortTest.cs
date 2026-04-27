@@ -264,7 +264,7 @@ namespace RetroArr.Core.Test.Games
 
             // Expected path keeps the full original filename with region and extension
             Assert.That(expected, Is.EqualTo(Path.Combine("/media", "3ds", "2 Fast 4 Gnomz (Europe).3ds")));
-            // This means no issue is detected — path already matches
+            // No issue detected — path already matches
             Assert.That(expected, Is.EqualTo(game.Path));
         }
 

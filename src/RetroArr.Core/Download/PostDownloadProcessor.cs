@@ -194,7 +194,7 @@ namespace RetroArr.Core.Download
                 return await ImportToGameFolder(download, mediaSettings, libraryRoot);
             }
 
-            var platformFolder = download.PlatformFolder;
+            var platformFolder = ResolvePlatformFolderName(download.PlatformFolder, mediaSettings.FolderNamingMode);
 
             var validExtensions = new[] {
                 // Nintendo
@@ -711,6 +711,17 @@ namespace RetroArr.Core.Download
         {
              var invalidChars = Path.GetInvalidFileNameChars();
              return string.Join("_", name.Split(invalidChars, StringSplitOptions.RemoveEmptyEntries)).Trim();
+        }
+
+        // Map a download's platform hint (free-form string from indexer/queue) to
+        // the canonical folder name for the active naming mode (native/retrobat/
+        // batocera). Mirrors what ImportToGameFolder does for the GameId path so
+        // both code paths land in the same on-disk folder for a given platform.
+        private static string? ResolvePlatformFolderName(string? hint, string? folderMode)
+        {
+            if (string.IsNullOrWhiteSpace(hint)) return hint;
+            var match = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.MatchesFolderName(hint));
+            return match?.GetEffectiveFolderName(folderMode) ?? hint;
         }
 
         // ── CONTENT TYPE DETECTION ───────────────────────────────────────

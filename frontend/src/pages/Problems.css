@@ -86,6 +86,49 @@
   background-color: var(--ctp-maroon);
 }
 
+.problems-search {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 1rem;
+  margin-bottom: 0.75rem;
+  background-color: var(--ctp-mantle);
+  border-radius: 12px;
+  flex-wrap: wrap;
+}
+
+.problems-search input[type="search"] {
+  flex: 1 1 280px;
+  min-width: 0;
+  background: var(--ctp-base);
+  border: 1px solid var(--ctp-surface1);
+  color: var(--ctp-text);
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.problems-search input[type="search"]:focus {
+  outline: none;
+  border-color: var(--ctp-blue);
+}
+
+.problems-review-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.8rem;
+  background-color: var(--ctp-surface0);
+  color: var(--ctp-text);
+  border-radius: 8px;
+  text-decoration: none;
+  font-size: 0.85rem;
+}
+
+.problems-review-link:hover {
+  background-color: var(--ctp-surface1);
+}
+
 .problems-filters {
   display: flex;
   align-items: center;
@@ -283,12 +326,20 @@
 
 .problem-path {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.4rem;
-  max-width: 400px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  flex: 1 1 100%;
+  min-width: 0;
+  word-break: break-all;
+  font-family: var(--ctp-mono, monospace);
+  font-size: 0.85rem;
+  color: var(--ctp-subtext1);
+  user-select: text;
+}
+
+.problem-path svg {
+  flex-shrink: 0;
+  margin-top: 0.2rem;
 }
 
 .problem-extension {
@@ -361,9 +412,5 @@
   .problem-actions {
     width: 100%;
     justify-content: flex-end;
-  }
-
-  .problem-path {
-    max-width: 100%;
   }
 }

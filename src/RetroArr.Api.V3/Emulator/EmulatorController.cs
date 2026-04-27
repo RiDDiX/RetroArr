@@ -150,7 +150,7 @@ namespace RetroArr.Api.V3.Emulator
             }
 
             var stream = new FileStream(candidate, FileMode.Open, FileAccess.Read, FileShare.Read);
-            return File(stream, "application/octet-stream", filename);
+            return File(stream, "application/octet-stream", filename, enableRangeProcessing: true);
         }
 
         [HttpGet("{gameId}/playable")]
@@ -223,7 +223,6 @@ namespace RetroArr.Api.V3.Emulator
             }
             else if (Directory.Exists(game.Path))
             {
-                // Search for ROM files in the directory
                 var files = Directory.GetFiles(game.Path, "*.*", SearchOption.TopDirectoryOnly)
                     .Where(f => SupportedExtensions.Contains(Path.GetExtension(f).ToLower()))
                     .OrderByDescending(f => new FileInfo(f).Length)
@@ -240,13 +239,37 @@ namespace RetroArr.Api.V3.Emulator
                 return NotFound(new { error = "ROM file not found" });
             }
 
-            // Get MIME type based on extension
+            // Anchor the served path inside the configured library root. Stops a
+            // tampered Games.Path row from streaming out arbitrary files the
+            // daemon process can read.
+            var mediaSettings = _configService.LoadMediaSettings();
+            if (!IsInsideLibrary(romPath, mediaSettings.FolderPath))
+            {
+                _logger.Warn($"Rejected /rom request for game {gameId}: path '{romPath}' is outside library root '{mediaSettings.FolderPath}'.");
+                return NotFound(new { error = "ROM file not found" });
+            }
+
             var extension = Path.GetExtension(romPath).ToLower();
             var mimeType = GetMimeType(extension);
 
-            // Return the file
             var fileStream = new FileStream(romPath, FileMode.Open, FileAccess.Read);
-            return File(fileStream, mimeType, Path.GetFileName(romPath));
+            return File(fileStream, mimeType, Path.GetFileName(romPath), enableRangeProcessing: true);
+        }
+
+        private static bool IsInsideLibrary(string filePath, string? libraryRoot)
+        {
+            if (string.IsNullOrWhiteSpace(libraryRoot)) return false;
+            try
+            {
+                var fullFile = Path.GetFullPath(filePath);
+                var fullRoot = Path.GetFullPath(libraryRoot).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                return fullFile.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase)
+                    || fullFile.Equals(fullRoot.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         [HttpGet("{gameId}/config")]

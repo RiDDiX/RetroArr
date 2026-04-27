@@ -87,7 +87,6 @@ namespace RetroArr.Core.Games
             ["ps5"] = new() { Extensions = new[] { ".pkg" } },
             ["ps3"] = new() { Extensions = new[] { ".iso", ".pkg", ".bin", ".psn", ".squashfs", ".m3u", ".ps3", ".lnk", ".7z", ".zip", ".rar" }, IsFolderMode = true },
             ["ps2"] = new() { Extensions = new[] { ".iso", ".bin", ".cue", ".chd", ".cso", ".gz", ".mdf", ".nrg", ".img", ".dump" } },
-            ["ps1"] = new() { Extensions = new[] { ".bin", ".cue", ".chd", ".pbp", ".iso", ".img", ".mdf", ".toc", ".cbn", ".m3u", ".ccd" } },
             ["psx"] = new() { Extensions = new[] { ".bin", ".cue", ".chd", ".pbp", ".iso", ".img", ".mdf", ".toc", ".cbn", ".m3u", ".ccd", ".zip", ".7z", ".cso" } },
             ["psp"] = new() { Extensions = new[] { ".iso", ".cso", ".pbp", ".chd", ".elf", ".prx", ".zip", ".7z", ".squashfs" } },
             ["vita"] = new() { Extensions = new[] { ".vpk", ".mai", ".psvita", ".m3u", ".zip" }, IsFolderMode = true },
@@ -396,6 +395,26 @@ namespace RetroArr.Core.Games
             public bool IsFolderMode { get; set; }
         }
 
+        // Walk every name a platform exposes (folder, slug, retrobat/batocera variants,
+        // declared aliases) and return the first matching rule. Falls back to the
+        // caller-supplied default when nothing matches — typically the "default" rule.
+        private PlatformRule ResolveRuleForPlatform(Platform platform, PlatformRule fallback)
+        {
+            if (_platformRules.TryGetValue(platform.GetEffectiveFolderName(), out var pr)) return pr;
+            if (!string.IsNullOrEmpty(platform.Slug) && _platformRules.TryGetValue(platform.Slug, out pr)) return pr;
+            if (!string.IsNullOrEmpty(platform.FolderName) && _platformRules.TryGetValue(platform.FolderName, out pr)) return pr;
+            if (!string.IsNullOrEmpty(platform.RetroBatFolderName) && _platformRules.TryGetValue(platform.RetroBatFolderName, out pr)) return pr;
+            if (!string.IsNullOrEmpty(platform.BatoceraFolderName) && _platformRules.TryGetValue(platform.BatoceraFolderName, out pr)) return pr;
+            if (platform.FolderAliases != null)
+            {
+                foreach (var alias in platform.FolderAliases)
+                {
+                    if (!string.IsNullOrEmpty(alias) && _platformRules.TryGetValue(alias, out pr)) return pr;
+                }
+            }
+            return fallback;
+        }
+
         [SuppressMessage("Microsoft.Performance", "CA1852:SealInternalTypes")]
         private class GameCandidate
         {
@@ -535,9 +554,7 @@ namespace RetroArr.Core.Games
 
                         try
                         {
-                            var platformRule = _platformRules.TryGetValue(platform.GetEffectiveFolderName(), out var pr) ? pr
-                                         : _platformRules.TryGetValue(platform.Slug, out pr) ? pr
-                                         : (!string.IsNullOrEmpty(platform.RetroBatFolderName) && _platformRules.TryGetValue(platform.RetroBatFolderName, out pr)) ? pr : rule;
+                            var platformRule = ResolveRuleForPlatform(platform, rule);
                             Log($"[AutoPlatform] Scanning '{platformFolder}' as {platform.Name}...");
                             UpdateScanProgress(directory: platformFolder);
                             _debugLog?.UpdateScanProgress(currentPlatform: platform.Name);
@@ -875,8 +892,8 @@ namespace RetroArr.Core.Games
 
             try
             {
-                results.AddRange(root.GetFiles());
-                foreach (var dir in root.GetDirectories())
+                results.AddRange(root.GetFiles().OrderBy(f => f.FullName, StringComparer.Ordinal));
+                foreach (var dir in root.GetDirectories().OrderBy(d => d.FullName, StringComparer.Ordinal))
                 {
                     results.AddRange(GetFilesSafe(dir, currentDepth + 1, maxDepth));
                 }
@@ -1122,7 +1139,9 @@ namespace RetroArr.Core.Games
             {
                 // If it's a container, we still look for files (e.g., ROMs in 'Juegos')
                 // but we give them a chance to be clustered differently.
-                var files = root.EnumerateFiles();
+                // Sort by full path so two scans of the same tree always pick the
+                // same "first" file when several candidates collapse onto one title.
+                var files = root.EnumerateFiles().OrderBy(f => f.FullName, StringComparer.Ordinal);
                 foreach (var file in files)
                 {
                     if (IsBlacklistedFile(file.Name, isExternal: false)) continue;
@@ -1136,7 +1155,7 @@ namespace RetroArr.Core.Games
                     }
                 }
 
-                foreach (var subDir in root.EnumerateDirectories())
+                foreach (var subDir in root.EnumerateDirectories().OrderBy(d => d.FullName, StringComparer.Ordinal))
                 {
                     // TAREA: PS3 Folder Detection
                     if (subDir.Name.Equals("PS3_GAME", StringComparison.OrdinalIgnoreCase))
@@ -1802,13 +1821,27 @@ namespace RetroArr.Core.Games
         {
             Log($"[Scanner] No metadata found for: '{gameTitle}'. Creating offline entry.");
             var offlinePlatformId = await ResolvePlatformIdAsync(platformKey);
+            var hitPlatformFallback = false;
             // Defense in depth: if platformKey didn't resolve, try the file path
             if (offlinePlatformId == UnresolvedPlatformIdFallback && (string.IsNullOrEmpty(platformKey) || platformKey == "default"))
             {
                 var pathPlatformId = ResolvePlatformFromPath(localPath);
                 if (pathPlatformId.HasValue && pathPlatformId.Value > 0)
+                {
                     offlinePlatformId = pathPlatformId.Value;
+                }
+                else
+                {
+                    hitPlatformFallback = true;
+                }
             }
+
+            // Surface anything we couldn't anchor — no scraper match AND no platform
+            // anchor — through the metadata-review queue so the user can fix it.
+            var reviewReason = hitPlatformFallback
+                ? "Offline fallback — no scraper match and no platform folder match"
+                : "Offline fallback — no scraper match";
+
             return new Game
             {
                 Title = gameTitle,
@@ -1819,7 +1852,9 @@ namespace RetroArr.Core.Games
                 Status = GameStatus.Released,
                 Year = 0,
                 Overview = "Metadata not found. Added via offline fallback.",
-                Images = new GameImages()
+                Images = new GameImages(),
+                NeedsMetadataReview = true,
+                MetadataReviewReason = reviewReason
             };
         }
 
@@ -1971,7 +2006,7 @@ namespace RetroArr.Core.Games
                 {
                     var rootDir = new DirectoryInfo(gamePath);
                     var gameFolderName = rootDir.Name;
-                    foreach (var fi in rootDir.EnumerateFiles("*", SearchOption.AllDirectories))
+                    foreach (var fi in rootDir.EnumerateFiles("*", SearchOption.AllDirectories).OrderBy(f => f.FullName, StringComparer.Ordinal))
                     {
                         if (fi.Name.StartsWith(".")) continue;
                         var relativePath = Path.GetRelativePath(gamePath, fi.FullName).Replace('\\', '/');

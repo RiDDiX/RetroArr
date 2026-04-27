@@ -1482,7 +1482,7 @@ namespace RetroArr.Api.V3.Games
             var fileName = Path.GetFileName(fullPath);
             var contentType = "application/octet-stream";
             var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            return File(stream, contentType, fileName);
+            return File(stream, contentType, fileName, enableRangeProcessing: true);
         }
 
         // RetroBat/Batocera convention: {platform}/images/ + {platform}/videos/,

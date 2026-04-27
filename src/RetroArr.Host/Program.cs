@@ -82,7 +82,6 @@ namespace RetroArr.Host
                     ContentRootPath = exePath
                 });
             // Add services
-            System.Console.WriteLine("DEBUG: Registering Services...");
             builder.Services.AddControllers()
                 .AddApplicationPart(typeof(RetroArr.Api.V3.Games.GameController).Assembly)
                 .AddNewtonsoftJson(options => {

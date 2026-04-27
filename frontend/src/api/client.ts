@@ -791,6 +791,7 @@ export interface MetadataReviewItem {
   gameId: number;
   title: string;
   alternativeTitle?: string;
+  path?: string;
   platformId: number;
   platformName?: string;
   platformSlug?: string;

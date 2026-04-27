@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import apiClient, { getErrorMessage } from '../api/client';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faExclamationTriangle, faTrash, faFileAlt, faFolder, faRefresh, faCheck, faFilter } from '@fortawesome/free-solid-svg-icons';
+import { faExclamationTriangle, faTrash, faFileAlt, faFolder, faRefresh, faCheck, faFilter, faSearch } from '@fortawesome/free-solid-svg-icons';
 import PlatformIcon from '../components/PlatformIcon';
 import './Problems.css';
 
@@ -24,6 +24,7 @@ const Problems: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>('all');
+  const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedProblems, setSelectedProblems] = useState<Set<number>>(new Set());
 
   useEffect(() => {
@@ -122,9 +123,17 @@ const Problems: React.FC = () => {
     }
   };
 
-  const filteredProblems = problems.filter(p => 
-    filter === 'all' || p.problemType === filter
-  );
+  const search = searchTerm.trim().toLowerCase();
+  const filteredProblems = problems.filter(p => {
+    if (filter !== 'all' && p.problemType !== filter) return false;
+    if (!search) return true;
+    return (
+      (p.path?.toLowerCase().includes(search) ?? false) ||
+      p.title.toLowerCase().includes(search) ||
+      p.platformName.toLowerCase().includes(search) ||
+      (p.fileExtension?.toLowerCase().includes(search) ?? false)
+    );
+  });
 
   const problemCounts = {
     all: problems.length,
@@ -167,9 +176,23 @@ const Problems: React.FC = () => {
         </div>
       </div>
 
+      <div className="problems-search">
+        <FontAwesomeIcon icon={faSearch} />
+        <input
+          type="search"
+          placeholder="Search by path, title, platform or extension…"
+          value={searchTerm}
+          onChange={e => setSearchTerm(e.target.value)}
+        />
+        <Link to="/metadata-review" className="problems-review-link" title="Open the metadata review queue for manual mapping">
+          <FontAwesomeIcon icon={faExclamationTriangle} />
+          Metadata Review
+        </Link>
+      </div>
+
       <div className="problems-filters">
         <FontAwesomeIcon icon={faFilter} className="filter-icon" />
-        <button 
+        <button
           className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
           onClick={() => setFilter('all')}
         >
@@ -256,9 +279,9 @@ const Problems: React.FC = () => {
                     />
                     {problem.platformName}
                   </span>
-                  <span className="problem-path">
+                  <span className="problem-path" title={problem.path}>
                     <FontAwesomeIcon icon={faFolder} />
-                    {problem.path}
+                    <span className="problem-path-text">{problem.path}</span>
                   </span>
                   {problem.fileExtension && (
                     <span className="problem-extension">

@@ -10,7 +10,6 @@ namespace RetroArr.Core.Games
         public string Slug { get; set; } = string.Empty;
         public string FolderName { get; set; } = string.Empty;
         public PlatformType Type { get; set; }
-        public string? Icon { get; set; }
         public bool Enabled { get; set; } = true;
         public string? Category { get; set; }
         public int? IgdbPlatformId { get; set; }
@@ -47,7 +46,11 @@ namespace RetroArr.Core.Games
             }
             return false;
         }
-        
+
+        // Inverse navigation for the Game.Platform foreign key. EF Core wires the
+        // relationship through this collection at model-build time
+        // (RetroArrDbContext.OnModelCreating); do not remove. Application code
+        // does not enumerate this list — load games via IGameRepository instead.
         [SuppressMessage("Microsoft.Usage", "CA2227:CollectionPropertiesShouldBeReadOnly")]
         [SuppressMessage("Microsoft.Design", "CA1002:DoNotExposeGenericLists")]
         public List<Game> Games { get; set; } = new();

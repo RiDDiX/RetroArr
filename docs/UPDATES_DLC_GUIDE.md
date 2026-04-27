@@ -561,7 +561,7 @@ Platforms without a ScreenScraper system ID (PS3, PS4, PS5, Vita, Xbox, Xbox 360
 
 | Platform | Database | URL | Machine-readable | Coverage |
 |----------|----------|-----|-----------------|----------|
-| Nintendo Switch | blawar/titledb | `github.com/blawar/titledb` | Yes (JSON per region) | Comprehensive, community-maintained |
+| Nintendo Switch | blawar/titledb | `github.com/blawar/titledb` | Yes (JSON per region) | Wide coverage, community-maintained |
 | Nintendo Switch | Switchbrew Title List | `switchbrew.org/wiki/Title_list/Games` | No (wiki) | Official reference |
 | PlayStation 4 | OrbisPatches | `orbispatches.com` | Yes (API) | PS4 updates by Title ID |
 | PlayStation 5 | ProsperoPatches | `prosperopatches.com` | Yes (API) | PS5 updates by Title ID |

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { metadataReviewApi, MetadataReviewItem, MatchCandidate, getErrorMessage } from '../api/client';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSearch, faCheck, faForward, faTimes, faSpinner, faFilter, faExclamationTriangle, faGamepad } from '@fortawesome/free-solid-svg-icons';
+import { faSearch, faCheck, faForward, faTimes, faSpinner, faFilter, faExclamationTriangle, faGamepad, faFolder } from '@fortawesome/free-solid-svg-icons';
 import PlatformIcon from '../components/PlatformIcon';
 import './MetadataReview.css';
 
@@ -184,6 +184,12 @@ const MetadataReview: React.FC = () => {
                     {item.alternativeTitle && (
                       <div className="review-alt-title">{item.alternativeTitle}</div>
                     )}
+                    {item.path && (
+                      <div className="review-path" title={item.path}>
+                        <FontAwesomeIcon icon={faFolder} />
+                        <span>{item.path}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -230,6 +236,12 @@ const MetadataReview: React.FC = () => {
                   </span>
                 )}
               </div>
+              {selectedGame.path && (
+                <div className="review-modal-path" title={selectedGame.path}>
+                  <FontAwesomeIcon icon={faFolder} />
+                  <span>{selectedGame.path}</span>
+                </div>
+              )}
               <button className="modal-close" onClick={() => setSelectedGame(null)}>&times;</button>
             </div>
 

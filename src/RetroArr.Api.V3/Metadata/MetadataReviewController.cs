@@ -43,6 +43,7 @@ namespace RetroArr.Api.V3.Metadata
                         GameId = g.Id,
                         Title = g.Title,
                         AlternativeTitle = g.AlternativeTitle,
+                        Path = g.Path,
                         PlatformId = g.PlatformId,
                         PlatformName = g.Platform?.Name ?? "Unknown",
                         PlatformSlug = g.Platform?.Slug,
@@ -302,6 +303,7 @@ namespace RetroArr.Api.V3.Metadata
         public int GameId { get; set; }
         public string Title { get; set; } = string.Empty;
         public string? AlternativeTitle { get; set; }
+        public string? Path { get; set; }
         public int PlatformId { get; set; }
         public string? PlatformName { get; set; }
         public string? PlatformSlug { get; set; }
