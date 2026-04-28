@@ -30,9 +30,10 @@ namespace RetroArr.Api.V3.Games
         private readonly RetroArr.Core.MetadataSource.Gog.GogDownloadTracker _gogDownloadTracker;
         private readonly TrashService _trash;
         private readonly MediaScannerService _scannerService;
+        private readonly RetroArr.Core.Download.PostDownloadProcessor _postDownloadProcessor;
         private readonly IProgressNotifier? _progressNotifier;
 
-        public GameController(IGameRepository repository, IGameMetadataServiceFactory metadataServiceFactory, RetroArr.Core.IO.IArchiveService archiveService, ILauncherService launcherService, ConfigurationService configService, InstallerScannerService installerScanner, LocalMediaExportService localMediaExport, RetroArr.Core.MetadataSource.Gog.GogDownloadTracker gogDownloadTracker, TrashService trash, MediaScannerService scannerService, IProgressNotifier? progressNotifier = null)
+        public GameController(IGameRepository repository, IGameMetadataServiceFactory metadataServiceFactory, RetroArr.Core.IO.IArchiveService archiveService, ILauncherService launcherService, ConfigurationService configService, InstallerScannerService installerScanner, LocalMediaExportService localMediaExport, RetroArr.Core.MetadataSource.Gog.GogDownloadTracker gogDownloadTracker, TrashService trash, MediaScannerService scannerService, RetroArr.Core.Download.PostDownloadProcessor postDownloadProcessor, IProgressNotifier? progressNotifier = null)
         {
             _repository = repository;
             _metadataServiceFactory = metadataServiceFactory;
@@ -44,6 +45,7 @@ namespace RetroArr.Api.V3.Games
             _gogDownloadTracker = gogDownloadTracker;
             _trash = trash;
             _scannerService = scannerService;
+            _postDownloadProcessor = postDownloadProcessor;
             _progressNotifier = progressNotifier;
         }
 
@@ -1691,90 +1693,45 @@ namespace RetroArr.Api.V3.Games
                 if (!gogSettings.IsConfigured || string.IsNullOrEmpty(gogSettings.RefreshToken))
                     return BadRequest(new { success = false, message = "GOG not configured. Please authenticate in Settings." });
 
-                // Pick the same folder /folder uses, so UI hint and download
-                // dest line up. Falls back when game.Path isn't set yet.
-                bool pathWasEmpty = string.IsNullOrEmpty(game.Path);
-                string? targetDir = pathWasEmpty
-                    ? ResolveGameFolder(game)
-                    : (Directory.Exists(game.Path!) ? game.Path : (Path.HasExtension(game.Path) ? Path.GetDirectoryName(game.Path) : game.Path));
+                var mediaSettings = _configService.LoadMediaSettings();
 
-                if (string.IsNullOrEmpty(targetDir))
-                {
-                    var ms = _configService.LoadMediaSettings();
-                    return BadRequest(new
-                    {
-                        success = false,
-                        message = $"Could not resolve game folder. game.Path='{game.Path}', FolderPath='{ms.FolderPath}', DestinationPath='{ms.DestinationPath}'. Set Library Folder under Settings → Media."
-                    });
-                }
+                // Stage to MediaSettings.DownloadPath. Final move to the library
+                // folder happens after completion via PostDownloadProcessor, which
+                // also routes Patches/DLC/Updates into subfolders.
+                var stagingRoot = !string.IsNullOrWhiteSpace(mediaSettings.DownloadPath)
+                    ? mediaSettings.DownloadPath
+                    : Path.Combine(_configService.GetConfigDirectory(), "downloads");
+                var stagingDir = Path.Combine(stagingRoot, "gog", SanitizeForPath(game.Title));
 
-                try { Directory.CreateDirectory(targetDir); }
+                try { Directory.CreateDirectory(stagingDir); }
                 catch (Exception ex)
                 {
-                    _logger.Error($"[GOG] Could not create target dir '{targetDir}': {ex.Message}");
-                    return BadRequest(new { success = false, message = $"Cannot create folder '{targetDir}': {ex.Message}" });
+                    _logger.Error($"[GOG] Could not create staging dir '{stagingDir}': {ex.Message}");
+                    return BadRequest(new { success = false, message = $"Cannot create download staging folder '{stagingDir}': {ex.Message}" });
                 }
 
                 const string GogClientId = "46899977096215655";
                 const string GogClientSecret = "9d85c43b1482497dbbce61f6e4aa173a433796eeae2ca8c5f6129f2dc4de46d9";
 
-                _logger.Info($"[GOG] DownloadGogToGameFolder: game={id}, manualUrl={request.ManualUrl}, targetDir={targetDir}");
+                _logger.Info($"[GOG] gog-download: game={id}, manualUrl={request.ManualUrl}, staging={stagingDir}");
 
                 var client = new GogClient(gogSettings.RefreshToken);
                 var refreshed = await client.RefreshTokenAsync(GogClientId, GogClientSecret);
                 if (!refreshed)
                 {
-                    _logger.Error("[GOG] DownloadGogToGameFolder: token refresh failed");
+                    _logger.Error("[GOG] token refresh failed");
                     return BadRequest(new { success = false, message = "Failed to authenticate with GOG" });
                 }
 
                 var downloadUrl = await client.GetDownloadUrlAsync(request.ManualUrl);
                 if (string.IsNullOrEmpty(downloadUrl))
                 {
-                    _logger.Error($"[GOG] DownloadGogToGameFolder: GetDownloadUrlAsync returned null for {request.ManualUrl}");
+                    _logger.Error($"[GOG] GetDownloadUrlAsync returned null for {request.ManualUrl}");
                     return BadRequest(new { success = false, message = "Failed to get download URL from GOG" });
                 }
 
-                // Resolve filename: use display name from frontend, but ensure it has a file extension
-                // GOG CDN URLs contain the real filename with extension (e.g. setup_dungeons_2_1.0.exe)
-                var fileName = request.FileName;
-                var cdnFileName = "";
-                try
-                {
-                    var uri = new Uri(downloadUrl);
-                    cdnFileName = Path.GetFileName(uri.LocalPath);
-                }
-                catch { /* ignore malformed URL */ }
-
-                if (string.IsNullOrEmpty(fileName))
-                {
-                    fileName = !string.IsNullOrEmpty(cdnFileName) ? cdnFileName : $"{game.Title}_gog_setup.exe";
-                }
-                else if (!Path.HasExtension(fileName) && !string.IsNullOrEmpty(cdnFileName) && Path.HasExtension(cdnFileName))
-                {
-                    // Display name has no extension — append extension from CDN URL
-                    var ext = Path.GetExtension(cdnFileName);
-                    fileName = fileName + ext;
-                    _logger.Info($"[GOG] Appended extension from CDN: {ext} -> {fileName}");
-                }
-
-                // Ultimate fallback: if still no extension, use platform-based default
-                if (!Path.HasExtension(fileName))
-                {
-                    var platformExt = (request.Platform?.ToLowerInvariant()) switch
-                    {
-                        "windows" => ".exe",
-                        "linux" => ".sh",
-                        "mac" or "osx" => ".dmg",
-                        _ => ".bin"
-                    };
-                    fileName = fileName + platformExt;
-                    _logger.Info($"[GOG] Platform fallback extension: {platformExt} -> {fileName}");
-                }
-
-                var filePath = Path.Combine(targetDir, fileName);
-                _logger.Info($"[GOG] Starting download to game folder: {fileName} -> {filePath} (url={downloadUrl.Substring(0, Math.Min(120, downloadUrl.Length))}...)");
-
+                var fileName = ResolveGogFileName(request, downloadUrl);
+                var filePath = Path.Combine(stagingDir, fileName);
                 var trackId = Guid.NewGuid().ToString("N")[..8];
                 var tracker = _gogDownloadTracker;
 
@@ -1788,20 +1745,16 @@ namespace RetroArr.Api.V3.Games
                         using var response = await httpClient.GetAsync(downloadUrl, System.Net.Http.HttpCompletionOption.ResponseHeadersRead);
                         response.EnsureSuccessStatusCode();
 
-                        // Try to get real filename from Content-Disposition header
                         var cdHeader = response.Content.Headers.ContentDisposition?.FileName?.Trim('"', ' ');
                         if (!string.IsNullOrEmpty(cdHeader) && !Path.HasExtension(fileName) && Path.HasExtension(cdHeader))
                         {
-                            var ext = Path.GetExtension(cdHeader);
-                            fileName = fileName + ext;
-                            var newFilePath = Path.Combine(targetDir, fileName);
-                            _logger.Info($"[GOG] Content-Disposition extension: {ext} -> {fileName}");
-                            filePath = newFilePath;
+                            fileName += Path.GetExtension(cdHeader);
+                            filePath = Path.Combine(stagingDir, fileName);
+                            _logger.Info($"[GOG] Filename ext from Content-Disposition: {fileName}");
                         }
 
                         var totalBytes = response.Content.Headers.ContentLength;
                         ct = tracker.Start(trackId, game.Title, fileName, filePath, totalBytes);
-                        _logger.Info($"[GOG] Download response OK, content-length={totalBytes}");
 
                         using var contentStream = await response.Content.ReadAsStreamAsync();
                         using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
@@ -1816,43 +1769,89 @@ namespace RetroArr.Api.V3.Games
                         }
 
                         tracker.MarkCompleted(trackId);
-                        _logger.Info($"[GOG] Download complete: {filePath} ({totalRead} bytes)");
+                        _logger.Info($"[GOG] Download complete: {filePath} ({totalRead} bytes). Handing to PostDownloadProcessor.");
 
-                        // Wire the freshly-downloaded folder back to the game row
-                        // and refresh GameFiles so the UI sees the file right away.
+                        // Hand the staged file to the same pipeline the indexer
+                        // downloads use: it picks the right platform folder,
+                        // routes Updates/DLC/Patches into subfolders, attaches
+                        // GameFiles to the existing game row.
                         try
                         {
-                            var fresh = await _repository.GetByIdAsync(game.Id);
-                            if (fresh != null && (string.IsNullOrEmpty(fresh.Path) || pathWasEmpty))
+                            var status = new RetroArr.Core.Download.DownloadStatus
                             {
-                                fresh.Path = targetDir;
-                                await _repository.UpdateAsync(fresh.Id, fresh);
-                            }
-                            await _scannerService.SyncGameFilesFromDisk(game.Id, targetDir);
+                                Id = trackId,
+                                Name = Path.GetFileNameWithoutExtension(fileName),
+                                Size = totalRead,
+                                Progress = 1f,
+                                State = RetroArr.Core.Download.DownloadState.Completed,
+                                DownloadPath = filePath,
+                                ClientName = "GOG",
+                                PlatformFolder = "gog",
+                                GameId = game.Id,
+                                GameTitle = game.Title
+                            };
+                            var result = await _postDownloadProcessor.ProcessCompletedDownloadAsync(status);
+                            if (result.Success)
+                                _logger.Info($"[GOG] Post-download import OK: {result.DestinationPath}");
+                            else
+                                _logger.Warn($"[GOG] Post-download import failed: {result.Reason}");
                         }
-                        catch (Exception ex) { _logger.Warn($"[GOG] Post-download mapping failed: {ex.Message}"); }
+                        catch (Exception ex) { _logger.Error($"[GOG] PostDownloadProcessor threw: {ex.Message}"); }
                     }
                     catch (OperationCanceledException)
                     {
                         tracker.MarkFailed(trackId, "Download cancelled");
-                        _logger.Info($"[GOG] Download cancelled: {filePath}");
                         try { if (System.IO.File.Exists(filePath)) System.IO.File.Delete(filePath); } catch { }
                     }
                     catch (Exception ex)
                     {
                         tracker.MarkFailed(trackId, ex.Message);
-                        _logger.Error($"[GOG] Download to game folder failed: {ex.Message}");
+                        _logger.Error($"[GOG] Staged download failed: {ex.Message}");
                         try { if (System.IO.File.Exists(filePath)) System.IO.File.Delete(filePath); } catch { }
                     }
                 });
 
-                return Ok(new { success = true, message = $"Download started: {fileName}", downloadPath = filePath, folder = targetDir, trackId });
+                return Ok(new { success = true, message = $"Download started: {fileName}", staging = filePath, trackId });
             }
             catch (Exception ex)
             {
-                _logger.Error($"[GOG] DownloadGogToGameFolder exception: {ex.Message}");
+                _logger.Error($"[GOG] gog-download exception: {ex.Message}");
                 return BadRequest(new { success = false, message = ex.Message });
             }
+        }
+
+        private static string ResolveGogFileName(GogGameDownloadRequest request, string downloadUrl)
+        {
+            string cdnFileName = string.Empty;
+            try { cdnFileName = Path.GetFileName(new Uri(downloadUrl).LocalPath); }
+            catch { }
+
+            var fileName = request.FileName;
+            if (string.IsNullOrEmpty(fileName))
+                fileName = !string.IsNullOrEmpty(cdnFileName) ? cdnFileName : "gog_setup";
+            else if (!Path.HasExtension(fileName) && !string.IsNullOrEmpty(cdnFileName) && Path.HasExtension(cdnFileName))
+                fileName += Path.GetExtension(cdnFileName);
+
+            if (!Path.HasExtension(fileName))
+            {
+                var ext = (request.Platform?.ToLowerInvariant()) switch
+                {
+                    "windows" => ".exe",
+                    "linux" => ".sh",
+                    "mac" or "osx" => ".dmg",
+                    _ => ".bin"
+                };
+                fileName += ext;
+            }
+            return fileName;
+        }
+
+        private static string SanitizeForPath(string input)
+        {
+            if (string.IsNullOrEmpty(input)) return "unknown";
+            foreach (var c in Path.GetInvalidFileNameChars())
+                input = input.Replace(c.ToString(), "");
+            return input.Trim();
         }
 
         // Scans {LibraryRoot}/{platformFolder}/ and diffs against known game paths
