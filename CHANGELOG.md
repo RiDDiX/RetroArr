@@ -1,3 +1,8 @@
+## v1.0.143 (2026-04-28)
+
+### Changes
+- surface folder/gog endpoint error reasons in the toast (0ac2248)
+
 ## v1.0.142 (2026-04-28)
 
 ### Changes
