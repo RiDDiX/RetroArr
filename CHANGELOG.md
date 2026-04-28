@@ -1,3 +1,8 @@
+## v1.0.145 (2026-04-28)
+
+### Changes
+- let post-download import work without Directory.Exists check (17b8866)
+
 ## v1.0.144 (2026-04-28)
 
 ### Changes
