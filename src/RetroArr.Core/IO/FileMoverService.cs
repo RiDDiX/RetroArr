@@ -8,6 +8,7 @@ namespace RetroArr.Core.IO
     public interface IFileMoverService
     {
         bool ImportFile(string sourceFile, string destinationFile);
+        bool ImportFile(string sourceFile, string destinationFile, out string? failureReason);
     }
 
     [SuppressMessage("Microsoft.Performance", "CA1822:MarkMembersAsStatic")]
@@ -19,41 +20,44 @@ namespace RetroArr.Core.IO
     {
         private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(Logging.AppLoggerService.DownloadsImport);
         public bool ImportFile(string sourceFile, string destinationFile)
+            => ImportFile(sourceFile, destinationFile, out _);
+
+        public bool ImportFile(string sourceFile, string destinationFile, out string? failureReason)
         {
+            failureReason = null;
             if (!File.Exists(sourceFile))
             {
-                _logger.Info($"[FileMover] Source file not found: {sourceFile}");
+                failureReason = $"Source file not found: {sourceFile}";
+                _logger.Info($"[FileMover] {failureReason}");
                 return false;
             }
 
-            // Ensure destination directory exists
             var destDir = Path.GetDirectoryName(destinationFile);
             if (destDir != null && !Directory.Exists(destDir))
             {
-                Directory.CreateDirectory(destDir);
+                try { Directory.CreateDirectory(destDir); }
+                catch (Exception ex)
+                {
+                    failureReason = $"Cannot create destination folder '{destDir}': {ex.Message}";
+                    _logger.Error($"[FileMover] {failureReason}");
+                    return false;
+                }
             }
 
-            // 1. Try Hardlink
             try
             {
-                // Note: Hardlinks cannot cross volumes/partitions.
-                // If this fails due to cross-volume moves, we catch and fallback to copy.
                 if (TryCreateHardLink(sourceFile, destinationFile))
                 {
                     _logger.Info($"[FileMover] Hardlink created: {destinationFile} -> {sourceFile}");
                     return true;
                 }
-                else
-                {
-                     _logger.Info($"[FileMover] Hardlink creation returned false. Falling back to copy.");
-                }
+                _logger.Info($"[FileMover] Hardlink returned false. Falling back to copy.");
             }
             catch (Exception ex)
             {
                 _logger.Error($"[FileMover] Hardlink failed ({ex.Message}). Falling back to copy.");
             }
 
-            // 2. Fallback to Copy
             try
             {
                 _logger.Info($"[FileMover] Copying file: {sourceFile} -> {destinationFile}");
@@ -62,8 +66,9 @@ namespace RetroArr.Core.IO
             }
             catch (Exception ex)
             {
-                 _logger.Error($"[FileMover] Copy failed: {ex.Message}");
-                 return false;
+                failureReason = $"Copy {sourceFile} -> {destinationFile} failed: {ex.Message}";
+                _logger.Error($"[FileMover] {failureReason}");
+                return false;
             }
         }
 

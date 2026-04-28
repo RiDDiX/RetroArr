@@ -495,11 +495,24 @@ namespace RetroArr.Core.Download
             }
 
             _logger.Info($"[PostDownload] Game-targeted import: '{game.Title}' (ID: {game.Id}) -> {importFolder} [Type: {contentType}]");
-            Directory.CreateDirectory(importFolder);
+            try { Directory.CreateDirectory(importFolder); }
+            catch (Exception ex)
+            {
+                return PostDownloadResult.Fail($"Cannot create import folder '{importFolder}': {ex.Message}");
+            }
+
+            // Pre-flight: bail early if the target dir is not writable so the
+            // user gets a clean chown hint instead of "no files imported".
+            var perm = RetroArr.Core.IO.PathPermissionChecker.Check("ImportFolder", importFolder);
+            if (!perm.Writable)
+            {
+                return PostDownloadResult.Fail($"Cannot write to '{importFolder}'. {perm.Hint}");
+            }
 
             bool isDirectory = Directory.Exists(download.DownloadPath);
             int movedCount = 0;
             string? firstMovedFile = null;
+            string? lastMoveError = null;
 
             if (isDirectory)
             {
@@ -533,11 +546,15 @@ namespace RetroArr.Core.Download
 
                     Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
 
-                    if (_fileMover.ImportFile(file, destPath))
+                    if (_fileMover.ImportFile(file, destPath, out var reason))
                     {
                         movedCount++;
                         firstMovedFile ??= destPath;
                         _logger.Info($"[PostDownload] Moved: {relativePath} -> {destPath}");
+                    }
+                    else
+                    {
+                        lastMoveError = reason;
                     }
                 }
 
@@ -560,7 +577,7 @@ namespace RetroArr.Core.Download
                     destFileName = SanitizeFileName(game.Title) + ext;
 
                 var destPath = Path.Combine(importFolder, destFileName);
-                if (_fileMover.ImportFile(download.DownloadPath!, destPath))
+                if (_fileMover.ImportFile(download.DownloadPath!, destPath, out var reason))
                 {
                     movedCount = 1;
                     firstMovedFile = destPath;
@@ -571,11 +588,18 @@ namespace RetroArr.Core.Download
                         try { File.Delete(download.DownloadPath!); } catch { }
                     }
                 }
+                else
+                {
+                    lastMoveError = reason;
+                }
             }
 
             if (movedCount == 0)
             {
-                return PostDownloadResult.Fail($"No files imported for game '{game.Title}'");
+                var msg = lastMoveError != null
+                    ? $"No files imported for '{game.Title}'. {lastMoveError}"
+                    : $"No files imported for '{game.Title}' (target: {importFolder}).";
+                return PostDownloadResult.Fail(msg);
             }
 
             // Update game.Path if not set or not pointing to a valid directory
