@@ -1,3 +1,8 @@
+## v1.0.141 (2026-04-28)
+
+### Changes
+- claim cue from bin and stop merging cross-platform releases (a11f46e)
+
 ## v1.0.140 (2026-04-28)
 
 ### Changes
