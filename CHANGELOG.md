@@ -1,3 +1,8 @@
+## v1.0.146 (2026-04-28)
+
+### Changes
+- auto-create folders and surface permission diagnostics (174d425)
+
 ## v1.0.145 (2026-04-28)
 
 ### Changes
