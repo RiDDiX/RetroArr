@@ -1,3 +1,8 @@
+## v1.0.148 (2026-04-28)
+
+### Changes
+- close gog download stream before handing to import (feb9e8f)
+
 ## v1.0.147 (2026-04-28)
 
 ### Changes
