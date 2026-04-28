@@ -1756,16 +1756,21 @@ namespace RetroArr.Api.V3.Games
                         var totalBytes = response.Content.Headers.ContentLength;
                         ct = tracker.Start(trackId, game.Title, fileName, filePath, totalBytes);
 
-                        using var contentStream = await response.Content.ReadAsStreamAsync();
-                        using var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None);
-                        var buffer = new byte[81920];
                         long totalRead = 0;
-                        int bytesRead;
-                        while ((bytesRead = await contentStream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
+                        // Scoped using so the file handle closes BEFORE
+                        // PostDownloadProcessor tries to move/copy it.
+                        using (var contentStream = await response.Content.ReadAsStreamAsync())
+                        using (var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None))
                         {
-                            await fs.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
-                            totalRead += bytesRead;
-                            tracker.UpdateProgress(trackId, totalRead);
+                            var buffer = new byte[81920];
+                            int bytesRead;
+                            while ((bytesRead = await contentStream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
+                            {
+                                await fs.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+                                totalRead += bytesRead;
+                                tracker.UpdateProgress(trackId, totalRead);
+                            }
+                            await fs.FlushAsync(ct);
                         }
 
                         tracker.MarkCompleted(trackId);
