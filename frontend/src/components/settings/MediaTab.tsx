@@ -23,6 +23,14 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
   const [trashRetentionDays, setTrashRetentionDays] = useState(14);
   const [missingRetentionDays, setMissingRetentionDays] = useState(14);
   const [scanning, setScanning] = useState(false);
+  const [permissionsReport, setPermissionsReport] = useState<{
+    processUid?: number | null;
+    processGid?: number | null;
+    puidEnv?: string | null;
+    pgidEnv?: string | null;
+    checks: { key: string; path: string; exists: boolean; readable: boolean; writable: boolean; hint?: string | null }[];
+  } | null>(null);
+  const [permissionsLoading, setPermissionsLoading] = useState(false);
   const [showFolderExplorer, setShowFolderExplorer] = useState(false);
   const [activeFolderField, setActiveFolderField] = useState<'media' | 'download' | 'destination' | 'wine' | 'bios'>('media');
 
@@ -54,6 +62,20 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
       window.removeEventListener('SETTINGS_UPDATED_EVENT', handleSettingsUpdated);
     };
   }, []);
+
+  const loadPermissions = async () => {
+    setPermissionsLoading(true);
+    try {
+      const res = await apiClient.get('/media/permissions');
+      setPermissionsReport(res.data);
+    } catch (err) {
+      console.error('Permissions check failed:', err);
+    } finally {
+      setPermissionsLoading(false);
+    }
+  };
+
+  useEffect(() => { loadPermissions(); }, []);
 
   // Monitor Scan Status
   useEffect(() => {
@@ -309,6 +331,63 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
               <option value="retrobat">{t('folderNamingRetroBat') || 'RetroBat Compatible'}</option>
               <option value="batocera">{t('folderNamingBatocera') || 'Batocera Compatible'}</option>
             </select>
+          </div>
+
+          <div className="form-group" style={{ marginTop: '20px', borderTop: '1px solid #444', paddingTop: '15px' }}>
+            <div className="section-header-with-logo" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h4>Folder permissions</h4>
+              <button
+                onClick={loadPermissions}
+                disabled={permissionsLoading}
+                className="btn-secondary"
+                style={{ padding: '6px 12px', fontSize: '0.85em' }}
+              >
+                <FontAwesomeIcon icon={faSync} spin={permissionsLoading} /> {permissionsLoading ? 'Checking…' : 'Recheck'}
+              </button>
+            </div>
+            <p className="settings-description-sm" style={{ fontSize: '0.85em', color: 'var(--ctp-subtext0)' }}>
+              Verifies that the configured folders exist and the RetroArr process can read &amp; write them.
+              Useful when running with PUID/PGID under Docker (linuxserver-style images).
+            </p>
+            {permissionsReport && (
+              <div style={{ marginTop: '10px' }}>
+                <div style={{ fontSize: '0.85em', color: 'var(--ctp-subtext0)', marginBottom: '8px' }}>
+                  Process UID={permissionsReport.processUid ?? 'n/a'}, GID={permissionsReport.processGid ?? 'n/a'}
+                  {permissionsReport.puidEnv && <> · PUID env={permissionsReport.puidEnv}</>}
+                  {permissionsReport.pgidEnv && <> · PGID env={permissionsReport.pgidEnv}</>}
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85em' }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                      <th style={{ padding: '6px 8px' }}>Setting</th>
+                      <th style={{ padding: '6px 8px' }}>Path</th>
+                      <th style={{ padding: '6px 8px' }}>Exists</th>
+                      <th style={{ padding: '6px 8px' }}>Read</th>
+                      <th style={{ padding: '6px 8px' }}>Write</th>
+                      <th style={{ padding: '6px 8px' }}>Hint</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {permissionsReport.checks.map(c => {
+                      const ok = c.exists && c.readable && c.writable;
+                      const dot = (v: boolean) => <span style={{ color: v ? 'var(--ctp-green)' : 'var(--ctp-red)' }}>{v ? '✓' : '✗'}</span>;
+                      return (
+                        <tr key={c.key} style={{ borderBottom: '1px solid var(--surface-1)' }}>
+                          <td style={{ padding: '6px 8px', fontWeight: 600 }}>{c.key}</td>
+                          <td style={{ padding: '6px 8px' }}><code>{c.path || '-'}</code></td>
+                          <td style={{ padding: '6px 8px' }}>{dot(c.exists)}</td>
+                          <td style={{ padding: '6px 8px' }}>{dot(c.readable)}</td>
+                          <td style={{ padding: '6px 8px' }}>{dot(c.writable)}</td>
+                          <td style={{ padding: '6px 8px', color: ok ? 'var(--ctp-overlay0)' : 'var(--ctp-peach)' }}>
+                            {c.hint || (ok ? 'OK' : '-')}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           <div className="form-group" style={{ marginTop: '20px', borderTop: '1px solid #444', paddingTop: '15px' }}>

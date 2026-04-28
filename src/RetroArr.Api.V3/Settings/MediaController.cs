@@ -41,7 +41,36 @@ namespace RetroArr.Api.V3.Settings
         public IActionResult SaveSettings([FromBody] MediaSettings settings)
         {
             _configService.SaveMediaSettings(settings);
+            // Best-effort mkdir for every configured rooted path so a fresh
+            // setup doesn't fail at the first download or scan.
+            foreach (var p in new[] { settings.FolderPath, settings.DownloadPath, settings.DestinationPath, settings.BiosPath, settings.TrashPath })
+            {
+                if (string.IsNullOrWhiteSpace(p) || !System.IO.Path.IsPathRooted(p)) continue;
+                try { System.IO.Directory.CreateDirectory(p); }
+                catch (Exception ex) { _logger.Warn($"[Media] Could not create '{p}': {ex.Message}"); }
+            }
             return Ok(new { message = "Media settings saved" });
+        }
+
+        [HttpGet("permissions")]
+        public IActionResult CheckPermissions()
+        {
+            var settings = _configService.LoadMediaSettings();
+            var report = new RetroArr.Core.IO.PathPermissionsReport
+            {
+                ProcessUid = RetroArr.Core.IO.PathPermissionChecker.CurrentUid(),
+                ProcessGid = RetroArr.Core.IO.PathPermissionChecker.CurrentGid(),
+                PuidEnv = Environment.GetEnvironmentVariable("PUID"),
+                PgidEnv = Environment.GetEnvironmentVariable("PGID")
+            };
+
+            report.Checks.Add(RetroArr.Core.IO.PathPermissionChecker.Check("FolderPath", settings.FolderPath));
+            report.Checks.Add(RetroArr.Core.IO.PathPermissionChecker.Check("DownloadPath", settings.DownloadPath));
+            report.Checks.Add(RetroArr.Core.IO.PathPermissionChecker.Check("DestinationPath", settings.DestinationPath));
+            report.Checks.Add(RetroArr.Core.IO.PathPermissionChecker.Check("BiosPath", settings.BiosPath));
+            report.Checks.Add(RetroArr.Core.IO.PathPermissionChecker.Check("TrashPath", settings.TrashPath));
+
+            return Ok(report);
         }
 
         public class ScanRequest
