@@ -165,6 +165,52 @@ namespace RetroArr.Core.Test.Games
         }
 
         [Test]
+        public void Resolve_Bin_FindsCueAsCompanion()
+        {
+            // Symmetric: Resolve(.bin) must pull in its sibling .cue, otherwise
+            // existing rows with Path=.bin never get the cue registered.
+            var binPath = Path.Combine(_tempDir, "Game.bin");
+            var cuePath = Path.Combine(_tempDir, "Game.cue");
+            File.WriteAllText(binPath, "data");
+            File.WriteAllText(cuePath, "FILE \"Game.bin\" BINARY\n");
+
+            var set = FileSetResolver.Resolve(binPath);
+
+            Assert.That(set.PrimaryFile, Is.EqualTo(binPath));
+            Assert.That(set.CompanionFiles.Count, Is.EqualTo(1));
+            Assert.That(Path.GetFileName(set.CompanionFiles[0]), Is.EqualTo("Game.cue"));
+        }
+
+        [Test]
+        public void Resolve_SingleFileRom_DoesNotPickUpReadme()
+        {
+            // .smc and friends never share their disc. Stem-matching must NOT
+            // pull a Readme.txt or cover.png next to a Mario.smc.
+            var smcPath = Path.Combine(_tempDir, "Mario.smc");
+            var noisePath = Path.Combine(_tempDir, "Mario.txt");
+            File.WriteAllText(smcPath, "rom");
+            File.WriteAllText(noisePath, "readme");
+
+            var set = FileSetResolver.Resolve(smcPath);
+
+            Assert.That(set.CompanionFiles, Is.Empty);
+        }
+
+        [Test]
+        public void Resolve_Iso_PullsMdsCompanion()
+        {
+            var isoPath = Path.Combine(_tempDir, "Game.iso");
+            var mdsPath = Path.Combine(_tempDir, "Game.mds");
+            File.WriteAllText(isoPath, "data");
+            File.WriteAllText(mdsPath, "metadata");
+
+            var set = FileSetResolver.Resolve(isoPath);
+
+            Assert.That(set.CompanionFiles.Count, Is.EqualTo(1));
+            Assert.That(Path.GetFileName(set.CompanionFiles[0]), Is.EqualTo("Game.mds"));
+        }
+
+        [Test]
         public void AllFiles_EnumeratesPrimaryThenCompanions()
         {
             // The scanner's SyncGameFilesFromDisk path iterates AllFiles to

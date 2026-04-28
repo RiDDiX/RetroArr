@@ -79,6 +79,37 @@ namespace RetroArr.Core.Test.Games
         }
 
         [Test]
+        public void Detect_SameIgdbIdDifferentPlatforms_NotClustered()
+        {
+            // Defcon 5 / Star Wars Demolition: one IGDB id, owned on multiple
+            // platforms. Each platform copy is its own legitimate game.
+            var games = new List<DuplicateProbe>
+            {
+                new() { Id = 1, Title = "Defcon 5", PlatformId = 14, Path = "/3do/d5.cue", IgdbId = 2505 },
+                new() { Id = 2, Title = "Defcon 5", PlatformId = 20, Path = "/psx/d5.cue", IgdbId = 2505 }
+            };
+
+            var clusters = DuplicateGameDetector.Detect(games);
+
+            Assert.That(clusters.Any(c => c.Reason == DuplicateReason.IgdbId), Is.False);
+        }
+
+        [Test]
+        public void Detect_SameIgdbIdSamePlatform_IsClustered()
+        {
+            // Two rows for the same release on the same platform stay flagged.
+            var games = new List<DuplicateProbe>
+            {
+                new() { Id = 1, Title = "Tekken 2", PlatformId = 20, Path = "/psx/a.cue", IgdbId = 1042 },
+                new() { Id = 2, Title = "Tekken 2", PlatformId = 20, Path = "/psx/b.cue", IgdbId = 1042 }
+            };
+
+            var clusters = DuplicateGameDetector.Detect(games);
+
+            Assert.That(clusters.Any(c => c.Reason == DuplicateReason.IgdbId), Is.True);
+        }
+
+        [Test]
         public void Detect_NullIgdbId_DoesNotCluster()
         {
             // Two unmatched rows shouldn't cluster on igdb id 0/null.

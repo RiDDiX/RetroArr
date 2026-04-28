@@ -201,16 +201,37 @@ namespace RetroArr.Core.Games
             return set;
         }
 
+        // Disc-image primaries. Same-stem siblings are part of the same disc.
+        // Single-file ROMs (.smc, .nes, .z64, .gb, .gba) are not listed here.
+        private static readonly HashSet<string> _multiFileDiscExts = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".cue", ".bin", ".iso", ".gdi", ".m3u", ".toc",
+            ".mds", ".mdf", ".ccd", ".img", ".sub", ".sbi"
+        };
+
         private static FileSet ResolveSingleWithCompanions(string filePath)
         {
             var set = new FileSet { PrimaryFile = filePath, Type = FileSetType.Single };
             var dir = Path.GetDirectoryName(filePath) ?? string.Empty;
-            var nameWithoutExt = Path.GetFileNameWithoutExtension(filePath);
+            var stem = Path.GetFileNameWithoutExtension(filePath);
+            var primaryExt = Path.GetExtension(filePath);
+
+            // Disc-image primary: claim same-stem siblings.
+            if (_multiFileDiscExts.Contains(primaryExt) && Directory.Exists(dir) && !string.IsNullOrEmpty(stem))
+            {
+                foreach (var sibling in Directory.GetFiles(dir, stem + ".*"))
+                {
+                    if (sibling.Equals(filePath, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!Path.GetFileNameWithoutExtension(sibling).Equals(stem, StringComparison.OrdinalIgnoreCase)) continue;
+                    set.CompanionFiles.Add(Path.GetFullPath(sibling));
+                }
+                return set;
+            }
 
             var companionExts = new[] { ".sub", ".sbi", ".ccd", ".img" };
             foreach (var ext in companionExts)
             {
-                var companion = Path.Combine(dir, nameWithoutExt + ext);
+                var companion = Path.Combine(dir, stem + ext);
                 if (File.Exists(companion) && !companion.Equals(filePath, StringComparison.OrdinalIgnoreCase))
                 {
                     set.CompanionFiles.Add(companion);

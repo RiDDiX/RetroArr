@@ -94,10 +94,11 @@ namespace RetroArr.Core.Games
                 });
             }
 
-            // 3) Same IGDB id (cross-platform). Skip null/0.
+            // 3) Same IGDB id on the same platform. Multi-platform releases
+            // share one IGDB id and are NOT duplicates across platforms.
             var igdbGroups = list
                 .Where(g => g.IgdbId.HasValue && g.IgdbId.Value > 0)
-                .GroupBy(g => g.IgdbId!.Value)
+                .GroupBy(g => (IgdbId: g.IgdbId!.Value, g.PlatformId))
                 .Where(g => g.Count() > 1);
 
             foreach (var group in igdbGroups)
@@ -105,8 +106,8 @@ namespace RetroArr.Core.Games
                 clusters.Add(new DuplicateCluster
                 {
                     Reason = DuplicateReason.IgdbId,
-                    Key = group.Key.ToString(),
-                    PlatformId = null,
+                    Key = group.Key.IgdbId.ToString(),
+                    PlatformId = group.Key.PlatformId,
                     Games = group.Select(ToMember).ToList()
                 });
             }
