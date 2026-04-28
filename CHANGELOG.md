@@ -1,3 +1,8 @@
+## v1.0.147 (2026-04-28)
+
+### Changes
+- surface real reason when post-download import fails (23957d6)
+
 ## v1.0.146 (2026-04-28)
 
 ### Changes
