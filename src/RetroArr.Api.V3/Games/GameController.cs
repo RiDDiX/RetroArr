@@ -1261,9 +1261,12 @@ namespace RetroArr.Api.V3.Games
             // 3. Compute deterministically from game.PlatformId + game.Title + MediaSettings
             var mediaSettings = _configService.LoadMediaSettings();
 
-            var libraryRoot = !string.IsNullOrEmpty(mediaSettings.DestinationPath) && Directory.Exists(mediaSettings.DestinationPath)
+            // Accept any non-empty rooted path. The folder will be created on
+            // demand by /folder or /gog-download; a missing-on-disk root just
+            // means the user hasn't run a scan yet, not a misconfiguration.
+            var libraryRoot = !string.IsNullOrEmpty(mediaSettings.DestinationPath) && Path.IsPathRooted(mediaSettings.DestinationPath)
                 ? mediaSettings.DestinationPath
-                : !string.IsNullOrEmpty(mediaSettings.FolderPath) && Directory.Exists(mediaSettings.FolderPath)
+                : !string.IsNullOrEmpty(mediaSettings.FolderPath) && Path.IsPathRooted(mediaSettings.FolderPath)
                     ? mediaSettings.FolderPath
                     : null;
 
@@ -1672,37 +1675,32 @@ namespace RetroArr.Api.V3.Games
         [HttpPost("{id}/gog-download")]
         public async Task<ActionResult> DownloadGogToGameFolder(int id, [FromBody] GogGameDownloadRequest request)
         {
-            var game = await _repository.GetByIdAsync(id);
-            if (game == null) return NotFound();
-
-            var gogSettings = _configService.LoadGogSettings();
-            if (!gogSettings.IsConfigured || string.IsNullOrEmpty(gogSettings.RefreshToken))
-                return BadRequest(new { success = false, message = "GOG not configured. Please authenticate in Settings." });
-
-            // GOG-synced rows have no Path until something lands. Fall back to
-            // {Library}/gog/downloads/{Title} so the user can hit Download
-            // straight from the library entry.
-            var mediaSettings = _configService.LoadMediaSettings();
-            string? targetDir;
-            bool pathWasEmpty = string.IsNullOrEmpty(game.Path);
-            if (pathWasEmpty)
-            {
-                targetDir = mediaSettings.ResolveGogDownloadPath(game.Title);
-                if (string.IsNullOrEmpty(targetDir))
-                    return BadRequest(new { success = false, message = "Library folder not configured. Set it under Settings → Media." });
-            }
-            else
-            {
-                targetDir = Directory.Exists(game.Path!) ? game.Path : Path.GetDirectoryName(game.Path);
-            }
-            if (string.IsNullOrEmpty(targetDir))
-                return BadRequest(new { success = false, message = "Could not resolve game folder" });
-
-            if (!Directory.Exists(targetDir))
-                Directory.CreateDirectory(targetDir);
-
             try
             {
+                var game = await _repository.GetByIdAsync(id);
+                if (game == null) return NotFound();
+
+                var gogSettings = _configService.LoadGogSettings();
+                if (!gogSettings.IsConfigured || string.IsNullOrEmpty(gogSettings.RefreshToken))
+                    return BadRequest(new { success = false, message = "GOG not configured. Please authenticate in Settings." });
+
+                // Pick the same folder /folder uses, so UI hint and download
+                // dest line up. Falls back when game.Path isn't set yet.
+                bool pathWasEmpty = string.IsNullOrEmpty(game.Path);
+                string? targetDir = pathWasEmpty
+                    ? ResolveGameFolder(game)
+                    : (Directory.Exists(game.Path!) ? game.Path : (Path.HasExtension(game.Path) ? Path.GetDirectoryName(game.Path) : game.Path));
+
+                if (string.IsNullOrEmpty(targetDir))
+                    return BadRequest(new { success = false, message = "Could not resolve game folder. Configure Library Folder in Media Management settings." });
+
+                try { Directory.CreateDirectory(targetDir); }
+                catch (Exception ex)
+                {
+                    _logger.Error($"[GOG] Could not create target dir '{targetDir}': {ex.Message}");
+                    return BadRequest(new { success = false, message = $"Cannot create folder '{targetDir}': {ex.Message}" });
+                }
+
                 const string GogClientId = "46899977096215655";
                 const string GogClientSecret = "9d85c43b1482497dbbce61f6e4aa173a433796eeae2ca8c5f6129f2dc4de46d9";
 
