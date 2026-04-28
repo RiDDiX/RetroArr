@@ -2023,18 +2023,28 @@ namespace RetroArr.Core.Games
                 {
                     var fi = new FileInfo(gamePath);
                     var parentDir = fi.DirectoryName ?? gamePath;
-                    var relativePath = fi.Name;
                     var fileType = parentDir.EndsWith("Patches", StringComparison.OrdinalIgnoreCase) || parentDir.EndsWith("Updates", StringComparison.OrdinalIgnoreCase) ? "Patch"
                                  : parentDir.EndsWith("DLC", StringComparison.OrdinalIgnoreCase) ? "DLC"
                                  : "Main";
-                    files.Add(new GameFile
+
+                    // Pull cue/gdi/m3u track refs and same-stem siblings (cue+bin etc.)
+                    // so the game owns the whole set, not just the primary file.
+                    var fileSet = FileSetResolver.Resolve(gamePath);
+                    var seenStems = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var member in fileSet.AllFiles)
                     {
-                        GameId = gameId,
-                        RelativePath = relativePath,
-                        Size = fi.Length,
-                        DateAdded = DateTime.UtcNow,
-                        FileType = fileType
-                    });
+                        if (!File.Exists(member)) continue;
+                        if (!seenStems.Add(Path.GetFullPath(member))) continue;
+                        var mi = new FileInfo(member);
+                        files.Add(new GameFile
+                        {
+                            GameId = gameId,
+                            RelativePath = mi.Name,
+                            Size = mi.Length,
+                            DateAdded = DateTime.UtcNow,
+                            FileType = fileType
+                        });
+                    }
                 }
                 else if (isDir)
                 {

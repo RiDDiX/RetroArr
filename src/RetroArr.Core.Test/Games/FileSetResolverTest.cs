@@ -165,6 +165,24 @@ namespace RetroArr.Core.Test.Games
         }
 
         [Test]
+        public void AllFiles_EnumeratesPrimaryThenCompanions()
+        {
+            // The scanner's SyncGameFilesFromDisk path iterates AllFiles to
+            // turn a cue/bin set into two GameFile rows. Pin that ordering.
+            var binPath = Path.Combine(_tempDir, "Game.bin");
+            var cuePath = Path.Combine(_tempDir, "Game.cue");
+            File.WriteAllText(binPath, "data");
+            File.WriteAllText(cuePath, "FILE \"Game.bin\" BINARY\n");
+
+            var set = FileSetResolver.Resolve(cuePath);
+            var all = set.AllFiles.ToList();
+
+            Assert.That(all.Count, Is.EqualTo(2));
+            Assert.That(all[0], Is.EqualTo(cuePath));
+            Assert.That(Path.GetFileName(all[1]), Is.EqualTo("Game.bin"));
+        }
+
+        [Test]
         public void Resolve_CueWithIdenticalStemBin_ClaimsBinViaStemFallback()
         {
             // Real-world PSX rip where the cue lists a track that doesn't resolve
