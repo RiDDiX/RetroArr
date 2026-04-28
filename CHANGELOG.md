@@ -1,3 +1,8 @@
+## v1.0.144 (2026-04-28)
+
+### Changes
+- stage gog downloads then route via postdownload processor (f511532)
+
 ## v1.0.143 (2026-04-28)
 
 ### Changes
