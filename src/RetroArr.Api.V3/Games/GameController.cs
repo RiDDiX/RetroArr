@@ -29,9 +29,10 @@ namespace RetroArr.Api.V3.Games
         private readonly LocalMediaExportService _localMediaExport;
         private readonly RetroArr.Core.MetadataSource.Gog.GogDownloadTracker _gogDownloadTracker;
         private readonly TrashService _trash;
+        private readonly MediaScannerService _scannerService;
         private readonly IProgressNotifier? _progressNotifier;
 
-        public GameController(IGameRepository repository, IGameMetadataServiceFactory metadataServiceFactory, RetroArr.Core.IO.IArchiveService archiveService, ILauncherService launcherService, ConfigurationService configService, InstallerScannerService installerScanner, LocalMediaExportService localMediaExport, RetroArr.Core.MetadataSource.Gog.GogDownloadTracker gogDownloadTracker, TrashService trash, IProgressNotifier? progressNotifier = null)
+        public GameController(IGameRepository repository, IGameMetadataServiceFactory metadataServiceFactory, RetroArr.Core.IO.IArchiveService archiveService, ILauncherService launcherService, ConfigurationService configService, InstallerScannerService installerScanner, LocalMediaExportService localMediaExport, RetroArr.Core.MetadataSource.Gog.GogDownloadTracker gogDownloadTracker, TrashService trash, MediaScannerService scannerService, IProgressNotifier? progressNotifier = null)
         {
             _repository = repository;
             _metadataServiceFactory = metadataServiceFactory;
@@ -42,6 +43,7 @@ namespace RetroArr.Api.V3.Games
             _localMediaExport = localMediaExport;
             _gogDownloadTracker = gogDownloadTracker;
             _trash = trash;
+            _scannerService = scannerService;
             _progressNotifier = progressNotifier;
         }
 
@@ -1673,15 +1675,26 @@ namespace RetroArr.Api.V3.Games
             var game = await _repository.GetByIdAsync(id);
             if (game == null) return NotFound();
 
-            if (string.IsNullOrEmpty(game.Path))
-                return BadRequest(new { success = false, message = "Game has no folder path" });
-
             var gogSettings = _configService.LoadGogSettings();
             if (!gogSettings.IsConfigured || string.IsNullOrEmpty(gogSettings.RefreshToken))
                 return BadRequest(new { success = false, message = "GOG not configured. Please authenticate in Settings." });
 
-            // Ensure game folder exists
-            var targetDir = Directory.Exists(game.Path) ? game.Path : Path.GetDirectoryName(game.Path);
+            // GOG-synced rows have no Path until something lands. Fall back to
+            // {Library}/gog/downloads/{Title} so the user can hit Download
+            // straight from the library entry.
+            var mediaSettings = _configService.LoadMediaSettings();
+            string? targetDir;
+            bool pathWasEmpty = string.IsNullOrEmpty(game.Path);
+            if (pathWasEmpty)
+            {
+                targetDir = mediaSettings.ResolveGogDownloadPath(game.Title);
+                if (string.IsNullOrEmpty(targetDir))
+                    return BadRequest(new { success = false, message = "Library folder not configured. Set it under Settings → Media." });
+            }
+            else
+            {
+                targetDir = Directory.Exists(game.Path!) ? game.Path : Path.GetDirectoryName(game.Path);
+            }
             if (string.IsNullOrEmpty(targetDir))
                 return BadRequest(new { success = false, message = "Could not resolve game folder" });
 
@@ -1792,6 +1805,20 @@ namespace RetroArr.Api.V3.Games
 
                         tracker.MarkCompleted(trackId);
                         _logger.Info($"[GOG] Download complete: {filePath} ({totalRead} bytes)");
+
+                        // Wire the freshly-downloaded folder back to the game row
+                        // and refresh GameFiles so the UI sees the file right away.
+                        try
+                        {
+                            var fresh = await _repository.GetByIdAsync(game.Id);
+                            if (fresh != null && (string.IsNullOrEmpty(fresh.Path) || pathWasEmpty))
+                            {
+                                fresh.Path = targetDir;
+                                await _repository.UpdateAsync(fresh.Id, fresh);
+                            }
+                            await _scannerService.SyncGameFilesFromDisk(game.Id, targetDir);
+                        }
+                        catch (Exception ex) { _logger.Warn($"[GOG] Post-download mapping failed: {ex.Message}"); }
                     }
                     catch (OperationCanceledException)
                     {

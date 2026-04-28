@@ -1581,6 +1581,11 @@ namespace RetroArr.Core.Games
                     try { await _gameRepository.UpdateAsync(existingByPath.Id, existingByPath); }
                     catch (Exception ex) { Log($"[Scanner] Backfill update failed for '{existingByPath.Title}': {ex.Message}"); }
                 }
+
+                // Refresh GameFiles so cue/bin companions show up.
+                try { await SyncGameFilesFromDisk(existingByPath.Id, existingByPath.Path); }
+                catch (Exception ex) { Log($"[Scanner] File resync failed for '{existingByPath.Title}': {ex.Message}", LogLevel.Warning); }
+
                 return false;
             }
 
@@ -2009,7 +2014,7 @@ namespace RetroArr.Core.Games
             }
         }
         
-        private async Task SyncGameFilesFromDisk(int gameId, string? gamePath)
+        public async Task SyncGameFilesFromDisk(int gameId, string? gamePath)
         {
             if (string.IsNullOrEmpty(gamePath) || gameId <= 0) return;
 
