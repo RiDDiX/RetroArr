@@ -1,3 +1,8 @@
+## v1.0.142 (2026-04-28)
+
+### Changes
+- stop folder + gog endpoints from 400/500 on unmounted libraries (8efaa8f)
+
 ## v1.0.141 (2026-04-28)
 
 ### Changes
