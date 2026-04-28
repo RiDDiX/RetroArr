@@ -1423,7 +1423,14 @@ namespace RetroArr.Api.V3.Games
 
             var resolvedPath = ResolveGameFolder(game);
             if (string.IsNullOrEmpty(resolvedPath))
-                return BadRequest(new { success = false, message = "Could not resolve game folder. Configure Library Folder in Media Management settings." });
+            {
+                var ms = _configService.LoadMediaSettings();
+                return BadRequest(new
+                {
+                    success = false,
+                    message = $"Could not resolve game folder. FolderPath='{ms.FolderPath}', DestinationPath='{ms.DestinationPath}'. Set Library Folder under Settings → Media."
+                });
+            }
 
             try
             {
@@ -1692,7 +1699,14 @@ namespace RetroArr.Api.V3.Games
                     : (Directory.Exists(game.Path!) ? game.Path : (Path.HasExtension(game.Path) ? Path.GetDirectoryName(game.Path) : game.Path));
 
                 if (string.IsNullOrEmpty(targetDir))
-                    return BadRequest(new { success = false, message = "Could not resolve game folder. Configure Library Folder in Media Management settings." });
+                {
+                    var ms = _configService.LoadMediaSettings();
+                    return BadRequest(new
+                    {
+                        success = false,
+                        message = $"Could not resolve game folder. game.Path='{game.Path}', FolderPath='{ms.FolderPath}', DestinationPath='{ms.DestinationPath}'. Set Library Folder under Settings → Media."
+                    });
+                }
 
                 try { Directory.CreateDirectory(targetDir); }
                 catch (Exception ex)

@@ -427,7 +427,7 @@ const GameDetails: React.FC = () => {
       setGameFilesTotalSize(filesRes.data.totalSize || '');
     } catch (err) {
       console.error('Error creating folder:', err);
-      setNotification({ message: 'Failed to create game folder', type: 'error' });
+      setNotification({ message: getErrorMessage(err, 'Failed to create game folder'), type: 'error' });
     } finally {
       setCreatingFolder(false);
     }
