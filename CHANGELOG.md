@@ -1,3 +1,8 @@
+## v1.0.140 (2026-04-28)
+
+### Changes
+- resync game files on rescan, route gog downloads to library (873afb5)
+
 ## v1.0.139 (2026-04-28)
 
 ### Changes
