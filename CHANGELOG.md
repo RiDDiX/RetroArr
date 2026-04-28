@@ -1,3 +1,8 @@
+## v1.0.139 (2026-04-28)
+
+### Changes
+- register cue/bin companions as game files (66f38ae)
+
 ## v1.0.138 (2026-04-27)
 
 ### Changes
