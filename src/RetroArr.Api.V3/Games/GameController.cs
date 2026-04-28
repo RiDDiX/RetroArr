@@ -1792,9 +1792,16 @@ namespace RetroArr.Api.V3.Games
                             };
                             var result = await _postDownloadProcessor.ProcessCompletedDownloadAsync(status);
                             if (result.Success)
+                            {
                                 _logger.Info($"[GOG] Post-download import OK: {result.DestinationPath}");
+                            }
                             else
+                            {
                                 _logger.Warn($"[GOG] Post-download import failed: {result.Reason}");
+                                // Flip the tracker entry so the UI shows the import error
+                                // instead of a "Completed" row that never moved.
+                                tracker.MarkFailed(trackId, $"Import failed: {result.Reason}");
+                            }
                         }
                         catch (Exception ex) { _logger.Error($"[GOG] PostDownloadProcessor threw: {ex.Message}"); }
                     }

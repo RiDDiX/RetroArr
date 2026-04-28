@@ -178,15 +178,20 @@ namespace RetroArr.Core.Download
         private async System.Threading.Tasks.Task<PostDownloadResult> AutoMoveToLibrary(DownloadStatus download)
         {
             var mediaSettings = _configService.LoadMediaSettings();
-            var libraryRoot = !string.IsNullOrEmpty(mediaSettings.DestinationPath) && Directory.Exists(mediaSettings.DestinationPath)
-                ? mediaSettings.DestinationPath 
-                : mediaSettings.FolderPath;
+            // Match ResolveGameFolder: any rooted path is good enough, mkdir does the rest.
+            var libraryRoot = !string.IsNullOrEmpty(mediaSettings.DestinationPath) && Path.IsPathRooted(mediaSettings.DestinationPath)
+                ? mediaSettings.DestinationPath
+                : !string.IsNullOrEmpty(mediaSettings.FolderPath) && Path.IsPathRooted(mediaSettings.FolderPath)
+                    ? mediaSettings.FolderPath
+                    : null;
 
-            if (string.IsNullOrEmpty(libraryRoot) || !Directory.Exists(libraryRoot))
+            if (string.IsNullOrEmpty(libraryRoot))
             {
                 _logger.Info("[PostDownload] Skip Auto-Move: Library path not configured.");
-                return PostDownloadResult.Fail($"Library path not configured or does not exist. Configure 'Library Folder' in Media Management settings. Current: '{libraryRoot}'");
+                return PostDownloadResult.Fail($"Library path not configured. FolderPath='{mediaSettings.FolderPath}', DestinationPath='{mediaSettings.DestinationPath}'.");
             }
+            try { Directory.CreateDirectory(libraryRoot); }
+            catch (Exception ex) { return PostDownloadResult.Fail($"Cannot create library root '{libraryRoot}': {ex.Message}"); }
 
             // Game-targeted import: if download is linked to a specific game, import directly to its folder
             if (download.GameId.HasValue)
