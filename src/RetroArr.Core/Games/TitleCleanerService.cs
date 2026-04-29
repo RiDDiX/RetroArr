@@ -39,6 +39,20 @@ namespace RetroArr.Core.Games
         public static bool IsContainerExtension(string? ext) =>
             !string.IsNullOrEmpty(ext) && _containerExtensions.Contains(ext);
 
+        // path goes below a .psvita / .ps4 folder, those rows are junk
+        public static bool IsContainerOrphanPath(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return false;
+            var parts = path.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+                                    StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < parts.Length - 1; i++)
+            {
+                if (IsContainerExtension(Path.GetExtension(parts[i])))
+                    return true;
+            }
+            return false;
+        }
+
         // Region tokens found in filenames — ordered by specificity (longest first)
         private static readonly (string Token, string Region)[] _regionTokens = new[]
         {

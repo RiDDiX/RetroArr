@@ -192,8 +192,7 @@ namespace RetroArr.Core.Games
             catch { return false; }
         }
 
-        // null and empty collapse to the same bucket so a row with no detected
-        // region still groups with another row that also has no region.
+        // null and empty count as the same region bucket
         private static string NormalizeRegion(string? region) =>
             string.IsNullOrWhiteSpace(region) ? string.Empty : region.Trim().ToLowerInvariant();
     }

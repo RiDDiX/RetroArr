@@ -504,5 +504,22 @@ namespace RetroArr.Core.Test.Games
         {
             Assert.That(TitleCleanerService.IsContainerExtension(ext), Is.EqualTo(expected));
         }
+
+        // --- IsContainerOrphanPath ---
+
+        [TestCase("/media/psvita/Minecraft.psvita/PCSB00560/KMP0/key.bin", true)]
+        [TestCase("/media/psvita/Foo.psvita/sub/system.bin", true)]
+        [TestCase("/media/ps4/Bloodborne.ps4/CUSA03173/eboot.bin", true)]
+        [TestCase("/media/ps3/Game.ps3/PS3_GAME/USRDIR/EBOOT.BIN", true)]
+        [TestCase("/media/psvita/Minecraft.psvita", false)]
+        [TestCase("/media/psvita/Minecraft.psvita/", false)]
+        [TestCase("/media/psx/Tekken 2.cue", false)]
+        [TestCase("/media/psx/Game.bin", false)]
+        [TestCase("", false)]
+        [TestCase(null, false)]
+        public void IsContainerOrphanPath_DetectsRowsBelowContainer(string? path, bool expected)
+        {
+            Assert.That(TitleCleanerService.IsContainerOrphanPath(path), Is.EqualTo(expected));
+        }
     }
 }

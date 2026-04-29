@@ -286,7 +286,23 @@ namespace RetroArr.Api.V3.Settings
                     }
                 }
 
-                // 4. Dangling GameFiles: remove rows whose GameId no longer exists
+                // 4. Container orphans: rows pointing into .psvita / .ps4 etc.
+                if (request.PruneContainerOrphans)
+                {
+                    var pathRows = await context.Games
+                        .Where(g => g.Path != null && g.Path != "")
+                        .ToListAsync();
+                    var orphanRows = pathRows
+                        .Where(g => TitleCleanerService.IsContainerOrphanPath(g.Path))
+                        .ToList();
+                    if (orphanRows.Count > 0)
+                    {
+                        context.Games.RemoveRange(orphanRows);
+                        result.ContainerOrphansRemoved = orphanRows.Count;
+                    }
+                }
+
+                // 5. Dangling GameFiles: remove rows whose GameId no longer exists
                 var gameIds = await context.Games.Select(g => g.Id).ToListAsync();
                 var gameIdSet = gameIds.ToHashSet();
                 var dangling = await context.GameFiles
@@ -528,6 +544,8 @@ namespace RetroArr.Api.V3.Settings
     {
         public bool HealPlatformFromPath { get; set; } = true;
         public bool MergeDuplicates { get; set; }
+        // drop junk rows from inside .psvita / .ps4 folders, files stay
+        public bool PruneContainerOrphans { get; set; } = true;
     }
 
     public class DatabaseRepairResult
@@ -537,6 +555,7 @@ namespace RetroArr.Api.V3.Settings
         public int PlatformsHealed { get; set; }
         public int DanglingGameFilesRemoved { get; set; }
         public int DuplicatesMerged { get; set; }
+        public int ContainerOrphansRemoved { get; set; }
     }
 
     public class DatabaseResetChallenge

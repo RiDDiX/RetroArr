@@ -856,8 +856,7 @@ namespace RetroArr.Core.Games
             }
         }
 
-        // null and empty count as the same bucket so a row with no detected
-        // region still matches another row that also has none.
+        // null and empty count as the same region bucket
         private static bool SameRegion(string? a, string? b)
         {
             var x = string.IsNullOrWhiteSpace(a) ? string.Empty : a.Trim();
@@ -2736,9 +2735,31 @@ namespace RetroArr.Core.Games
         // without touching the Missing-flag lifecycle.
         public async Task<(int healed, int dupesDropped, int mergedDuplicates)> HealWrongPlatformsAsync(System.Threading.CancellationToken ct = default)
         {
+            // first sweep: drop rows pointing inside .psvita / .ps4 etc.
+            int prunedOrphans = 0;
+            try
+            {
+                var preList = await _gameRepository.GetAllLightAsync();
+                foreach (var g in preList)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (!TitleCleanerService.IsContainerOrphanPath(g.Path)) continue;
+                    try
+                    {
+                        await _gameRepository.DeleteAsync(g.Id);
+                        prunedOrphans++;
+                        Log($"[Heal] Pruned container orphan id={g.Id} path='{g.Path}'");
+                    }
+                    catch (Exception ex) { Log($"[Heal] Prune failed id={g.Id}: {ex.Message}", LogLevel.Warning); }
+                }
+                if (prunedOrphans > 0) Log($"[Heal] Container orphan pass: pruned {prunedOrphans}");
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { Log($"[Heal] Container orphan pass skipped: {ex.Message}", LogLevel.Warning); }
+
             var all = await _gameRepository.GetAllLightAsync();
             int healed = 0;
-            int dupesDropped = 0;
+            int dupesDropped = prunedOrphans;
 
             var live = new Dictionary<(string, int), HashSet<int>>();
             foreach (var g in all)
