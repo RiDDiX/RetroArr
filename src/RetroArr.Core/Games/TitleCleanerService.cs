@@ -30,9 +30,14 @@ namespace RetroArr.Core.Games
             "US", "EU", "JP", "UK"
         };
 
+        // folder is the game, files inside belong to it
         private static readonly HashSet<string> _containerExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) {
-            ".ps3", ".ps3dir", ".psn", ".ps4", ".psvita"
+            ".ps3", ".ps3dir", ".psn", ".ps4", ".psvita",
+            ".xbox360", ".daphne", ".gog"
         };
+
+        public static bool IsContainerExtension(string? ext) =>
+            !string.IsNullOrEmpty(ext) && _containerExtensions.Contains(ext);
 
         // Region tokens found in filenames — ordered by specificity (longest first)
         private static readonly (string Token, string Region)[] _regionTokens = new[]

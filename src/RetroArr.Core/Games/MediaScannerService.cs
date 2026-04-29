@@ -1192,19 +1192,21 @@ namespace RetroArr.Core.Games
 
                 foreach (var subDir in root.EnumerateDirectories().OrderBy(d => d.FullName, StringComparer.Ordinal))
                 {
-                    // TAREA: PS3 Folder Detection
+                    // PS3 dump folder marker
                     if (subDir.Name.Equals("PS3_GAME", StringComparison.OrdinalIgnoreCase))
                     {
-                        // If we find PS3_GAME, the root folder is a PS3 game
                         if (!results.ContainsKey(root.FullName))
                             results[root.FullName] = new List<string>();
-                        
-                        // Treat the folder as a single game entry for ScanFileMode.
+
                         if (!results[root.FullName].Contains(subDir.FullName))
-                            results[root.FullName].Add(subDir.FullName); 
-                        
-                        continue; // No need to recurse into PS3_GAME for files
+                            results[root.FullName].Add(subDir.FullName);
+
+                        continue;
                     }
+
+                    // folder is the game (e.g. Game.psvita), don't dig in
+                    if (TitleCleanerService.IsContainerExtension(Path.GetExtension(subDir.Name)))
+                        continue;
 
                     DiscoverFilesHierarchical(subDir, allowedExtensions, results, ct, currentDepth + 1, maxDepth);
                 }

@@ -484,5 +484,25 @@ namespace RetroArr.Core.Test.Games
         {
             Assert.That(TitleCleanerService.DeriveBaseTitleId(input), Is.EqualTo(expected));
         }
+
+        // --- IsContainerExtension ---
+
+        [TestCase(".psvita", true)]
+        [TestCase(".PSVITA", true)]
+        [TestCase(".ps4", true)]
+        [TestCase(".ps3", true)]
+        [TestCase(".ps3dir", true)]
+        [TestCase(".psn", true)]
+        [TestCase(".xbox360", true)]
+        [TestCase(".daphne", true)]
+        [TestCase(".gog", true)]
+        [TestCase(".bin", false)]
+        [TestCase(".iso", false)]
+        [TestCase("", false)]
+        [TestCase(null, false)]
+        public void IsContainerExtension_FlagsFolderModeContainers(string? ext, bool expected)
+        {
+            Assert.That(TitleCleanerService.IsContainerExtension(ext), Is.EqualTo(expected));
+        }
     }
 }
