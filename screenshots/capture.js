@@ -82,7 +82,7 @@ async function captureGameDetails(page) {
   }, { base: BASE_URL, key: OPTS.apiKey });
 
   if (!id) {
-    console.warn('  [SKIP] game-details.png — no games found.');
+    console.warn('  [SKIP] game-details.png: no games found.');
     return;
   }
 
