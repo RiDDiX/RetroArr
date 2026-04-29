@@ -1,3 +1,8 @@
+## v1.0.156 (2026-04-29)
+
+### Changes
+- refresh documentation screenshots (2ce1684)
+
 ## v1.0.155 (2026-04-29)
 
 ### Changes
