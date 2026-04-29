@@ -1,3 +1,9 @@
+## v1.0.150 (2026-04-29)
+
+### Changes
+- expand scanner extensions to match batocera coverage (682f520)
+- add folder aliases for batocera variant slugs (17091a5)
+
 ## v1.0.149 (2026-04-29)
 
 ### Changes
