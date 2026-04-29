@@ -1,3 +1,8 @@
+## v1.0.151 (2026-04-29)
+
+### Changes
+- patch dependabot-flagged npm vulnerabilities (928e487)
+
 ## v1.0.150 (2026-04-29)
 
 ### Changes
