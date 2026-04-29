@@ -1,3 +1,11 @@
+## v1.0.152 (2026-04-29)
+
+### Changes
+- prune container orphans on repair and heal (76f9257)
+- show region flag outside hover overlay (a825496)
+- stop merging regional dumps as duplicates (2853679)
+- stop scanning inside .psvita and .ps4 folders (02b44ae)
+
 ## v1.0.151 (2026-04-29)
 
 ### Changes
