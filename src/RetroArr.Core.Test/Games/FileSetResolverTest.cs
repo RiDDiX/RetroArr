@@ -262,5 +262,22 @@ namespace RetroArr.Core.Test.Games
             Assert.That(set.CompanionFiles.Count, Is.EqualTo(1));
             Assert.That(Path.GetFileName(set.CompanionFiles[0]), Is.EqualTo("Game.bin"));
         }
+
+        [Test]
+        public void AllFiles_DottedPsxStem_ListsCueAndBin()
+        {
+            // detail view used to show only the cue, bin was missing from the size total
+            var binPath = Path.Combine(_tempDir, "SCES_002.55.Tekken 2 (EU).bin");
+            var cuePath = Path.Combine(_tempDir, "SCES_002.55.Tekken 2 (EU).cue");
+            File.WriteAllBytes(binPath, new byte[1024]);
+            File.WriteAllText(cuePath, "FILE \"SCES_002.55.Tekken 2 (EU).bin\" BINARY\n  TRACK 01 MODE2/2352\n");
+
+            var set = FileSetResolver.Resolve(cuePath);
+            var all = set.AllFiles.ToList();
+
+            Assert.That(all.Count, Is.EqualTo(2));
+            Assert.That(all[0], Is.EqualTo(cuePath));
+            Assert.That(Path.GetFileName(all[1]), Is.EqualTo("SCES_002.55.Tekken 2 (EU).bin"));
+        }
     }
 }

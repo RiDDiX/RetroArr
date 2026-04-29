@@ -1327,19 +1327,30 @@ namespace RetroArr.Api.V3.Games
 
                 if (isSingleFile)
                 {
-                    var fi = new FileInfo(game.Path!);
-                    totalSizeBytes += fi.Length;
-                    files.Add(new
+                    // pull cue/gdi/m3u companions so the bin tracks show up too
+                    var fileSet = FileSetResolver.Resolve(game.Path!);
+                    var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var member in fileSet.AllFiles)
                     {
-                        name = fi.Name,
-                        relativePath = fi.Name,
-                        fullPath = fi.FullName,
-                        size = fi.Length,
-                        formattedSize = FormatFileSize(fi.Length),
-                        extension = fi.Extension,
-                        lastModified = fi.LastWriteTimeUtc,
-                        fileType = "Main"
-                    });
+                        if (string.IsNullOrEmpty(member)) continue;
+                        if (!System.IO.File.Exists(member)) continue;
+                        var fullMember = Path.GetFullPath(member);
+                        if (!seen.Add(fullMember)) continue;
+
+                        var fi = new FileInfo(member);
+                        totalSizeBytes += fi.Length;
+                        files.Add(new
+                        {
+                            name = fi.Name,
+                            relativePath = fi.Name,
+                            fullPath = fi.FullName,
+                            size = fi.Length,
+                            formattedSize = FormatFileSize(fi.Length),
+                            extension = fi.Extension,
+                            lastModified = fi.LastWriteTimeUtc,
+                            fileType = "Main"
+                        });
+                    }
                 }
                 else if (folderExists)
                 {
