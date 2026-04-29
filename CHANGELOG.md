@@ -1,3 +1,8 @@
+## v1.0.158 (2026-04-29)
+
+### Changes
+- align docs and landing with code, strip em-dashes (19aa025)
+
 ## v1.0.157 (2026-04-29)
 
 ### Changes
