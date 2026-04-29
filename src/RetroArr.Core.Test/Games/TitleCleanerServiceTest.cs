@@ -473,6 +473,49 @@ namespace RetroArr.Core.Test.Games
             Assert.That(info.FileType, Is.EqualTo("Main"));
         }
 
+        // gog installer naming: setup_<game>_<kind>_<version>_(<id>).exe
+        [Test]
+        public void Classify_GogSetupDlc_ReturnsDLC()
+        {
+            var info = _sut.ClassifySupplementaryContent("setup_witcher_dlc_blood_and_wine_1.0_(34679).exe", "Witcher 3");
+            Assert.That(info.FileType, Is.EqualTo("DLC"));
+        }
+
+        [Test]
+        public void Classify_GogSetupPatch_ReturnsPatch()
+        {
+            var info = _sut.ClassifySupplementaryContent("setup_witcher_patch_1.1_(34680).exe", "Witcher 3");
+            Assert.That(info.FileType, Is.EqualTo("Patch"));
+        }
+
+        [Test]
+        public void Classify_GogSetupUpdate_ReturnsPatch()
+        {
+            var info = _sut.ClassifySupplementaryContent("setup_witcher_update_1.1_(34680).exe", "Witcher 3");
+            Assert.That(info.FileType, Is.EqualTo("Patch"));
+        }
+
+        [Test]
+        public void Classify_GogSetupAddon_ReturnsDLC()
+        {
+            var info = _sut.ClassifySupplementaryContent("setup_witcher_addon_xyz.exe", "Witcher 3");
+            Assert.That(info.FileType, Is.EqualTo("DLC"));
+        }
+
+        [Test]
+        public void Classify_GogSetupExpansion_ReturnsDLC()
+        {
+            var info = _sut.ClassifySupplementaryContent("setup_witcher_expansion_pack.exe", "Witcher 3");
+            Assert.That(info.FileType, Is.EqualTo("DLC"));
+        }
+
+        [Test]
+        public void Classify_GogMainInstaller_ReturnsMain()
+        {
+            var info = _sut.ClassifySupplementaryContent("setup_witcher_3_1.0_(64bit)_(34678).exe", "Witcher 3");
+            Assert.That(info.FileType, Is.EqualTo("Main"));
+        }
+
         // --- DeriveBaseTitleId ---
 
         [TestCase("01004A4000B3A800", "01004A4000B3A000")]
