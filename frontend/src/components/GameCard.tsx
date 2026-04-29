@@ -197,32 +197,33 @@ const GameCard: React.FC<GameCardProps> = ({ game, reviewData, onClick, onContex
             {review.metacriticScore}
           </div>
         )}
+        {/* region row sits outside the hover overlay so the flag is always visible */}
+        {(game.region || game.languages || game.revision || game.protonDbTier) && (
+          <div className="game-card-region" style={{ position: 'absolute', bottom: '8px', left: '8px', zIndex: 10, display: 'flex', alignItems: 'center', gap: '4px' }}>
+            {(game.region || game.languages) && (
+              <RegionFlag region={game.region} languages={game.languages} size="small" />
+            )}
+            {game.revision && (
+              <span style={{
+                background: 'rgba(0,0,0,0.7)',
+                color: '#fab387',
+                fontSize: '9px',
+                fontWeight: 600,
+                padding: '1px 5px',
+                borderRadius: '3px',
+                whiteSpace: 'nowrap'
+              }}>{game.revision}</span>
+            )}
+            {(() => {
+              const slug = game.platform?.slug?.toLowerCase() ?? '';
+              const showAlways = slug === 'pc' || slug === 'steam' || slug === 'windows';
+              return (game.protonDbTier || showAlways) ? (
+                <ProtonDbBadge tier={game.protonDbTier} size="medium" showLabel showWhenMissing={showAlways} />
+              ) : null;
+            })()}
+          </div>
+        )}
         <div className="game-card-overlay">
-          {(game.region || game.languages || game.revision || game.protonDbTier) && (
-            <div className="game-card-region" style={{ position: 'absolute', bottom: '8px', left: '8px', zIndex: 10, display: 'flex', alignItems: 'center', gap: '4px' }}>
-              {(game.region || game.languages) && (
-                <RegionFlag region={game.region} languages={game.languages} size="small" />
-              )}
-              {game.revision && (
-                <span style={{
-                  background: 'rgba(0,0,0,0.7)',
-                  color: '#fab387',
-                  fontSize: '9px',
-                  fontWeight: 600,
-                  padding: '1px 5px',
-                  borderRadius: '3px',
-                  whiteSpace: 'nowrap'
-                }}>{game.revision}</span>
-              )}
-              {(() => {
-                const slug = game.platform?.slug?.toLowerCase() ?? '';
-                const showAlways = slug === 'pc' || slug === 'steam' || slug === 'windows';
-                return (game.protonDbTier || showAlways) ? (
-                  <ProtonDbBadge tier={game.protonDbTier} size="medium" showLabel showWhenMissing={showAlways} />
-                ) : null;
-              })()}
-            </div>
-          )}
           <div className="game-card-rating">
             {game.rating ? `${Math.round(game.rating)}%` : 'N/A'}
           </div>
