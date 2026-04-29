@@ -4,7 +4,7 @@ services:
     container_name: retroarr
     ports:
       - "2727:2727"      # HTTP
-      - "2728:2728"      # HTTPS (optional — remove if running behind a reverse proxy)
+      - "2728:2728"      # HTTPS (optional, remove if running behind a reverse proxy)
     volumes:
       - ./config:/app/config       # Logs are stored in ./config/logs/ by default
       - ./games:/media

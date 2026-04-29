@@ -96,4 +96,4 @@ The scanner recognizes serials from **all regions** (USA, EUR, JP, Asia) to iden
 
 ## 8. Updates, Patches & DLC
 
-For platforms that support separate update/patch/DLC files (Switch, PS3–PS5, Vita, PSP, 3DS, Wii U, Xbox 360), the scanner classifies files by TitleID bit flags, serial suffixes, filename keywords, and subfolder context. See the full guide: [Updates & DLC](UPDATES_DLC_GUIDE.md).
+For platforms that support separate update/patch/DLC files (Switch, PS3, PS4, PS5, Vita, PSP, 3DS, Wii U, Xbox 360), the scanner classifies files by TitleID bit flags, serial suffixes, filename keywords, and subfolder context. See the full guide: [Updates & DLC](UPDATES_DLC_GUIDE.md).

@@ -6,9 +6,9 @@ RetroArr supports Linux desktop environments, Steam Deck, and immutable distribu
 
 When launching a Windows `.exe` on Linux, RetroArr automatically detects the best available runner:
 
-1. **Proton** — Preferred if Steam is installed and a Proton version is found
-2. **Wine** — Fallback if Proton is not available
-3. **Native** — For Linux-native binaries (ELF)
+1. **Proton**: preferred if Steam is installed and a Proton version is found
+2. **Wine**: fallback if Proton is not available
+3. **Native**: for Linux-native binaries (ELF)
 
 You can override the runner per game via the **Export** dropdown on the game details page, or via the API:
 

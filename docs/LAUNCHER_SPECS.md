@@ -17,9 +17,9 @@ public interface ILaunchStrategy {
 ```
 
 ### 1.2 Registered Strategies
-*   **`SteamLaunchStrategy`** — Launches via `steam://run/` protocol.
-*   **`GogLaunchStrategy`** — Launches via `goggalaxy://runGame/` protocol.
-*   **`NativeLaunchStrategy`** — Direct executable launch with OS-specific logic for Windows, macOS, and Linux.
+*   **`SteamLaunchStrategy`**: launches via `steam://run/` protocol.
+*   **`GogLaunchStrategy`**: launches via `goggalaxy://runGame/` protocol.
+*   **`NativeLaunchStrategy`**: direct executable launch with OS-specific logic for Windows, macOS, and Linux.
 
 ---
 
@@ -112,5 +112,5 @@ All three OS paths are handled by `NativeLaunchStrategy`, which delegates based 
 
 ### Why `open` on macOS
 Letting macOS handle the file association means we don't reimplement Whisky/CrossOver logic:
-* If `open` fails, it's a Finder/macOS issue — surfaces faster than a custom error path.
-* If the user already set `.exe` files to open with Whisky in Finder, RetroArr inherits that — no "bottles" or `Z:` path juggling on our side.
+* If `open` fails, it's a Finder/macOS issue, which surfaces faster than a custom error path.
+* If the user already set `.exe` files to open with Whisky in Finder, RetroArr inherits that. No "bottles" or `Z:` path juggling on our side.

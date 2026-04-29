@@ -5,7 +5,7 @@ services:
     network_mode: bridge
     ports:
       - "2727:2727"      # HTTP
-      - "2728:2728"      # HTTPS (self-signed) — remove if using a reverse proxy
+      - "2728:2728"      # HTTPS (self-signed, drop if using a reverse proxy)
     volumes:
       - /DATA/AppData/RetroArr/config:/app/config
       - /DATA/Media:/media

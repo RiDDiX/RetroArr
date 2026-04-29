@@ -15,7 +15,7 @@
 
 ---
 
-Think Radarr/Sonarr, but for video games. RetroArr scans your library, fetches metadata, organizes files, searches indexers, and automates downloads — across PC, retro consoles, handhelds, and arcade platforms. One tool, one UI.
+Think Radarr/Sonarr, but for video games. RetroArr scans your library, fetches metadata, organizes files, searches indexers, and automates downloads across PC, retro consoles, handhelds, and arcade platforms. One tool, one UI.
 
 ## Quick Start
 
@@ -49,15 +49,15 @@ Open `http://your-ip:2727` (or `https://your-ip:2728`), then **Settings → Meta
 
 Both are served by the same container. Pick what fits your setup:
 
-- **HTTP on `:2727`** — fine for localhost, or when you already have a reverse proxy (SWAG, Traefik, Caddy, nginx) handling TLS
-- **HTTPS on `:2728`** — auto-generated self-signed cert on first start, stored in `config/certs/retroarr.pfx`. Required for threaded emulator cores (PSP, NDS, N64, Saturn, 3DO) when you access the UI from a LAN IP — browsers only expose `SharedArrayBuffer` on secure origins
+- **HTTP on `:2727`**: fine for localhost, or when you already have a reverse proxy (SWAG, Traefik, Caddy, nginx) handling TLS
+- **HTTPS on `:2728`**: auto-generated self-signed cert on first start, stored in `config/certs/retroarr.pfx`. Required for threaded emulator cores (PSP, NDS, N64, Saturn, 3DO) when you access the UI from a LAN IP, because browsers only expose `SharedArrayBuffer` on secure origins
 
 If you only plan to proxy through SWAG with a real cert, drop the `2728` line from `ports:` and the `RETROARR_HTTPS_PORT` env var.
 
 ## Features
 
 **Library & scanning**
-- Identifies files across **170 platforms** from `PlatformDefinitions.cs` — PC, every PlayStation, every Xbox, Nintendo NES through Switch 2, Sega from SG-1000 to Dreamcast, Atari, NEC, Arcade (MAME, FBNeo, CPS, Neo Geo), ScummVM, DOSBox, a pile of obscure handhelds and 8-bit computers
+- Identifies files across **170 platforms** from `PlatformDefinitions.cs`: PC, every PlayStation, every Xbox, Nintendo NES through Switch 2, Sega from SG-1000 to Dreamcast, Atari, NEC, Arcade (MAME, FBNeo, CPS, Neo Geo), ScummVM, DOSBox, plus a pile of obscure handhelds and 8-bit computers
 - Metadata from **IGDB** (primary), **ScreenScraper** (retro and arcade fallback), **Steam**, and **GOG**
 - PlayStation serial extraction (SCES/SCUS/SLUS/SLES/CUSA/PPSA/…) so the title gets cleaned and metadata finds the right entry
 - Nintendo Switch Title ID parsing (base vs patch vs DLC via bit flags)
@@ -77,8 +77,8 @@ If you only plan to proxy through SWAG with a real cert, drop the `2728` line fr
 - macOS: opens via `/usr/bin/open`, delegates to Whisky/CrossOver when present
 
 **Emulation**
-- Browser-based retro emulation via [EmulatorJS](https://emulatorjs.org/) — 25 cores wired up (NES/SNES/N64/GB/GBC/GBA/NDS/VB, Genesis/Master System/Game Gear/Saturn/32X/Sega CD, PS1/PSP, Atari 2600/5200/7800/Lynx/Jaguar, Arcade, PCEngine)
-- BIOS drop folder at `/app/config/bios` — whitelisted filenames served to EmulatorJS on demand
+- Browser-based retro emulation via [EmulatorJS](https://emulatorjs.org/) with 23 cores wired up: NES, SNES, N64, GB, GBC, GBA, NDS, VB, Genesis, Master System, Game Gear, Saturn, 32X, Sega CD, PS1, PSP, Atari 2600/5200/7800/Lynx/Jaguar, Arcade, PCEngine
+- BIOS drop folder at `/app/config/bios`, whitelisted filenames served to EmulatorJS on demand
 - Save states: 8 slots per game, upload/download/delete from the UI, stored in `/app/savestates`
 
 **UI & integrations**
@@ -87,10 +87,10 @@ If you only plan to proxy through SWAG with a real cert, drop the `2728` line fr
 - Plugin system: process-isolated, language-agnostic, with circuit breaker and JSON stdin/stdout
 - Webhook notifications (Discord-compatible) with in-UI test button
 - Nintendo Switch USB transfer via DBI protocol (Python helper ships with the container)
-- Real-time scan / download / health status over SignalR — LIVE badge in the sidebar
+- Real-time scan / download / health status over SignalR, with a LIVE badge in the sidebar
 
 **Storage & deployment**
-- Database: **SQLite** (default), **PostgreSQL**, or **MariaDB** — migration between them is a guided flow in Settings → Database
+- Database: **SQLite** (default), **PostgreSQL**, or **MariaDB**. Migration between them is a guided flow in Settings → Database
 - Optional **Redis** cache
 - Structured logging, per-feature log files, rotation, one-click diagnostics export
 - Docker image runs as non-root, has a `HEALTHCHECK`, works on `amd64` + `arm64`
@@ -159,11 +159,11 @@ Community Applications template: [`_unraid/retroarr.xml`](_unraid/retroarr.xml).
 <details>
 <summary><strong>Behind a reverse proxy (SWAG, Traefik, Caddy, nginx)</strong></summary>
 
-Proxy your HTTPS domain to `http://retroarr:2727`. The container doesn't need its own HTTPS in this case — drop the `2728` port mapping and the `RETROARR_HTTPS_PORT` env var.
+Proxy your HTTPS domain to `http://retroarr:2727`. The container doesn't need its own HTTPS in this case, so drop the `2728` port mapping and the `RETROARR_HTTPS_PORT` env var.
 
 Make sure the proxy forwards WebSocket upgrades (`/hubs/progress`), SignalR needs them. `Upgrade` and `Connection` headers must pass through.
 
-A ready-made SWAG subdomain config ships in [`_swag/retroarr.subdomain.conf`](_swag/retroarr.subdomain.conf) — drop it into `/config/nginx/proxy-confs/` in your SWAG container, point a CNAME at your domain, and restart SWAG.
+A ready-made SWAG subdomain config ships in [`_swag/retroarr.subdomain.conf`](_swag/retroarr.subdomain.conf). Drop it into `/config/nginx/proxy-confs/` in your SWAG container, point a CNAME at your domain, and restart SWAG.
 
 </details>
 
@@ -174,7 +174,7 @@ Grab the build for your OS from [Releases](https://github.com/RiDDiX/RetroArr/re
 | OS | File |
 |----|------|
 | Windows | `RetroArr-Setup.exe` (installer) or portable `.exe` |
-| macOS | `RetroArr.app` — universal (Apple Silicon + Intel) |
+| macOS | `RetroArr.app`, universal (Apple Silicon + Intel) |
 | Linux | Generic x64 binary |
 
 Desktop mode uses ports `5002-5005` and stores config in `{AppData}/RetroArr/config`. Photino wraps the same Kestrel server in a native window.
@@ -197,7 +197,7 @@ cd src && dotnet build RetroArr.sln -c Release
 
 ## Configuration
 
-Everything lives under `config/` (Docker: `/app/config`) as JSON files. Nothing needs editing by hand — use the Settings UI.
+Everything lives under `config/` (Docker: `/app/config`) as JSON files. Nothing needs editing by hand, just use the Settings UI.
 
 | Setting | Where | What |
 |---------|-------|------|
@@ -239,7 +239,7 @@ Everything lives under `config/` (Docker: `/app/config`) as JSON files. Nothing 
 npm run lint                                          # Frontend lint
 npm run build                                         # Frontend build
 cd src && dotnet build RetroArr.sln -c Release        # Backend build
-cd src && dotnet test RetroArr.Core.Test -c Release   # Tests (171 of them)
+cd src && dotnet test RetroArr.Core.Test -c Release   # NUnit test suite
 docker build -t retroarr:local .                      # Full image
 ```
 
@@ -267,7 +267,7 @@ Bug, idea, feature request? [Open an issue](https://github.com/RiDDiX/RetroArr/i
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).
 
 ## Disclaimer
 

@@ -1,4 +1,4 @@
-# Updates, Patches & DLC — Folder Structure Guide
+# Updates, Patches & DLC: Folder Structure Guide
 
 This document covers how RetroArr detects and classifies game updates, patches, and DLC for every supported platform that uses them. It explains the ID systems, expected folder structures, filename detection rules, and public databases available for each platform.
 
@@ -48,7 +48,7 @@ Platforms not listed here (NES, SNES, N64, GB/GBC/GBA, NDS, all Sega, all Atari,
 
 ### ID System
 
-Every Switch title has a **Title ID** — a 16-character hexadecimal string embedded in NCA metadata and commonly included in filenames.
+Every Switch title has a **Title ID**, a 16-character hexadecimal string embedded in NCA metadata and commonly included in filenames.
 
 The relationship between base game, update, and DLC Title IDs is **deterministic** based on bit flags in the last 4 hex digits:
 
@@ -56,7 +56,7 @@ The relationship between base game, update, and DLC Title IDs is **deterministic
 |-------------|----------|--------------------|-----------------------|
 | Base game | Neither bit 11 nor 12 | `X000` (X even) | `01004A4000B3A000` |
 | Update / Patch | Bit 11 set (0x800) | `X800` (X even) | `01004A4000B3A800` |
-| DLC | Bit 12 set (0x1000) | `Y001`–`YFFF` (Y = X+1, odd) | `01004A4000B3B001` |
+| DLC | Bit 12 set (0x1000) | `Y001` to `YFFF` (Y = X+1, odd) | `01004A4000B3B001` |
 
 **Detection algorithm used by RetroArr** (`TitleCleanerService.ClassifySupplementaryContent`):
 ```
@@ -105,7 +105,7 @@ RetroArr supports three layout variants. Files can be placed at the platform roo
 ```
 
 ```
-# Real-world flat layout (no IDs — uses keyword + version detection)
+# Real-world flat layout (no IDs, uses keyword + version detection)
 
 /media/switch/
 ├── bayonetta_2_v0.nsp                       ← base (v0)
@@ -136,7 +136,7 @@ RetroArr automatically handles scene release naming conventions:
 2. **Leading group prefixes** like `sxs-`, `venom-` are stripped
 3. **Underscores** are normalized to spaces for keyword matching
 4. **Space-delimited versions** are normalized: `v1 0 3` → `v1.0.3`, `v1 01` → `v1.01`
-5. The platform tag (`NSW`) alone is not a content-type signal — it only confirms the platform
+5. The platform tag (`NSW`) alone is not a content-type signal, it only confirms the platform
 
 ### Naming Convention Summary
 
@@ -512,7 +512,7 @@ RetroArr uses two metadata providers for game information, covers, screenshots, 
 - **Endpoint**: `api.igdb.com/v4`
 - **Auth**: OAuth2 via Twitch (`id.twitch.tv/oauth2/token`), requires Client ID + Secret
 - **Config**: `config/igdb.json` or env vars `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET`
-- **Coverage**: All modern and retro platforms — games, covers, screenshots, artworks, genres, companies, release dates, alternative names, external IDs
+- **Coverage**: all modern and retro platforms. Games, covers, screenshots, artworks, genres, companies, release dates, alternative names, external IDs
 - **Platform mapping**: Each platform in `PlatformDefinitions.cs` has an `IgdbPlatformId` used to filter search results
 
 ### ScreenScraper (screenscraper.fr)

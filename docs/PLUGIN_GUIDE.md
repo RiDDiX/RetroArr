@@ -1,6 +1,6 @@
 # Plugin Developer Guide
 
-RetroArr lets you extend metadata enrichment and custom scripting through plugins. Each plugin runs as its own subprocess, so a crash in a plugin stays in that plugin — the main app keeps running.
+RetroArr lets you extend metadata enrichment and custom scripting through plugins. Each plugin runs as its own subprocess, so a crash in a plugin stays in that plugin and the main app keeps running.
 
 ## Architecture
 
@@ -107,10 +107,10 @@ Receives event/context data on stdin, returns processing results on stdout.
 
 RetroArr ensures plugins cannot harm the main application:
 
-1. **Process Boundary** — Each plugin runs as a separate OS process
-2. **Timeout** — Plugins that exceed `timeoutSeconds` are killed
-3. **Circuit Breaker** — After 3 consecutive failures, the plugin is disabled until manually reset
-4. **Exit Code** — Non-zero exit codes are treated as failures
+1. **Process Boundary**: each plugin runs as a separate OS process
+2. **Timeout**: plugins that exceed `timeoutSeconds` are killed
+3. **Circuit Breaker**: after 3 consecutive failures, the plugin is disabled until manually reset
+4. **Exit Code**: non-zero exit codes are treated as failures
 
 ## API Endpoints
 
@@ -133,15 +133,15 @@ RetroArr ensures plugins cannot harm the main application:
 
 RetroArr ships with example plugins in `config.example/plugins/`:
 
-- **example-metadata-plugin** — Returns supplemental metadata for a game
-- **example-script-plugin** — Auto-tags games based on file extensions
-- **bad-plugin-fixture** — Intentionally broken; proves the app stays up when a plugin hangs
+- **example-metadata-plugin**: returns supplemental metadata for a game
+- **example-script-plugin**: auto-tags games based on file extensions
+- **bad-plugin-fixture**: intentionally broken; proves the app stays up when a plugin hangs
 
 Copy these to your `config/plugins/` directory to try them out.
 
 ## Troubleshooting
 
-- Check plugin status via `GET /api/v3/plugins` — look for `isValid` and `error` fields
+- Check plugin status via `GET /api/v3/plugins`, then look for `isValid` and `error` fields
 - If a plugin's circuit breaker is open, reset it via `POST /api/v3/plugins/{name}/reset`
-- Plugin stdout/stderr is captured — check the `output` and `error` fields in the execution response
+- Plugin stdout/stderr is captured. Check the `output` and `error` fields in the execution response
 - Ensure your script reads from stdin (even if it ignores the input) and writes valid JSON to stdout
