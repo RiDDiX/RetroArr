@@ -65,6 +65,49 @@ namespace RetroArr.Core.Test.Games
         }
 
         [Test]
+        public void Detect_SameTitleSamePlatformDifferentRegion_NotFlagged()
+        {
+            // Player Manager 2000 GE and EU are separate releases
+            var games = new List<DuplicateProbe>
+            {
+                new() { Id = 1, Title = "Player Manager 2000", PlatformId = 20, Region = "Germany", Path = "/psx/Player Manager 2000 (GE).cue" },
+                new() { Id = 2, Title = "Player Manager 2000", PlatformId = 20, Region = "Europe", Path = "/psx/Player Manager 2000 (EU).cue" }
+            };
+
+            var clusters = DuplicateGameDetector.Detect(games);
+
+            Assert.That(clusters.Any(c => c.Reason == DuplicateReason.TitleAndPlatform), Is.False);
+        }
+
+        [Test]
+        public void Detect_SameTitlePlatformAndRegion_StillFlagged()
+        {
+            var games = new List<DuplicateProbe>
+            {
+                new() { Id = 1, Title = "Tekken 2", PlatformId = 20, Region = "Europe", Path = "/a/Tekken 2.cue" },
+                new() { Id = 2, Title = "Tekken 2", PlatformId = 20, Region = "Europe", Path = "/b/Tekken 2.iso" }
+            };
+
+            var clusters = DuplicateGameDetector.Detect(games);
+
+            Assert.That(clusters.Any(c => c.Reason == DuplicateReason.TitleAndPlatform), Is.True);
+        }
+
+        [Test]
+        public void Detect_SameTitleSamePlatformBothRegionsNull_StillFlagged()
+        {
+            var games = new List<DuplicateProbe>
+            {
+                new() { Id = 1, Title = "Tekken 2", PlatformId = 20, Region = null, Path = "/a/Tekken 2.cue" },
+                new() { Id = 2, Title = "Tekken 2", PlatformId = 20, Region = null, Path = "/b/Tekken 2.iso" }
+            };
+
+            var clusters = DuplicateGameDetector.Detect(games);
+
+            Assert.That(clusters.Any(c => c.Reason == DuplicateReason.TitleAndPlatform), Is.True);
+        }
+
+        [Test]
         public void Detect_SharedIgdbId_FlaggedAsIgdbDuplicate()
         {
             var games = new List<DuplicateProbe>

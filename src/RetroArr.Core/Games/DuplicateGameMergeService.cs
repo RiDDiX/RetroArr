@@ -35,7 +35,7 @@ namespace RetroArr.Core.Games
             var result = new DuplicateMergeResult();
 
             var games = await context.Games
-                .Select(g => new { g.Id, g.Title, g.PlatformId, g.Path, g.IgdbId })
+                .Select(g => new { g.Id, g.Title, g.PlatformId, g.Path, g.IgdbId, g.Region })
                 .ToListAsync(ct);
 
             var probes = games.Select(g => new DuplicateProbe
@@ -44,7 +44,8 @@ namespace RetroArr.Core.Games
                 Title = g.Title,
                 PlatformId = g.PlatformId,
                 Path = g.Path,
-                IgdbId = g.IgdbId
+                IgdbId = g.IgdbId,
+                Region = g.Region
             });
 
             var clusters = DuplicateGameDetector.Detect(probes);

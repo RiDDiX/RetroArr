@@ -14,6 +14,7 @@ namespace RetroArr.Core.Games
         public string? Path { get; set; }
         public int? IgdbId { get; set; }
         public string? Serial { get; set; }
+        public string? Region { get; set; }
     }
 
     public enum DuplicateReason
@@ -77,10 +78,14 @@ namespace RetroArr.Core.Games
                 });
             }
 
-            // 2) Same title + platform.
+            // 2) Same title + platform + region. Different regional dumps of
+            // the same game (e.g. Player Manager 2000 GE vs EU) stay separate.
             var titleGroups = list
                 .Where(g => !string.IsNullOrWhiteSpace(g.Title))
-                .GroupBy(g => (Title: g.Title.Trim().ToLowerInvariant(), g.PlatformId))
+                .GroupBy(g => (
+                    Title: g.Title.Trim().ToLowerInvariant(),
+                    g.PlatformId,
+                    Region: NormalizeRegion(g.Region)))
                 .Where(g => g.Count() > 1);
 
             foreach (var group in titleGroups)
@@ -186,5 +191,10 @@ namespace RetroArr.Core.Games
             try { return File.Exists(path) || Directory.Exists(path); }
             catch { return false; }
         }
+
+        // null and empty collapse to the same bucket so a row with no detected
+        // region still groups with another row that also has no region.
+        private static string NormalizeRegion(string? region) =>
+            string.IsNullOrWhiteSpace(region) ? string.Empty : region.Trim().ToLowerInvariant();
     }
 }

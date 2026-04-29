@@ -715,15 +715,16 @@ namespace RetroArr.Core.Games
                     var (region, langs, revision) = TitleCleanerService.ExtractFilenameMetadata(baseFolderName);
                     var (cleanName, serial) = _titleCleaner.CleanGameTitle(baseFolderName);
                     
-                    // Check if game exists for THIS platform (allow same title on different platforms)
+                    // Same title on a different platform OR a different region is a separate game
                     if (!existingGames.Any(g => g.Title.Equals(cleanName, StringComparison.OrdinalIgnoreCase) &&
-                        (scanPlatformId == 0 || g.PlatformId == scanPlatformId)))
+                        (scanPlatformId == 0 || g.PlatformId == scanPlatformId) &&
+                        SameRegion(g.Region, region)))
                     {
-                        var candidate = new GameCandidate 
-                        { 
-                            Title = cleanName, 
+                        var candidate = new GameCandidate
+                        {
+                            Title = cleanName,
                             Path = dir,
-                            PlatformKey = platformKey, 
+                            PlatformKey = platformKey,
                             Serial = serial,
                             ExecutablePath = bestExePath,
                             IsInstaller = isInstaller,
@@ -736,7 +737,8 @@ namespace RetroArr.Core.Games
                     else
                     {
                         var existingGame = existingGames.FirstOrDefault(g => g.Title.Equals(cleanName, StringComparison.OrdinalIgnoreCase) &&
-                            (scanPlatformId == 0 || g.PlatformId == scanPlatformId));
+                            (scanPlatformId == 0 || g.PlatformId == scanPlatformId) &&
+                            SameRegion(g.Region, region));
                         if (existingGame != null)
                         {
                             await SyncGameFilesFromDisk(existingGame.Id, dir);
@@ -852,6 +854,15 @@ namespace RetroArr.Core.Games
                 Log($"Error discovering executable in {folderPath}: {ex.Message}");
                 return (null, false);
             }
+        }
+
+        // null and empty count as the same bucket so a row with no detected
+        // region still matches another row that also has none.
+        private static bool SameRegion(string? a, string? b)
+        {
+            var x = string.IsNullOrWhiteSpace(a) ? string.Empty : a.Trim();
+            var y = string.IsNullOrWhiteSpace(b) ? string.Empty : b.Trim();
+            return x.Equals(y, StringComparison.OrdinalIgnoreCase);
         }
 
         private bool IsBinaryExecutable(string filePath)
@@ -989,7 +1000,8 @@ namespace RetroArr.Core.Games
                             var (cleanTitle, serial) = _titleCleaner.CleanGameTitle(rawFileName);
 
                             if (!existingGames.Any(g => g.Title.Equals(cleanTitle, StringComparison.OrdinalIgnoreCase) &&
-                                (fileScanPlatformId == 0 || g.PlatformId == fileScanPlatformId)))
+                                (fileScanPlatformId == 0 || g.PlatformId == fileScanPlatformId) &&
+                                SameRegion(g.Region, fileRegion)))
                             {
                                 var candidate = new GameCandidate 
                                 { 
@@ -1600,20 +1612,22 @@ namespace RetroArr.Core.Games
                 if (platDef != null) candidatePlatformId = platDef.Id;
             }
 
-            // Match by title AND same platform first; fall back to title-only if no platform match
+            // Match by title + platform + region. Different region of the same
+            // title (e.g. Player Manager 2000 GE vs EU) gets its own row.
             var existingByTitle = existingGames.FirstOrDefault(g =>
                 g.Title.Equals(gameTitle, StringComparison.OrdinalIgnoreCase) &&
-                (candidatePlatformId == 0 || g.PlatformId == candidatePlatformId));
+                (candidatePlatformId == 0 || g.PlatformId == candidatePlatformId) &&
+                SameRegion(g.Region, region));
 
             if (existingByTitle == null)
             {
-                // Check title-only match but on a DIFFERENT platform — skip update, allow new entry
                 var crossPlatformMatch = existingGames.FirstOrDefault(g =>
-                    g.Title.Equals(gameTitle, StringComparison.OrdinalIgnoreCase));
+                    g.Title.Equals(gameTitle, StringComparison.OrdinalIgnoreCase) &&
+                    SameRegion(g.Region, region));
                 if (crossPlatformMatch != null && candidatePlatformId > 0 && crossPlatformMatch.PlatformId != candidatePlatformId)
                 {
-                    Log($"[Scanner] '{gameTitle}' exists on platform {crossPlatformMatch.PlatformId} but scanning platform {candidatePlatformId} — creating separate entry");
-                    existingByTitle = null; // Force new entry
+                    Log($"[Scanner] '{gameTitle}' exists on platform {crossPlatformMatch.PlatformId} but scanning platform {candidatePlatformId}, creating separate entry");
+                    existingByTitle = null;
                 }
                 else
                 {
