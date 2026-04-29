@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -11,6 +12,16 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace RetroArr.Core.MetadataSource.ScreenScraper
 {
+    public enum ScreenScraperStatus
+    {
+        Ok,
+        Empty,
+        QuotaExceeded,
+        AuthFailed,
+        NetworkError,
+        Unconfigured
+    }
+
     /// <summary>
     /// Client for ScreenScraper.fr API - provides metadata for arcade and retro games
     /// that may not be available on IGDB (CPS-1/2/3, FinalBurn Neo, ScummVM, etc.)
@@ -39,12 +50,61 @@ namespace RetroArr.Core.MetadataSource.ScreenScraper
             _devPassword = !string.IsNullOrWhiteSpace(devPassword) ? devPassword : DefaultDevPassword;
         }
 
-        public async Task<ScreenScraperGame?> SearchGameAsync(string fileName, int? systemId = null, string? crc = null, string? md5 = null, string? sha1 = null)
+        // dev creds got swapped in via build sed step, if not the placeholder is still here
+        private bool IsConfigured =>
+            !string.IsNullOrWhiteSpace(_devId)
+            && !_devId.StartsWith("%%")
+            && !string.IsNullOrWhiteSpace(_devPassword)
+            && !_devPassword.StartsWith("%%");
+
+        // map http code + body to a status. screenscraper often replies HTTP 200
+        // with a plain-text body like "Quota dépassé" instead of structured json.
+        internal static ScreenScraperStatus ClassifyResponse(HttpStatusCode code, string? body)
         {
+            if (code == HttpStatusCode.Locked || code == (HttpStatusCode)429)
+                return ScreenScraperStatus.QuotaExceeded;
+            if (code == HttpStatusCode.Unauthorized || code == HttpStatusCode.Forbidden)
+                return ScreenScraperStatus.AuthFailed;
+
+            var lower = (body ?? string.Empty).ToLowerInvariant();
+
+            // quota wording, both french and english are seen in the wild
+            if (lower.Contains("quota")
+                || lower.Contains("api totalement fermée")
+                || lower.Contains("api fermee")
+                || lower.Contains("api closed")
+                || lower.Contains("limite atteinte")
+                || lower.Contains("scrapes par jour")
+                || lower.Contains("scrapes restant"))
+                return ScreenScraperStatus.QuotaExceeded;
+
+            // auth wording
+            if (lower.Contains("erreur de login")
+                || lower.Contains("identifiant")
+                || lower.Contains("mot de passe")
+                || (lower.Contains("login") && lower.Contains("incorrect")))
+                return ScreenScraperStatus.AuthFailed;
+
+            if ((int)code >= 500)
+                return ScreenScraperStatus.NetworkError;
+            if (!(code == HttpStatusCode.OK))
+                return ScreenScraperStatus.NetworkError;
+
+            // body must be json from here on
+            var trimmed = (body ?? string.Empty).TrimStart();
+            if (trimmed.Length < 2 || (!trimmed.StartsWith("{") && !trimmed.StartsWith("[")))
+                return ScreenScraperStatus.NetworkError;
+
+            return ScreenScraperStatus.Ok;
+        }
+
+        public async Task<(ScreenScraperStatus Status, ScreenScraperGame? Game)> SearchGameAsync(string fileName, int? systemId = null, string? crc = null, string? md5 = null, string? sha1 = null)
+        {
+            if (!IsConfigured) return (ScreenScraperStatus.Unconfigured, null);
             try
             {
                 var url = $"{BaseUrl}/jeuInfos.php?devid={_devId}&devpassword={_devPassword}&softname={SoftName}&output=json";
-                
+
                 if (!string.IsNullOrEmpty(_username) && !string.IsNullOrEmpty(_password))
                 {
                     url += $"&ssid={Uri.EscapeDataString(_username)}&sspassword={Uri.EscapeDataString(_password)}";
@@ -59,27 +119,25 @@ namespace RetroArr.Core.MetadataSource.ScreenScraper
                     url += $"&md5={md5}";
                 else if (!string.IsNullOrEmpty(crc))
                     url += $"&crc={crc}";
-                
+
                 // Always include filename as fallback
                 url += $"&romnom={Uri.EscapeDataString(Path.GetFileName(fileName))}";
 
                 var response = await _httpClient.GetAsync(url);
-                
-                if (!response.IsSuccessStatusCode)
-                    return null;
+                var body = await response.Content.ReadAsStringAsync();
+                var status = ClassifyResponse(response.StatusCode, body);
+                if (status != ScreenScraperStatus.Ok) return (status, null);
 
-                var json = await response.Content.ReadAsStringAsync();
-                var result = JsonSerializer.Deserialize<ScreenScraperResponse>(json);
-
+                var result = JsonSerializer.Deserialize<ScreenScraperResponse>(body);
                 if (result?.Response?.Jeu == null)
-                    return null;
+                    return (ScreenScraperStatus.Empty, null);
 
-                return result.Response.Jeu;
+                return (ScreenScraperStatus.Ok, result.Response.Jeu);
             }
             catch (Exception ex)
             {
                 _logger.Error($"[ScreenScraper] jeuInfos exception: {ex.Message}");
-                return null;
+                return (ScreenScraperStatus.NetworkError, null);
             }
         }
 
@@ -87,9 +145,10 @@ namespace RetroArr.Core.MetadataSource.ScreenScraper
         /// Search games by title using jeuRecherche.php (free-text search).
         /// Use this for manual UI searches. For ROM identification, use SearchGameAsync.
         /// </summary>
-        public async Task<List<ScreenScraperGame>> SearchGamesByNameAsync(string query, int? systemId = null)
+        public async Task<(ScreenScraperStatus Status, List<ScreenScraperGame> Games)> SearchGamesByNameAsync(string query, int? systemId = null)
         {
             var results = new List<ScreenScraperGame>();
+            if (!IsConfigured) return (ScreenScraperStatus.Unconfigured, results);
             try
             {
                 var url = $"{BaseUrl}/jeuRecherche.php?devid={_devId}&devpassword={_devPassword}&softname={SoftName}&output=json";
@@ -105,44 +164,38 @@ namespace RetroArr.Core.MetadataSource.ScreenScraper
                 url += $"&recherche={Uri.EscapeDataString(query)}";
 
                 var response = await _httpClient.GetAsync(url);
+                var body = await response.Content.ReadAsStringAsync();
+                _logger.Info($"[ScreenScraper] jeuRecherche HTTP {(int)response.StatusCode}, body length={body.Length}");
 
-                if (!response.IsSuccessStatusCode)
-                    return results;
-
-                var json = await response.Content.ReadAsStringAsync();
-                _logger.Info($"[ScreenScraper] jeuRecherche HTTP {(int)response.StatusCode}, body length={json.Length}");
-
-                if (json.Length < 10 || (!json.TrimStart().StartsWith("{") && !json.TrimStart().StartsWith("[")))
+                var status = ClassifyResponse(response.StatusCode, body);
+                if (status != ScreenScraperStatus.Ok)
                 {
-                    _logger.Info($"[ScreenScraper] jeuRecherche non-JSON response: {json}");
-                    return results;
+                    _logger.Info($"[ScreenScraper] jeuRecherche status={status}. First 200 chars: {body[..Math.Min(body.Length, 200)]}");
+                    return (status, results);
                 }
 
-                var result = JsonSerializer.Deserialize<ScreenScraperSearchResponse>(json);
-
+                var result = JsonSerializer.Deserialize<ScreenScraperSearchResponse>(body);
                 if (result?.Response?.Jeux != null)
                 {
                     _logger.Info($"[ScreenScraper] jeuRecherche parsed {result.Response.Jeux.Count} game(s)");
                     results.AddRange(result.Response.Jeux);
                 }
-                else
-                {
-                    _logger.Info($"[ScreenScraper] jeuRecherche: jeux array is null. First 500 chars: {json[..Math.Min(json.Length, 500)]}");
-                }
+                return (results.Count > 0 ? ScreenScraperStatus.Ok : ScreenScraperStatus.Empty, results);
             }
             catch (Exception ex)
             {
                 _logger.Error($"[ScreenScraper] jeuRecherche exception: {ex.Message}");
+                return (ScreenScraperStatus.NetworkError, results);
             }
-            return results;
         }
 
         /// <summary>
         /// Get full game details by ScreenScraper game ID using jeuInfos.php.
         /// Unlike jeuRecherche.php, this returns synopsis, developer, publisher, genres, etc.
         /// </summary>
-        public async Task<ScreenScraperGame?> GetGameByIdAsync(string gameId)
+        public async Task<(ScreenScraperStatus Status, ScreenScraperGame? Game)> GetGameByIdAsync(string gameId)
         {
+            if (!IsConfigured) return (ScreenScraperStatus.Unconfigured, null);
             try
             {
                 var url = $"{BaseUrl}/jeuInfos.php?devid={_devId}&devpassword={_devPassword}&softname={SoftName}&output=json";
@@ -155,22 +208,22 @@ namespace RetroArr.Core.MetadataSource.ScreenScraper
                 url += $"&gameid={Uri.EscapeDataString(gameId)}";
 
                 var response = await _httpClient.GetAsync(url);
-
-                if (!response.IsSuccessStatusCode)
+                var body = await response.Content.ReadAsStringAsync();
+                var status = ClassifyResponse(response.StatusCode, body);
+                if (status != ScreenScraperStatus.Ok)
                 {
-                    _logger.Info($"[ScreenScraper] jeuInfos by ID {gameId} returned HTTP {(int)response.StatusCode}");
-                    return null;
+                    _logger.Info($"[ScreenScraper] jeuInfos by id={gameId} status={status}");
+                    return (status, null);
                 }
 
-                var json = await response.Content.ReadAsStringAsync();
-                var result = JsonSerializer.Deserialize<ScreenScraperResponse>(json);
-
-                return result?.Response?.Jeu;
+                var result = JsonSerializer.Deserialize<ScreenScraperResponse>(body);
+                if (result?.Response?.Jeu == null) return (ScreenScraperStatus.Empty, null);
+                return (ScreenScraperStatus.Ok, result.Response.Jeu);
             }
             catch (Exception ex)
             {
                 _logger.Error($"[ScreenScraper] jeuInfos by ID exception: {ex.Message}");
-                return null;
+                return (ScreenScraperStatus.NetworkError, null);
             }
         }
 

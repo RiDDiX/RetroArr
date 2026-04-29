@@ -67,7 +67,7 @@ namespace RetroArr.Core.MetadataSource
                 }
 
                 _logger.Info($"[Metadata] IGDB returned no results, trying ScreenScraper (systemId: {systemId})...");
-                var ssGames = await _screenScraperClient.SearchGamesByNameAsync(query, systemId);
+                var (_, ssGames) = await _screenScraperClient.SearchGamesByNameAsync(query, systemId);
                 foreach (var ssGame in ssGames)
                 {
                     var game = MapScreenScraperGameToGame(ssGame, platformId, lang);
@@ -211,22 +211,28 @@ namespace RetroArr.Core.MetadataSource
 
         public async Task<List<Game>> SearchScreenScraperAsync(string query, string? platformKey = null, string? lang = null)
         {
+            var (_, games) = await SearchScreenScraperWithStatusAsync(query, platformKey, lang);
+            return games;
+        }
+
+        public async Task<(ScreenScraper.ScreenScraperStatus Status, List<Game> Games)> SearchScreenScraperWithStatusAsync(string query, string? platformKey = null, string? lang = null)
+        {
             var results = new List<Game>();
-            
+
             if (_screenScraperClient == null)
             {
                 _logger.Info("[Metadata] ScreenScraper not configured");
-                return results;
+                return (ScreenScraper.ScreenScraperStatus.Unconfigured, results);
             }
 
             int? systemId = null;
             int platformId = 0;
-            
+
             if (!string.IsNullOrEmpty(platformKey))
             {
                 var platform = PlatformDefinitions.AllPlatforms
                     .FirstOrDefault(p => p.MatchesFolderName(platformKey));
-                
+
                 if (platform != null)
                 {
                     systemId = platform.ScreenScraperSystemId;
@@ -235,17 +241,31 @@ namespace RetroArr.Core.MetadataSource
             }
 
             _logger.Info($"[Metadata] Searching ScreenScraper for: {query} (systemId: {systemId})");
-            var ssGames = await _screenScraperClient.SearchGamesByNameAsync(query, systemId);
-            
-            // jeuRecherche only returns minimal data (name + cover).
-            // Fetch full details via jeuInfos for each result to get synopsis, developer, etc.
+            var (searchStatus, ssGames) = await _screenScraperClient.SearchGamesByNameAsync(query, systemId);
+            if (searchStatus == ScreenScraper.ScreenScraperStatus.QuotaExceeded
+                || searchStatus == ScreenScraper.ScreenScraperStatus.AuthFailed
+                || searchStatus == ScreenScraper.ScreenScraperStatus.Unconfigured
+                || searchStatus == ScreenScraper.ScreenScraperStatus.NetworkError)
+            {
+                return (searchStatus, results);
+            }
+
+            // jeuRecherche only returns minimal data, fetch full details for each
             var enrichedGames = new List<ScreenScraper.ScreenScraperGame>();
+            var detailStatus = ScreenScraper.ScreenScraperStatus.Ok;
             foreach (var ssGame in ssGames.Take(5))
             {
                 if (!string.IsNullOrEmpty(ssGame.Id))
                 {
                     _logger.Info($"[Metadata] Fetching full details for ScreenScraper game id={ssGame.Id}");
-                    var fullGame = await _screenScraperClient.GetGameByIdAsync(ssGame.Id);
+                    var (s, fullGame) = await _screenScraperClient.GetGameByIdAsync(ssGame.Id);
+                    if (s == ScreenScraper.ScreenScraperStatus.QuotaExceeded
+                        || s == ScreenScraper.ScreenScraperStatus.AuthFailed)
+                    {
+                        // hit the wall mid-enrichment, return what we have plus the status
+                        detailStatus = s;
+                        break;
+                    }
                     if (fullGame != null)
                     {
                         enrichedGames.Add(fullGame);
@@ -271,7 +291,10 @@ namespace RetroArr.Core.MetadataSource
             }
 
             _logger.Info($"[Metadata] ScreenScraper search returning {results.Count} mapped game(s)");
-            return results;
+            var finalStatus = detailStatus != ScreenScraper.ScreenScraperStatus.Ok
+                ? detailStatus
+                : (results.Count > 0 ? ScreenScraper.ScreenScraperStatus.Ok : ScreenScraper.ScreenScraperStatus.Empty);
+            return (finalStatus, results);
         }
 
         public async Task<Game?> GetGameMetadataAsync(int igdbId, string? lang = null, string? platformKey = null)

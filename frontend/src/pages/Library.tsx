@@ -326,7 +326,10 @@ const Library: React.FC = () => {
     // Provider matches stay separately for "add new" / indexer search.
     try {
       const response = await apiClient.get('/game/lookup', { params: { term: searchQuery, lang: language } });
-      setSearchResults(response.data);
+      // backend wraps in { games, source, status, message } since the screenscraper status fix
+      const payload = response.data;
+      const list = Array.isArray(payload) ? payload : (payload?.games ?? []);
+      setSearchResults(list);
     } catch (error) {
       console.error('Error searching metadata providers:', error);
       setSearchResults([]);

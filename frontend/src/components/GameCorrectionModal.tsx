@@ -44,6 +44,8 @@ const GameCorrectionModal: React.FC<GameCorrectionModalProps> = ({ game, onClose
     const [searching, setSearching] = useState(false);
     const [selectedMetadata, setSelectedMetadata] = useState<MetadataResult | null>(null);
     const [searchSource, setSearchSource] = useState<'igdb' | 'screenscraper'>('igdb');
+    const [searchStatus, setSearchStatus] = useState<string | null>(null);
+    const [searchMessage, setSearchMessage] = useState<string | null>(null);
 
     // Path State
     const [installPath, setInstallPath] = useState(game.installPath || game.path || '');
@@ -56,16 +58,25 @@ const GameCorrectionModal: React.FC<GameCorrectionModalProps> = ({ game, onClose
     const handleSearch = async () => {
         if (!searchTerm) return;
         setSearching(true);
+        setSearchStatus(null);
+        setSearchMessage(null);
         try {
             const response = await apiClient.get('/game/lookup', {
-                params: { 
-                    term: searchTerm, 
+                params: {
+                    term: searchTerm,
                     lang: language,
                     source: searchSource === 'screenscraper' ? 'screenscraper' : undefined,
                     platformKey: game.platform?.slug || undefined
                 }
             });
-            setResults(response.data);
+            // backend wraps results in { games, source, status, message }
+            const payload = response.data;
+            const list = Array.isArray(payload) ? payload : (payload?.games ?? []);
+            setResults(list);
+            if (payload && !Array.isArray(payload)) {
+                setSearchStatus(payload.status ?? null);
+                setSearchMessage(payload.message ?? null);
+            }
         } catch (error) {
             console.error(error);
         } finally {
@@ -161,6 +172,24 @@ const GameCorrectionModal: React.FC<GameCorrectionModalProps> = ({ game, onClose
                                 </button>
                             </div>
 
+                            {searchStatus && searchStatus !== 'ok' && (
+                                <div
+                                    role="status"
+                                    style={{
+                                        padding: '8px 12px',
+                                        margin: '8px 0',
+                                        borderRadius: '6px',
+                                        fontSize: '13px',
+                                        background: searchStatus === 'empty' ? 'rgba(127,132,156,0.15)' : 'rgba(243,139,168,0.18)',
+                                        color: searchStatus === 'empty' ? 'var(--ctp-subtext1, #a6adc8)' : 'var(--ctp-pink, #f38ba8)',
+                                        border: `1px solid ${searchStatus === 'empty' ? 'rgba(127,132,156,0.3)' : 'rgba(243,139,168,0.4)'}`
+                                    }}
+                                >
+                                    {searchMessage || (searchStatus === 'empty'
+                                        ? (t('searchEmpty') || 'No matches found.')
+                                        : (t('searchProblem') || 'Search did not complete.'))}
+                                </div>
+                            )}
                             <div className="search-results">
                                 {results.map((res: MetadataResult, index: number) => (
                                     <div

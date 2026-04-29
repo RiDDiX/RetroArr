@@ -469,16 +469,19 @@ namespace RetroArr.Api.V3.Settings
                 var client = new RetroArr.Core.MetadataSource.ScreenScraper.ScreenScraperClient(
                     httpClient, request.Username, password, devId, devPassword);
                 
-                var results = await client.SearchGamesByNameAsync("Super Mario World", 4); // SNES system ID
-                
+                var (status, results) = await client.SearchGamesByNameAsync("Super Mario World", 4); // SNES system ID
+
+                if (status == RetroArr.Core.MetadataSource.ScreenScraper.ScreenScraperStatus.QuotaExceeded)
+                    return Ok(new { success = false, message = "Daily ScreenScraper quota reached" });
+                if (status == RetroArr.Core.MetadataSource.ScreenScraper.ScreenScraperStatus.AuthFailed)
+                    return Ok(new { success = false, message = "Login failed, check username and password" });
+                if (status == RetroArr.Core.MetadataSource.ScreenScraper.ScreenScraperStatus.Unconfigured)
+                    return Ok(new { success = false, message = "ScreenScraper dev credentials are not configured in this build" });
+                if (status == RetroArr.Core.MetadataSource.ScreenScraper.ScreenScraperStatus.NetworkError)
+                    return Ok(new { success = false, message = "Network error talking to ScreenScraper" });
                 if (results.Count > 0)
-                {
                     return Ok(new { success = true, message = $"Connection successful! Found: {results[0].GetName()}" });
-                }
-                else
-                {
-                    return Ok(new { success = true, message = "Connection successful (API responded, no results for test query)" });
-                }
+                return Ok(new { success = true, message = "Connection successful (API responded, no results for test query)" });
             }
             catch (Exception ex)
             {
