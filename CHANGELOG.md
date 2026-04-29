@@ -1,3 +1,8 @@
+## v1.0.153 (2026-04-29)
+
+### Changes
+- keep gog dlc and patch installers attached to parent game (fd6aa84)
+
 ## v1.0.152 (2026-04-29)
 
 ### Changes
