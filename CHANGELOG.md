@@ -1,3 +1,8 @@
+## v1.0.157 (2026-04-29)
+
+### Changes
+- surface screenscraper quota and auth errors in search (c08ac85)
+
 ## v1.0.156 (2026-04-29)
 
 ### Changes
