@@ -1,3 +1,9 @@
+## v1.0.154 (2026-04-29)
+
+### Changes
+- drop em-dash from skip message (19719ef)
+- wire api key + locale into screenshot capture script (3cf80b3)
+
 ## v1.0.153 (2026-04-29)
 
 ### Changes
