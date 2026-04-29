@@ -1,3 +1,8 @@
+## v1.0.149 (2026-04-29)
+
+### Changes
+- show cue companions in game detail files (edec7ad)
+
 ## v1.0.148 (2026-04-28)
 
 ### Changes
