@@ -932,10 +932,8 @@ namespace RetroArr.Core.Games
             {
                 var validFilesByFolder = new Dictionary<string, List<string>>();
 
-                // Fast Hierarchical Discovery (v0.4.2)
-                // Instead of SearchOption.AllDirectories (Slow), we recurse manually and skip blacklisted branches.
-                // gog stays at root level so dlc/patch installers inside a game folder don't become own games
-                int maxDepth = string.Equals(platformKey, "gog", StringComparison.OrdinalIgnoreCase) ? 0 : 4;
+                // recurse for rom dirs, root only for folder-mode so patches inside a game stay attached
+                int maxDepth = rule.IsFolderMode ? 0 : 4;
                 DiscoverFilesHierarchical(new DirectoryInfo(rootPath), extensionsToUse, validFilesByFolder, ct, 0, maxDepth);
 
                 Log($"[FileMode] Discovery phase finished. Found {validFilesByFolder.Count} candidate folders items. Applying clustering...");
