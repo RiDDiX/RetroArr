@@ -1567,13 +1567,32 @@ namespace RetroArr.Core.Games
 
                         if (_discoveryOnlyMode && _discoveryRepo != null)
                         {
+                            // skip anything already in the library (same path, or same title+platform).
+                            // also skip what the user has already seen in the discovery pool so we
+                            // do not spam them on repeat scans.
                             int? platId = null;
                             if (!string.IsNullOrEmpty(candidate.PlatformKey))
                             {
                                 var plat = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.MatchesFolderName(candidate.PlatformKey));
                                 if (plat != null) platId = plat.Id;
                             }
-                            await _discoveryRepo.UpsertAsync(new DiscoveredGame
+
+                            var alreadyInLibrary = existingGames.Any(g =>
+                                (!string.IsNullOrEmpty(g.Path) && string.Equals(g.Path, candidate.Path, StringComparison.OrdinalIgnoreCase))
+                                || (g.PlatformId == (platId ?? 0)
+                                    && !string.IsNullOrEmpty(g.Title)
+                                    && string.Equals(g.Title, candidate.Title, StringComparison.OrdinalIgnoreCase)));
+                            if (alreadyInLibrary)
+                            {
+                                continue;
+                            }
+
+                            if (await _discoveryRepo.ExistsByPathAsync(candidate.Path))
+                            {
+                                continue;
+                            }
+
+                            await _discoveryRepo.AddAsync(new DiscoveredGame
                             {
                                 Title = candidate.Title,
                                 Path = candidate.Path,
