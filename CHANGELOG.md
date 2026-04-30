@@ -1,3 +1,8 @@
+## v1.0.165 (2026-04-30)
+
+### Changes
+- add discover-only scan with persistent import queue (446684b)
+
 ## v1.0.164 (2026-04-30)
 
 ### Changes
