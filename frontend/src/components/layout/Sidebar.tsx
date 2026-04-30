@@ -81,8 +81,10 @@ export function Sidebar() {
       items: [
         { to: '/settings',         label: 'All settings' },
         { to: '/settings#media',   label: t('settingsMedia') || 'Media' },
-        { to: '/settings#connections', label: t('settingsConnections') || 'Connections' },
+        { to: '/settings#metadata', label: t('settingsMetadataProviders') || 'Metadata Providers' },
+        { to: '/settings#accounts', label: t('settingsAccounts') || 'Accounts' },
         { to: '/settings#indexers',label: t('settingsIndexers') || 'Indexers' },
+        { to: '/settings#downloaders', label: t('settingsDownloaders') || 'Downloaders' },
         { to: '/settings#webhooks',label: 'Webhooks' },
         { to: '/settings#apiaccess', label: 'API access' },
         { to: '/user',             label: t('user') || 'User' },

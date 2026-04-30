@@ -1,5 +1,7 @@
-export { default as ConnectionsTab } from './ConnectionsTab';
+export { default as MetadataProvidersTab } from './MetadataProvidersTab';
+export { default as AccountsTab } from './AccountsTab';
 export { default as IndexersTab } from './IndexersTab';
+export { default as DownloadersTab } from './DownloadersTab';
 export { default as MediaTab } from './MediaTab';
 export { default as PlatformsTab } from './PlatformsTab';
 export { default as ImportExportTab } from './ImportExportTab';

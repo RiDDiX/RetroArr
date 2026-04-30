@@ -1013,8 +1013,8 @@ const Library: React.FC = () => {
             <EmptyState
               sprite="disc"
               title={t('configureIgdbToStart') || 'Configure IGDB to start'}
-              body={t('igdbSetupHint') || 'Add your IGDB client ID and secret in Settings → Connections.'}
-              primary={{ label: t('openSettings') || 'Open Settings', href: '/settings#connections' }}
+              body={t('igdbSetupHint') || 'Add your IGDB client ID and secret in Settings, Metadata Providers.'}
+              primary={{ label: t('openSettings') || 'Open Settings', href: '/settings#metadata' }}
             />
           ) : (
             <EmptyState

@@ -8,10 +8,10 @@ import EmulatorJsSettings from '../components/EmulatorJsSettings';
 import ThemeEditor from '../components/ThemeEditor';
 import DatabaseSettings from '../components/DatabaseSettings';
 import CacheSettings from '../components/CacheSettings';
-import { MediaTab, PlatformsTab, ConnectionsTab, IndexersTab, ImportExportTab, LoggingTab, WebhooksTab, ApiAccessTab } from '../components/settings';
+import { MediaTab, PlatformsTab, MetadataProvidersTab, AccountsTab, IndexersTab, DownloadersTab, ImportExportTab, LoggingTab, WebhooksTab, ApiAccessTab } from '../components/settings';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  faFolderOpen, faLayerGroup, faPlug, faSearch, faGamepad,
+  faFolderOpen, faLayerGroup, faTags, faUserCircle, faSearch, faDownload, faGamepad,
   faPalette, faGlobe, faFileImport, faTerminal, faDatabase,
   faMemory, faClipboardList, faBell, faKey
 } from '@fortawesome/free-solid-svg-icons';
@@ -27,7 +27,13 @@ interface TabDef {
 const Settings: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const currentTab = location.hash.replace('#', '') || 'media';
+  const rawHash = location.hash.replace('#', '') || 'media';
+  // legacy hash aliases so existing bookmarks keep working
+  const HASH_ALIASES: Record<string, string> = {
+    connections: 'accounts',
+    'download-clients': 'downloaders',
+  };
+  const currentTab = HASH_ALIASES[rawHash] || rawHash;
   const [language, setLanguage] = useState<Language>(getSavedLanguage());
 
   const t = (key: string) => translate(key as Parameters<typeof translate>[0], language);
@@ -43,28 +49,31 @@ const Settings: React.FC = () => {
   };
 
   const tabs: TabDef[] = [
-    { id: 'media',        label: t('settingsMedia') || 'Media',             icon: faFolderOpen,    group: 'library' },
-    { id: 'platforms',    label: t('platforms') || 'Platforms',              icon: faLayerGroup,    group: 'library' },
-    { id: 'connections',  label: t('settingsConnections') || 'Connections',  icon: faPlug,          group: 'downloads' },
-    { id: 'indexers',     label: t('settingsIndexers') || 'Indexers',        icon: faSearch,        group: 'downloads' },
-    { id: 'emulatorjs',   label: 'EmulatorJS',                              icon: faGamepad,       group: 'emulator' },
-    { id: 'themes',       label: t('settingsThemes') || 'Themes',           icon: faPalette,       group: 'interface' },
-    { id: 'language',     label: t('settingsLanguage') || 'Language',        icon: faGlobe,         group: 'interface' },
-    { id: 'importexport', label: t('settingsImportExport') || 'Import/Export', icon: faFileImport,  group: 'system' },
-    { id: 'database',     label: t('settingsDatabase') || 'Database',        icon: faDatabase,      group: 'system' },
-    { id: 'cache',        label: t('settingsCache') || 'Cache',              icon: faMemory,        group: 'system' },
-    { id: 'logging',      label: t('logging') || 'Logging',                  icon: faClipboardList, group: 'system' },
-    { id: 'webhooks',     label: t('webhooks') || 'Webhooks',                icon: faBell,          group: 'system' },
-    { id: 'apiaccess',    label: t('apiAccess') || 'API access',             icon: faKey,           group: 'system' },
-    { id: 'debug',        label: 'Debug',                                    icon: faTerminal,      group: 'system' },
+    { id: 'media',        label: t('settingsMedia') || 'Media',                       icon: faFolderOpen,    group: 'library' },
+    { id: 'platforms',    label: t('platforms') || 'Platforms',                        icon: faLayerGroup,    group: 'library' },
+    { id: 'metadata',     label: t('settingsMetadataProviders') || 'Metadata Providers', icon: faTags,         group: 'connections' },
+    { id: 'accounts',     label: t('settingsAccounts') || 'Accounts',                   icon: faUserCircle,    group: 'connections' },
+    { id: 'indexers',     label: t('settingsIndexers') || 'Indexers',                   icon: faSearch,        group: 'downloads' },
+    { id: 'downloaders',  label: t('settingsDownloaders') || 'Downloaders',             icon: faDownload,      group: 'downloads' },
+    { id: 'emulatorjs',   label: 'EmulatorJS',                                          icon: faGamepad,       group: 'emulator' },
+    { id: 'themes',       label: t('settingsThemes') || 'Themes',                       icon: faPalette,       group: 'interface' },
+    { id: 'language',     label: t('settingsLanguage') || 'Language',                   icon: faGlobe,         group: 'interface' },
+    { id: 'importexport', label: t('settingsImportExport') || 'Import/Export',          icon: faFileImport,    group: 'system' },
+    { id: 'database',     label: t('settingsDatabase') || 'Database',                   icon: faDatabase,      group: 'system' },
+    { id: 'cache',        label: t('settingsCache') || 'Cache',                         icon: faMemory,        group: 'system' },
+    { id: 'logging',      label: t('logging') || 'Logging',                             icon: faClipboardList, group: 'system' },
+    { id: 'webhooks',     label: t('webhooks') || 'Webhooks',                           icon: faBell,          group: 'system' },
+    { id: 'apiaccess',    label: t('apiAccess') || 'API access',                        icon: faKey,           group: 'system' },
+    { id: 'debug',        label: 'Debug',                                               icon: faTerminal,      group: 'system' },
   ];
 
   const groups = [
-    { key: 'library',   label: t('library') || 'Library' },
-    { key: 'downloads', label: t('downloads') || 'Downloads' },
-    { key: 'emulator',  label: 'Emulator' },
-    { key: 'interface', label: 'Interface' },
-    { key: 'system',    label: 'System' },
+    { key: 'library',     label: t('library') || 'Library' },
+    { key: 'connections', label: t('settingsConnections') || 'Connections' },
+    { key: 'downloads',   label: t('downloads') || 'Downloads' },
+    { key: 'emulator',    label: 'Emulator' },
+    { key: 'interface',   label: 'Interface' },
+    { key: 'system',      label: 'System' },
   ];
 
   const switchTab = (id: string) => {
@@ -104,8 +113,12 @@ const Settings: React.FC = () => {
           <PlatformsTab language={language} t={t} />
         )}
 
-        {currentTab === 'connections' && (
-          <ConnectionsTab language={language} t={t} />
+        {currentTab === 'metadata' && (
+          <MetadataProvidersTab language={language} t={t} />
+        )}
+
+        {currentTab === 'accounts' && (
+          <AccountsTab language={language} t={t} />
         )}
 
         {currentTab === 'language' && (
@@ -142,6 +155,10 @@ const Settings: React.FC = () => {
 
         {currentTab === 'indexers' && (
           <IndexersTab language={language} t={t} />
+        )}
+
+        {currentTab === 'downloaders' && (
+          <DownloadersTab language={language} t={t} />
         )}
 
         {currentTab === 'debug' && (
