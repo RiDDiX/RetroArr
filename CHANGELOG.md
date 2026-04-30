@@ -1,3 +1,8 @@
+## v1.0.170 (2026-04-30)
+
+### Changes
+- add epic games account integration with library sync (da816f8)
+
 ## v1.0.169 (2026-04-30)
 
 ### Changes
