@@ -1,3 +1,8 @@
+## v1.0.171 (2026-04-30)
+
+### Changes
+- add epic store metadata provider via public graphql (cfedd19)
+
 ## v1.0.170 (2026-04-30)
 
 ### Changes
