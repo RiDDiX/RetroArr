@@ -103,7 +103,8 @@ const AccountsTab: React.FC<AccountsTabProps> = ({ t }) => {
     setEpicSyncing(true);
     setEpicSyncResult(null);
     try {
-      const res = await apiClient.post('/epic/sync');
+      // catalog enrichment can take minutes for large libraries
+      const res = await apiClient.post('/epic/sync', null, { timeout: 600000 });
       if (res.data.success) {
         const { added = 0, skipped = 0, failed = 0 } = res.data;
         setEpicSyncResult({

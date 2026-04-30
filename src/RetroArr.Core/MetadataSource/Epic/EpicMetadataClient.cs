@@ -42,6 +42,10 @@ namespace RetroArr.Core.MetadataSource.Epic
             _httpClient = httpClient ?? new HttpClient();
         }
 
+        // Epic's edge layer (Akamai) drops requests without a real browser User-Agent.
+        // Sending the same headers the store website uses keeps us on the happy path.
+        private const string DefaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
         internal static EpicMetadataStatus ClassifyResponse(HttpStatusCode httpCode, string? body)
         {
             if ((int)httpCode >= 500) return EpicMetadataStatus.NetworkError;
@@ -87,14 +91,23 @@ namespace RetroArr.Core.MetadataSource.Epic
                     }
                 };
                 var json = JsonSerializer.Serialize(payload);
-                using var content = new StringContent(json, Encoding.UTF8, "application/json");
-                using var resp = await _httpClient.PostAsync(GraphqlEndpoint, content);
+                using var req = new HttpRequestMessage(HttpMethod.Post, GraphqlEndpoint)
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json")
+                };
+                req.Headers.UserAgent.ParseAdd(DefaultUserAgent);
+                req.Headers.Accept.ParseAdd("application/json");
+                req.Headers.Referrer = new Uri("https://www.epicgames.com/store/");
+                req.Headers.TryAddWithoutValidation("Origin", "https://www.epicgames.com");
+
+                using var resp = await _httpClient.SendAsync(req);
                 var body = await resp.Content.ReadAsStringAsync();
 
                 var status = ClassifyResponse(resp.StatusCode, body);
                 if (status != EpicMetadataStatus.Ok)
                 {
-                    _logger.Info($"[EpicStore] search status={status} for '{query}'");
+                    var snippet = body.Length > 200 ? body.Substring(0, 200) : body;
+                    _logger.Warn($"[EpicStore] search '{query}' status={status} http={(int)resp.StatusCode}. Body[0..200]: {snippet}");
                     return (status, new List<EpicStoreElement>());
                 }
 
@@ -106,7 +119,7 @@ namespace RetroArr.Core.MetadataSource.Epic
             }
             catch (Exception ex)
             {
-                _logger.Error($"[EpicStore] search exception: {ex.Message}");
+                _logger.Error($"[EpicStore] search '{query}' exception: {ex.GetType().Name}: {ex.Message}");
                 return (EpicMetadataStatus.NetworkError, new List<EpicStoreElement>());
             }
         }

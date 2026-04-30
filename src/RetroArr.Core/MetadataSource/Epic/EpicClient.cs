@@ -38,6 +38,9 @@ namespace RetroArr.Core.MetadataSource.Epic
             _httpClient = httpClient ?? new HttpClient();
         }
 
+        // The launcher itself sets this UA when it talks to ol.epicgames.com.
+        private const string LauncherUserAgent = "EpicGamesLauncher/13.3.0-30309001+++Portal+Release-Live Windows/10.0.22631.1.768.64bit";
+
         public string? AccessToken => _accessToken;
         public string? RefreshToken => _refreshToken;
 
@@ -69,13 +72,16 @@ namespace RetroArr.Core.MetadataSource.Epic
             using var req = new HttpRequestMessage(HttpMethod.Post, TokenEndpoint);
             var basic = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{LauncherClientId}:{LauncherClientSecret}"));
             req.Headers.Authorization = new AuthenticationHeaderValue("basic", basic);
+            req.Headers.UserAgent.ParseAdd(LauncherUserAgent);
+            req.Headers.Accept.ParseAdd("application/json");
             req.Content = new FormUrlEncodedContent(form);
 
             using var resp = await _httpClient.SendAsync(req);
             var body = await resp.Content.ReadAsStringAsync();
             if (!resp.IsSuccessStatusCode)
             {
-                _logger.Warn($"[Epic] Token endpoint returned {(int)resp.StatusCode}: {body}");
+                var snippet = body.Length > 200 ? body.Substring(0, 200) : body;
+                _logger.Warn($"[Epic] token endpoint http={(int)resp.StatusCode}. Body[0..200]: {snippet}");
                 return null;
             }
 
@@ -97,11 +103,14 @@ namespace RetroArr.Core.MetadataSource.Epic
 
             using var req = new HttpRequestMessage(HttpMethod.Get, AssetsEndpoint);
             req.Headers.Authorization = new AuthenticationHeaderValue("bearer", _accessToken);
+            req.Headers.UserAgent.ParseAdd(LauncherUserAgent);
+            req.Headers.Accept.ParseAdd("application/json");
             using var resp = await _httpClient.SendAsync(req);
             var body = await resp.Content.ReadAsStringAsync();
             if (!resp.IsSuccessStatusCode)
             {
-                _logger.Warn($"[Epic] Assets endpoint returned {(int)resp.StatusCode}: {body}");
+                var snippet = body.Length > 200 ? body.Substring(0, 200) : body;
+                _logger.Warn($"[Epic] assets http={(int)resp.StatusCode}. Body[0..200]: {snippet}");
                 return new List<EpicAsset>();
             }
             return JsonSerializer.Deserialize<List<EpicAsset>>(body, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
@@ -119,11 +128,14 @@ namespace RetroArr.Core.MetadataSource.Epic
 
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
             req.Headers.Authorization = new AuthenticationHeaderValue("bearer", _accessToken);
+            req.Headers.UserAgent.ParseAdd(LauncherUserAgent);
+            req.Headers.Accept.ParseAdd("application/json");
             using var resp = await _httpClient.SendAsync(req);
             var body = await resp.Content.ReadAsStringAsync();
             if (!resp.IsSuccessStatusCode)
             {
-                _logger.Warn($"[Epic] Catalog returned {(int)resp.StatusCode} for {ns}/{catalogItemId}: {body}");
+                var snippet = body.Length > 200 ? body.Substring(0, 200) : body;
+                _logger.Warn($"[Epic] catalog {ns}/{catalogItemId} http={(int)resp.StatusCode}. Body[0..200]: {snippet}");
                 return null;
             }
 

@@ -128,37 +128,57 @@ namespace RetroArr.Api.V3.Epic
                 var assets = await client.GetOwnedAssetsAsync();
                 var epicPlatform = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.Slug == "epic");
                 var platformId = epicPlatform?.Id ?? 190;
+                _logger.Info($"[Epic] Sync start: {assets.Count} owned asset(s) reported by Epic");
 
                 int added = 0, skipped = 0, failed = 0;
                 var seenCatalog = new HashSet<string>();
-
+                var dedupedAssets = new List<EpicAsset>();
                 foreach (var asset in assets)
                 {
                     if (string.IsNullOrEmpty(asset.CatalogItemId) || string.IsNullOrEmpty(asset.Namespace)) continue;
                     if (!seenCatalog.Add(asset.CatalogItemId)) continue;
+                    dedupedAssets.Add(asset);
+                }
+                _logger.Info($"[Epic] Sync deduped to {dedupedAssets.Count} unique catalog item(s)");
 
-                    var existing = await _context.Games.FirstOrDefaultAsync(g => g.EpicId == asset.CatalogItemId);
-                    if (existing != null) { skipped++; continue; }
-
-                    EpicCatalogItem? item;
+                // small concurrency window so catalog lookups don't take minutes on big libraries
+                using var gate = new System.Threading.SemaphoreSlim(4);
+                var lookups = dedupedAssets.Select(async asset =>
+                {
+                    await gate.WaitAsync();
                     try
                     {
-                        item = await client.GetCatalogItemAsync(asset.Namespace, asset.CatalogItemId);
+                        var item = await client.GetCatalogItemAsync(asset.Namespace!, asset.CatalogItemId!);
+                        return (asset, item);
                     }
                     catch (Exception ex)
                     {
-                        _logger.Warn($"[Epic] Catalog lookup failed for {asset.CatalogItemId}: {ex.Message}");
-                        failed++;
-                        continue;
+                        _logger.Warn($"[Epic] Catalog lookup {asset.CatalogItemId} threw {ex.GetType().Name}: {ex.Message}");
+                        return (asset, (EpicCatalogItem?)null);
                     }
+                    finally { gate.Release(); }
+                }).ToList();
+                var pairs = await Task.WhenAll(lookups);
 
-                    if (item == null || !item.LooksLikeGame() || string.IsNullOrEmpty(item.Title))
+                foreach (var (asset, item) in pairs)
+                {
+                    var existing = await _context.Games.FirstOrDefaultAsync(g => g.EpicId == asset.CatalogItemId);
+                    if (existing != null) { skipped++; continue; }
+
+                    if (item == null)
                     {
+                        _logger.Info($"[Epic] No catalog item for {asset.CatalogItemId}, skipping");
                         skipped++;
                         continue;
                     }
 
-                    // a different store entry may already hold this title on Epic platform
+                    if (!item.LooksLikeGame() || string.IsNullOrEmpty(item.Title))
+                    {
+                        _logger.Info($"[Epic] Filtered '{item.Title ?? asset.CatalogItemId}' (not a base game)");
+                        skipped++;
+                        continue;
+                    }
+
                     var byTitle = await _context.Games.FirstOrDefaultAsync(g => g.Title == item.Title && g.PlatformId == platformId);
                     if (byTitle != null)
                     {
@@ -171,7 +191,7 @@ namespace RetroArr.Api.V3.Epic
 
                     var game = new Game
                     {
-                        Title = item.Title,
+                        Title = item.Title!,
                         EpicId = asset.CatalogItemId,
                         PlatformId = platformId,
                         Status = GameStatus.Released,
@@ -191,16 +211,14 @@ namespace RetroArr.Api.V3.Epic
                         }
                     };
 
-                    if (item.GetReleaseYear() is int y && y > 0)
-                    {
-                        if (DateTime.TryParse(item.ReleaseInfo?.FirstOrDefault()?.DateAdded ?? item.CreationDate, out var dt))
-                            game.ReleaseDate = dt;
-                    }
+                    if (DateTime.TryParse(item.ReleaseInfo?.FirstOrDefault()?.DateAdded ?? item.CreationDate, out var dt))
+                        game.ReleaseDate = dt;
 
                     try
                     {
                         await _gameRepository.AddAsync(game);
                         added++;
+                        _logger.Info($"[Epic] Added '{item.Title}'");
                     }
                     catch (Exception ex)
                     {
@@ -209,6 +227,7 @@ namespace RetroArr.Api.V3.Epic
                     }
                 }
 
+                _logger.Info($"[Epic] Sync done: added={added}, skipped={skipped}, failed={failed}, total={assets.Count}");
                 return Ok(new
                 {
                     success = true,
@@ -221,8 +240,8 @@ namespace RetroArr.Api.V3.Epic
             }
             catch (Exception ex)
             {
-                _logger.Error($"[Epic] Sync error: {ex.Message}");
-                return StatusCode(500, new { success = false, message = ex.Message });
+                _logger.Error($"[Epic] Sync error: {ex.GetType().Name}: {ex.Message}");
+                return StatusCode(500, new { success = false, message = $"{ex.GetType().Name}: {ex.Message}" });
             }
         }
 

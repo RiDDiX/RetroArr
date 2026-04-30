@@ -653,17 +653,18 @@ namespace RetroArr.Api.V3.Settings
             try
             {
                 using var httpClient = new System.Net.Http.HttpClient();
+                httpClient.Timeout = TimeSpan.FromSeconds(20);
                 var client = new RetroArr.Core.MetadataSource.Epic.EpicMetadataClient(httpClient);
                 var (status, elements) = await client.SearchAsync("fortnite");
                 if (status == RetroArr.Core.MetadataSource.Epic.EpicMetadataStatus.NetworkError)
-                    return Ok(new { success = false, message = "Could not reach Epic Store" });
+                    return Ok(new { success = false, message = "Could not reach Epic Store. Check scanner__metadata.log for the exact HTTP response." });
                 if (elements.Count > 0)
                     return Ok(new { success = true, message = $"Connection successful, found: {elements[0].Title}" });
                 return Ok(new { success = true, message = "Connection successful (no results for test query)" });
             }
             catch (Exception ex)
             {
-                return BadRequest(new { success = false, error = $"Connection failed: {ex.Message}" });
+                return BadRequest(new { success = false, error = $"Connection failed: {ex.GetType().Name}: {ex.Message}" });
             }
         }
 
