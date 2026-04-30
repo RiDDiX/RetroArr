@@ -57,45 +57,96 @@ namespace RetroArr.Core.MetadataSource.ScreenScraper
             && !string.IsNullOrWhiteSpace(_devPassword)
             && !_devPassword.StartsWith("%%");
 
-        // map http code + body to a status. screenscraper often replies HTTP 200
+        // map http code + body to a status. screenscraper sometimes replies HTTP 200
         // with a plain-text body like "Quota dépassé" instead of structured json.
+        // for json bodies we never substring-match the whole payload because the ssuser
+        // block contains a "quotarefu" counter on every successful authenticated response.
         internal static ScreenScraperStatus ClassifyResponse(HttpStatusCode code, string? body)
         {
-            if (code == HttpStatusCode.Locked || code == (HttpStatusCode)429)
+            if (code == HttpStatusCode.Locked
+                || code == (HttpStatusCode)429
+                || code == (HttpStatusCode)430
+                || code == (HttpStatusCode)431)
                 return ScreenScraperStatus.QuotaExceeded;
             if (code == HttpStatusCode.Unauthorized || code == HttpStatusCode.Forbidden)
                 return ScreenScraperStatus.AuthFailed;
+            if ((int)code >= 500)
+                return ScreenScraperStatus.NetworkError;
+            if (code != HttpStatusCode.OK)
+                return ScreenScraperStatus.NetworkError;
 
-            var lower = (body ?? string.Empty).ToLowerInvariant();
+            var raw = body ?? string.Empty;
+            var trimmed = raw.TrimStart();
 
-            // quota wording, both french and english are seen in the wild
-            if (lower.Contains("quota")
+            // try json first so legitimate game data (synopses, ssuser fields, etc) never
+            // gets misread as a quota or auth error
+            if (trimmed.Length >= 2 && (trimmed[0] == '{' || trimmed[0] == '['))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(raw);
+                    var root = doc.RootElement;
+                    if (root.ValueKind == JsonValueKind.Object
+                        && root.TryGetProperty("header", out var header)
+                        && header.ValueKind == JsonValueKind.Object)
+                    {
+                        var success = ReadStringField(header, "success");
+                        var error = ReadStringField(header, "error");
+
+                        if (string.Equals(success, "true", StringComparison.OrdinalIgnoreCase))
+                            return ScreenScraperStatus.Ok;
+
+                        if (!string.IsNullOrEmpty(error))
+                        {
+                            var lowerErr = error!.ToLowerInvariant();
+                            if (IsQuotaWording(lowerErr)) return ScreenScraperStatus.QuotaExceeded;
+                            if (IsAuthWording(lowerErr)) return ScreenScraperStatus.AuthFailed;
+                        }
+
+                        if (string.Equals(success, "false", StringComparison.OrdinalIgnoreCase))
+                            return ScreenScraperStatus.NetworkError;
+                    }
+                    // valid json without an explicit failure marker, let the caller deserialize
+                    return ScreenScraperStatus.Ok;
+                }
+                catch (JsonException)
+                {
+                    // malformed json, fall through to plaintext checks
+                }
+            }
+
+            // plain text path: short error messages from the api gateway
+            var lower = raw.ToLowerInvariant();
+            if (IsQuotaWording(lower)) return ScreenScraperStatus.QuotaExceeded;
+            if (IsAuthWording(lower)) return ScreenScraperStatus.AuthFailed;
+            return ScreenScraperStatus.NetworkError;
+        }
+
+        private static string? ReadStringField(JsonElement obj, string name)
+        {
+            if (!obj.TryGetProperty(name, out var prop)) return null;
+            return prop.ValueKind == JsonValueKind.String ? prop.GetString() : null;
+        }
+
+        private static bool IsQuotaWording(string lower)
+        {
+            return lower.Contains("quota dépassé")
+                || lower.Contains("quota depasse")
+                || lower.Contains("quota de scrape")
                 || lower.Contains("api totalement fermée")
+                || lower.Contains("api totalement fermee")
                 || lower.Contains("api fermee")
                 || lower.Contains("api closed")
                 || lower.Contains("limite atteinte")
                 || lower.Contains("scrapes par jour")
-                || lower.Contains("scrapes restant"))
-                return ScreenScraperStatus.QuotaExceeded;
+                || lower.Contains("scrapes restant");
+        }
 
-            // auth wording
-            if (lower.Contains("erreur de login")
-                || lower.Contains("identifiant")
-                || lower.Contains("mot de passe")
-                || (lower.Contains("login") && lower.Contains("incorrect")))
-                return ScreenScraperStatus.AuthFailed;
-
-            if ((int)code >= 500)
-                return ScreenScraperStatus.NetworkError;
-            if (!(code == HttpStatusCode.OK))
-                return ScreenScraperStatus.NetworkError;
-
-            // body must be json from here on
-            var trimmed = (body ?? string.Empty).TrimStart();
-            if (trimmed.Length < 2 || (!trimmed.StartsWith("{") && !trimmed.StartsWith("[")))
-                return ScreenScraperStatus.NetworkError;
-
-            return ScreenScraperStatus.Ok;
+        private static bool IsAuthWording(string lower)
+        {
+            return lower.Contains("erreur de login")
+                || lower.Contains("identifiant ou mot de passe")
+                || (lower.Contains("login") && lower.Contains("incorrect"));
         }
 
         public async Task<(ScreenScraperStatus Status, ScreenScraperGame? Game)> SearchGameAsync(string fileName, int? systemId = null, string? crc = null, string? md5 = null, string? sha1 = null)

@@ -78,5 +78,90 @@ namespace RetroArr.Core.Test.MetadataSource
             var s = ScreenScraperClient.ClassifyResponse(HttpStatusCode.OK, "{\"header\":{\"success\":\"true\"},\"response\":{\"jeux\":[]}}");
             Assert.That(s, Is.EqualTo(ScreenScraperStatus.Ok));
         }
+
+        // regression: ssuser block carries a "quotarefu" counter on every authenticated
+        // response. a substring scan for "quota" used to flag those as QuotaExceeded.
+        [Test]
+        public void Classify_JsonWithQuotarefuField_Ok()
+        {
+            var body = "{\"header\":{\"APIversion\":\"2.0\",\"success\":\"true\"},"
+                     + "\"response\":{\"ssuser\":{\"id\":\"42\",\"quotarefu\":\"0\","
+                     + "\"requeststoday\":\"3299\",\"maxrequestsperday\":\"20000\"},"
+                     + "\"jeux\":[{\"id\":\"1\",\"nom\":\"Demo\"}]}}";
+            var s = ScreenScraperClient.ClassifyResponse(HttpStatusCode.OK, body);
+            Assert.That(s, Is.EqualTo(ScreenScraperStatus.Ok));
+        }
+
+        [Test]
+        public void Classify_JsonHeaderMissingSuccess_Ok()
+        {
+            var body = "{\"header\":{\"APIversion\":\"2.0\",\"dateTime\":\"2026-04-30 13:40:39\"},"
+                     + "\"response\":{\"jeux\":[]}}";
+            var s = ScreenScraperClient.ClassifyResponse(HttpStatusCode.OK, body);
+            Assert.That(s, Is.EqualTo(ScreenScraperStatus.Ok));
+        }
+
+        [Test]
+        public void Classify_JsonSuccessFalse_QuotaInError_QuotaExceeded()
+        {
+            var body = "{\"header\":{\"success\":\"false\",\"error\":\"Quota dépassé\"},\"response\":{}}";
+            var s = ScreenScraperClient.ClassifyResponse(HttpStatusCode.OK, body);
+            Assert.That(s, Is.EqualTo(ScreenScraperStatus.QuotaExceeded));
+        }
+
+        [Test]
+        public void Classify_JsonSuccessFalse_AuthInError_AuthFailed()
+        {
+            var body = "{\"header\":{\"success\":\"false\",\"error\":\"Erreur de login !\"},\"response\":{}}";
+            var s = ScreenScraperClient.ClassifyResponse(HttpStatusCode.OK, body);
+            Assert.That(s, Is.EqualTo(ScreenScraperStatus.AuthFailed));
+        }
+
+        [Test]
+        public void Classify_JsonSuccessFalse_GenericError_NetworkError()
+        {
+            var body = "{\"header\":{\"success\":\"false\",\"error\":\"Erreur interne\"},\"response\":{}}";
+            var s = ScreenScraperClient.ClassifyResponse(HttpStatusCode.OK, body);
+            Assert.That(s, Is.EqualTo(ScreenScraperStatus.NetworkError));
+        }
+
+        // synopsis text containing "quota" or french auth keywords used to trip the old
+        // substring matcher. with json-first parsing it must be ignored.
+        [Test]
+        public void Classify_JsonWithQuotaWordInSynopsis_Ok()
+        {
+            var body = "{\"header\":{\"success\":\"true\"},"
+                     + "\"response\":{\"jeu\":{\"id\":\"7\",\"nom\":\"Test\","
+                     + "\"synopsis\":[{\"langue\":\"en\",\"text\":\"Reach the quota of stars to win.\"}]}}}";
+            var s = ScreenScraperClient.ClassifyResponse(HttpStatusCode.OK, body);
+            Assert.That(s, Is.EqualTo(ScreenScraperStatus.Ok));
+        }
+
+        [Test]
+        public void Classify_JsonWithFrenchAuthWordsInSynopsis_Ok()
+        {
+            var body = "{\"header\":{\"success\":\"true\"},"
+                     + "\"response\":{\"jeu\":{\"id\":\"7\",\"nom\":\"Test\","
+                     + "\"synopsis\":[{\"langue\":\"fr\",\"text\":\"Entrez votre identifiant et mot de passe.\"}]}}}";
+            var s = ScreenScraperClient.ClassifyResponse(HttpStatusCode.OK, body);
+            Assert.That(s, Is.EqualTo(ScreenScraperStatus.Ok));
+        }
+
+        [TestCase(430)]
+        [TestCase(431)]
+        public void Classify_HttpQuotaCodes_QuotaExceeded(int code)
+        {
+            var s = ScreenScraperClient.ClassifyResponse((HttpStatusCode)code, "Quota dépassé");
+            Assert.That(s, Is.EqualTo(ScreenScraperStatus.QuotaExceeded));
+        }
+
+        [Test]
+        public void Classify_MalformedJson_FallsThroughToPlaintext_Quota()
+        {
+            // body looks like json but is broken; plaintext matcher should still catch the wording
+            var body = "{ broken json with Quota dépassé inside";
+            var s = ScreenScraperClient.ClassifyResponse(HttpStatusCode.OK, body);
+            Assert.That(s, Is.EqualTo(ScreenScraperStatus.QuotaExceeded));
+        }
     }
 }

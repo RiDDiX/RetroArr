@@ -451,6 +451,7 @@ namespace RetroArr.Api.V3.Settings
             request.DevPassword = existing.DevPassword;
 
             _configService.SaveScreenScraperSettings(request);
+            _metadataServiceFactory.RefreshConfiguration();
             _logger.Info($"[Settings] Saving ScreenScraper Settings. ENABLED = {request.Enabled}");
             return Ok(new { success = true, message = "ScreenScraper settings saved." });
         }
@@ -494,6 +495,7 @@ namespace RetroArr.Api.V3.Settings
         {
             var emptySettings = new ScreenScraperSettings { Username = "", Password = "", Enabled = false };
             _configService.SaveScreenScraperSettings(emptySettings);
+            _metadataServiceFactory.RefreshConfiguration();
             return Ok(new { success = true, message = "ScreenScraper settings cleared." });
         }
 
