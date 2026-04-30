@@ -1,3 +1,8 @@
+## v1.0.168 (2026-04-30)
+
+### Changes
+- scope rename preview to the requested game, skip orphan scan (9cca4b0)
+
 ## v1.0.167 (2026-04-30)
 
 ### Changes
