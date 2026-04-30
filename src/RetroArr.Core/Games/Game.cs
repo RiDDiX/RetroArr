@@ -49,6 +49,7 @@ namespace RetroArr.Core.Games
         public int? IgdbId { get; set; }
         public int? SteamId { get; set; }
         public string? GogId { get; set; }
+        public string? EpicId { get; set; }
 
         // Metadata match confidence and review state
         public double? MatchConfidence { get; set; }

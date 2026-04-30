@@ -245,6 +245,7 @@ namespace RetroArr.Core.Games
             new Platform { Id = 124, Name = "Moonlight", Slug = "moonlight", FolderName = "moonlight", Type = PlatformType.Moonlight, Category = "Special", IgdbPlatformId = null, Enabled = false },
             new Platform { Id = 125, Name = "Steam", Slug = "steam", FolderName = "steam", Type = PlatformType.Steam, Category = "Special", IgdbPlatformId = 6, Enabled = true },
             new Platform { Id = 126, Name = "GOG Galaxy", Slug = "gog", FolderName = "gog", Type = PlatformType.GOG, Category = "Special", IgdbPlatformId = 6, Enabled = true },
+            new Platform { Id = 190, Name = "Epic Games", Slug = "epic", FolderName = "epic", Type = PlatformType.EpicGames, Category = "Special", IgdbPlatformId = 6, Enabled = true },
         };
     }
 }

@@ -26,6 +26,7 @@ namespace RetroArr.Core.Data
             ("IgdbId",                  "INTEGER",                       "INTEGER",                         "INT"),
             ("SteamId",                 "INTEGER",                       "INTEGER",                         "INT"),
             ("GogId",                   "TEXT",                          "TEXT",                            "VARCHAR(255)"),
+            ("EpicId",                  "TEXT",                          "TEXT",                            "VARCHAR(255)"),
             ("PreferredRunner",         "TEXT",                          "TEXT",                            "VARCHAR(255)"),
             ("MatchConfidence",         "REAL",                          "DOUBLE PRECISION",                "DOUBLE"),
             ("MetadataConfirmedByUser", "INTEGER NOT NULL DEFAULT 0",    "INTEGER NOT NULL DEFAULT 0",      "INT NOT NULL DEFAULT 0"),

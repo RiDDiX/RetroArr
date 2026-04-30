@@ -33,6 +33,14 @@ const AccountsTab: React.FC<AccountsTabProps> = ({ t }) => {
   const [gogAuthenticating, setGogAuthenticating] = useState(false);
   const [gogSyncResult, setGogSyncResult] = useState<{ success: boolean; message: string } | null>(null);
 
+  // Epic Games
+  const [epicAuthCode, setEpicAuthCode] = useState('');
+  const [epicIsAuthenticated, setEpicIsAuthenticated] = useState(false);
+  const [epicDisplayName, setEpicDisplayName] = useState('');
+  const [epicSyncing, setEpicSyncing] = useState(false);
+  const [epicAuthenticating, setEpicAuthenticating] = useState(false);
+  const [epicSyncResult, setEpicSyncResult] = useState<{ success: boolean; message: string } | null>(null);
+
   useEffect(() => {
     loadSettings();
   }, []);
@@ -48,8 +56,79 @@ const AccountsTab: React.FC<AccountsTabProps> = ({ t }) => {
         setGogIsAuthenticated(gogRes.data.isAuthenticated);
         setGogUsername(gogRes.data.username || '');
       } catch { /* GOG not available */ }
+
+      try {
+        const epicRes = await apiClient.get('/epic/settings');
+        setEpicIsAuthenticated(epicRes.data.isAuthenticated === true);
+        setEpicDisplayName(epicRes.data.displayName || epicRes.data.accountId || '');
+      } catch { /* Epic not available */ }
     } catch (error) {
       console.error('Error loading account settings:', error);
+    }
+  };
+
+  // Epic handlers
+  const handleEpicLogin = async () => {
+    try {
+      const res = await apiClient.get('/epic/auth/url');
+      window.open(res.data.url, '_blank', 'width=900,height=800');
+    } catch (error: unknown) {
+      alert(`${t('error')}: ${getErrorMessage(error)}`);
+    }
+  };
+
+  const handleEpicAuthCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!epicAuthCode.trim()) { alert('Enter the authorization code or paste the JSON blob from the Epic redirect page'); return; }
+    setEpicAuthenticating(true);
+    setEpicSyncResult(null);
+    try {
+      const res = await apiClient.post('/epic/auth/code', { code: epicAuthCode.trim() });
+      if (res.data.success) {
+        setEpicIsAuthenticated(true);
+        setEpicDisplayName(res.data.displayName || res.data.accountId || '');
+        setEpicAuthCode('');
+        setEpicSyncResult({ success: true, message: res.data.message || 'Connected to Epic Games' });
+      } else {
+        setEpicSyncResult({ success: false, message: res.data.message || 'Authentication failed' });
+      }
+    } catch (error: unknown) {
+      setEpicSyncResult({ success: false, message: getErrorMessage(error) });
+    } finally {
+      setEpicAuthenticating(false);
+    }
+  };
+
+  const handleSyncEpic = async () => {
+    setEpicSyncing(true);
+    setEpicSyncResult(null);
+    try {
+      const res = await apiClient.post('/epic/sync');
+      if (res.data.success) {
+        const { added = 0, skipped = 0, failed = 0 } = res.data;
+        setEpicSyncResult({
+          success: true,
+          message: `Epic sync done: ${added} added, ${skipped} skipped${failed > 0 ? `, ${failed} failed` : ''}`
+        });
+      } else {
+        setEpicSyncResult({ success: false, message: res.data.message || 'Sync failed' });
+      }
+    } catch (error: unknown) {
+      setEpicSyncResult({ success: false, message: `${t('error')}: ${getErrorMessage(error)}` });
+    } finally {
+      setEpicSyncing(false);
+    }
+  };
+
+  const handleDisconnectEpic = async () => {
+    if (!window.confirm(t('disconnectConfirm'))) return;
+    try {
+      await apiClient.delete('/epic/settings');
+      setEpicIsAuthenticated(false);
+      setEpicDisplayName('');
+      setEpicAuthCode('');
+    } catch (error: unknown) {
+      console.error('Error disconnecting Epic:', error);
     }
   };
 
@@ -440,6 +519,70 @@ const AccountsTab: React.FC<AccountsTabProps> = ({ t }) => {
 
         {gogSyncResult && (
           <div className={`test-result ${gogSyncResult.success ? 'success' : 'error'}`} style={{ marginTop: '15px' }}>{gogSyncResult.message}</div>
+        )}
+      </div>
+
+      <div className="settings-section">
+        <div className="section-header-with-logo">
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '1.5rem' }}>🎯</span> Epic Games
+          </h3>
+        </div>
+        <p className="settings-description">
+          {t('epicDesc') || 'Connect your Epic Games account to sync your owned games into the library. Uses the same OAuth flow as Heroic and Legendary.'}
+        </p>
+
+        {epicIsAuthenticated ? (
+          <>
+            <div style={{ marginBottom: '15px', padding: '10px', background: 'rgba(166, 227, 161, 0.1)', borderRadius: '8px', border: '1px solid rgba(166, 227, 161, 0.3)' }}>
+              <span style={{ color: 'var(--ctp-green)' }}>✓ {t('epicConnected') || 'Connected to Epic Games'}</span>
+              {epicDisplayName && <span style={{ marginLeft: '10px' }}>({epicDisplayName})</span>}
+            </div>
+            <div className="button-group">
+              <button type="button" className="btn-secondary" onClick={handleSyncEpic} disabled={epicSyncing}>
+                {epicSyncing ? t('syncing') : t('syncLibrary')}
+              </button>
+              <button type="button" className="btn-delete" onClick={handleDisconnectEpic}>
+                {t('disconnect')}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ marginBottom: '15px' }}>
+              <p style={{ marginBottom: '10px', color: 'var(--ctp-text)' }}>1. Click "Login with Epic Games" to open the Epic login page.</p>
+              <p style={{ marginBottom: '10px', color: 'var(--ctp-text)' }}>2. Sign in with your Epic account.</p>
+              <p style={{ marginBottom: '10px', color: 'var(--ctp-text)' }}>3. After login a JSON page appears, copy the entire JSON or just the authorizationCode value and paste it below.</p>
+              <div style={{ backgroundColor: 'var(--ctp-base)', padding: '8px 12px', borderRadius: '6px', fontSize: '0.75rem', fontFamily: 'monospace', color: 'var(--ctp-blue)', marginTop: '8px', wordBreak: 'break-all' }}>
+                {'{"redirectUrl":"...","authorizationCode":"'}<span style={{ color: 'var(--ctp-green)' }}>XXXXX...</span>{'"}'}
+              </div>
+            </div>
+            <button type="button" className="btn-primary" onClick={handleEpicLogin} style={{ marginBottom: '15px' }}>
+              🔐 {t('epicLoginButton') || 'Login with Epic Games'}
+            </button>
+            <form onSubmit={handleEpicAuthCode}>
+              <div className="form-group">
+                <label htmlFor="epic-auth-code">{t('epicAuthCodeOrJson') || 'JSON or authorization code'}</label>
+                <input
+                  type="text"
+                  id="epic-auth-code"
+                  placeholder={t('epicAuthCodePlaceholder') || 'Paste the JSON or just the code here'}
+                  value={epicAuthCode}
+                  onChange={(e) => setEpicAuthCode(e.target.value)}
+                />
+                <small style={{ color: 'var(--ctp-subtext0)' }}>
+                  {t('epicAuthCodeHelp') || 'Codes expire fast, paste it right after login.'}
+                </small>
+              </div>
+              <button type="submit" className="btn-primary" disabled={epicAuthenticating || !epicAuthCode.trim()}>
+                {epicAuthenticating ? t('authenticating') || 'Authenticating...' : t('epicSubmitCode') || 'Submit Code'}
+              </button>
+            </form>
+          </>
+        )}
+
+        {epicSyncResult && (
+          <div className={`test-result ${epicSyncResult.success ? 'success' : 'error'}`} style={{ marginTop: '15px' }}>{epicSyncResult.message}</div>
         )}
       </div>
     </>

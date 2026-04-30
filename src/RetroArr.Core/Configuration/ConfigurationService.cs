@@ -29,6 +29,7 @@ namespace RetroArr.Core.Configuration
         private readonly string _theGamesDbConfigFile;
         private readonly string _steamGridDbConfigFile;
         private readonly string _gogConfigFile;
+        private readonly string _epicConfigFile;
         private readonly string _databaseConfigFile;
         private readonly string _loggingConfigFile;
         private readonly string _cacheConfigFile;
@@ -70,6 +71,7 @@ namespace RetroArr.Core.Configuration
             _theGamesDbConfigFile = Path.Combine(_configDirectory, "thegamesdb.json");
             _steamGridDbConfigFile = Path.Combine(_configDirectory, "steamgriddb.json");
             _gogConfigFile = Path.Combine(_configDirectory, "gog.json");
+            _epicConfigFile = Path.Combine(_configDirectory, "epic.json");
             _databaseConfigFile = Path.Combine(_configDirectory, "database.json");
             _loggingConfigFile = Path.Combine(_configDirectory, "logging.json");
             _cacheConfigFile = Path.Combine(_configDirectory, "cache.json");
@@ -134,6 +136,13 @@ namespace RetroArr.Core.Configuration
         }
 
         private GogSettings UnprotectGog(GogSettings s)
+        {
+            s.RefreshToken = Unprotect(s.RefreshToken);
+            s.AccessToken = Unprotect(s.AccessToken);
+            return s;
+        }
+
+        private EpicSettings UnprotectEpic(EpicSettings s)
         {
             s.RefreshToken = Unprotect(s.RefreshToken);
             s.AccessToken = Unprotect(s.AccessToken);
@@ -526,6 +535,34 @@ namespace RetroArr.Core.Configuration
             catch (Exception ex) { _logger.Error($"Error saving GOG settings: {ex.Message}"); }
         }
 
+        public EpicSettings LoadEpicSettings()
+        {
+            if (File.Exists(_epicConfigFile))
+            {
+                try
+                {
+                    var json = File.ReadAllText(_epicConfigFile);
+                    var loaded = JsonSerializer.Deserialize<EpicSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new EpicSettings();
+                    return UnprotectEpic(loaded);
+                }
+                catch (Exception ex) { _logger.Error($"Error loading Epic settings: {ex.Message}"); }
+            }
+            return new EpicSettings();
+        }
+
+        public void SaveEpicSettings(EpicSettings settings)
+        {
+            try
+            {
+                WriteEncryptedJson(_epicConfigFile, settings, s =>
+                {
+                    s.RefreshToken = Protect(s.RefreshToken);
+                    s.AccessToken = Protect(s.AccessToken);
+                });
+            }
+            catch (Exception ex) { _logger.Error($"Error saving Epic settings: {ex.Message}"); }
+        }
+
         public GogOAuthSettings LoadGogOAuthSettings()
         {
             // GOG OAuth settings (client ID/secret) - for advanced users
@@ -707,6 +744,15 @@ namespace RetroArr.Core.Configuration
         public string? UserId { get; set; }
         public string? Username { get; set; }
         public bool IsConfigured => !string.IsNullOrWhiteSpace(RefreshToken) || !string.IsNullOrWhiteSpace(AccessToken);
+    }
+
+    public class EpicSettings
+    {
+        public string? RefreshToken { get; set; }
+        public string? AccessToken { get; set; }
+        public string? AccountId { get; set; }
+        public string? DisplayName { get; set; }
+        public bool IsConfigured => !string.IsNullOrWhiteSpace(RefreshToken);
     }
 
     public class GogOAuthSettings

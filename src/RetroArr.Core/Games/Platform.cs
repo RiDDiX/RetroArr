@@ -257,6 +257,7 @@ namespace RetroArr.Core.Games
         Moonlight,
         Steam,
         GOG,
+        EpicGames,
         
         Other
     }
