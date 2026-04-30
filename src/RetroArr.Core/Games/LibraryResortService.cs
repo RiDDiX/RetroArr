@@ -327,28 +327,31 @@ namespace RetroArr.Core.Games
                 }
             }
 
-            // D6: Orphaned files - scan library folders for items not linked to any game
-            var gamePaths = new HashSet<string>(
-                allGames.Where(g => !string.IsNullOrEmpty(g.Path)).Select(g => NormalizePath(g.Path!)),
-                PathComparer);
-
-            foreach (var platformDef in allPlatforms)
+            // D6: Orphaned files - scan library folders for items not linked to any game.
+            // Skipped when the caller is asking about a single game (rename preview etc.).
+            // Orphans are platform-wide noise that has nothing to do with the active game.
+            if (request?.GameId.HasValue != true)
             {
-                var effectiveFolder = platformDef.GetEffectiveFolderName(settings.FolderNamingMode);
-                var platformDir = Path.Combine(libraryRoot, effectiveFolder);
-                if (!Directory.Exists(platformDir)) continue;
+                var gamePaths = new HashSet<string>(
+                    allGames.Where(g => !string.IsNullOrEmpty(g.Path)).Select(g => NormalizePath(g.Path!)),
+                    PathComparer);
 
-                // Also check alternative folder names for the same platform
-                CheckOrphansInDir(platformDir, platformDef, gamePaths, issues, request);
-
-                // Check other folder name variants that might exist on disk
-                foreach (var altName in GetAllFolderNames(platformDef))
+                foreach (var platformDef in allPlatforms)
                 {
-                    if (altName.Equals(effectiveFolder, StringComparison.OrdinalIgnoreCase)) continue;
-                    var altDir = Path.Combine(libraryRoot, altName);
-                    if (Directory.Exists(altDir))
+                    var effectiveFolder = platformDef.GetEffectiveFolderName(settings.FolderNamingMode);
+                    var platformDir = Path.Combine(libraryRoot, effectiveFolder);
+                    if (!Directory.Exists(platformDir)) continue;
+
+                    CheckOrphansInDir(platformDir, platformDef, gamePaths, issues, request);
+
+                    foreach (var altName in GetAllFolderNames(platformDef))
                     {
-                        CheckOrphansInDir(altDir, platformDef, gamePaths, issues, request);
+                        if (altName.Equals(effectiveFolder, StringComparison.OrdinalIgnoreCase)) continue;
+                        var altDir = Path.Combine(libraryRoot, altName);
+                        if (Directory.Exists(altDir))
+                        {
+                            CheckOrphansInDir(altDir, platformDef, gamePaths, issues, request);
+                        }
                     }
                 }
             }
