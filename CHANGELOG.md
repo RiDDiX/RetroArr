@@ -1,3 +1,8 @@
+## v1.0.160 (2026-04-30)
+
+### Changes
+- fix screenscraper false-positive quota on every authenticated response (edf44a9)
+
 ## v1.0.159 (2026-04-30)
 
 ### Changes
