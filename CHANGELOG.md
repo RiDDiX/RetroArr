@@ -1,3 +1,8 @@
+## v1.0.167 (2026-04-30)
+
+### Changes
+- skip already-imported and already-queued items during discovery scan (1357d4a)
+
 ## v1.0.166 (2026-04-30)
 
 ### Changes
