@@ -6,6 +6,11 @@ namespace RetroArr.Core.Games
 {
     public static class PlatformDefinitions
     {
+        // Sentinel for files we couldn't tie to a real platform via folder, key, or path walk.
+        // Stays out of every existing platform Id range so the <=0 guards in
+        // SqliteGameRepository / GameController still reject genuinely invalid ids.
+        public const int UnknownPlatformId = 200;
+
         private static Dictionary<int, Platform>? _platformDict;
         public static Dictionary<int, Platform> PlatformDictionary =>
             _platformDict ??= AllPlatforms.ToDictionary(p => p.Id);
@@ -26,7 +31,7 @@ namespace RetroArr.Core.Games
                                             System.StringSplitOptions.RemoveEmptyEntries);
 
             // Walk deepest-to-shallowest so a nested platform folder wins over
-            // a parent. Example: /library/retrobat/nds/Game.nds — we want nds,
+            // a parent. Example: /library/retrobat/nds/Game.nds - we want nds,
             // not whatever "retrobat" might match.
             for (int i = segments.Length - 1; i >= 0; i--)
             {
@@ -39,6 +44,10 @@ namespace RetroArr.Core.Games
 
         public static readonly List<Platform> AllPlatforms = new()
         {
+            // ========== Unknown sentinel ==========
+            // Disabled and hidden from UI, but persisted so review-queue rows have a valid PlatformId.
+            new Platform { Id = UnknownPlatformId, Name = "Unknown", Slug = "unknown", FolderName = "unknown", Type = PlatformType.Other, Category = "Special", IgdbPlatformId = null, Enabled = false },
+
             // ========== PC / Computer ==========
             new Platform { Id = 1, Name = "PC (Windows)", Slug = "pc", FolderName = "windows", Type = PlatformType.PC, Category = "Computer", IgdbPlatformId = 6, Enabled = true },
             new Platform { Id = 2, Name = "macOS", Slug = "macos", FolderName = "macintosh", Type = PlatformType.MacOS, Category = "Computer", IgdbPlatformId = 14, Enabled = true },

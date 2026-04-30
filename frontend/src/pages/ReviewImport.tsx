@@ -184,7 +184,7 @@ const ReviewImport: React.FC = () => {
                   </span>
                   {item.reasonDetail && (
                     <span className="review-item-detail" title={item.reasonDetail}>
-                      — {item.reasonDetail.length > 80 ? item.reasonDetail.substring(0, 80) + '...' : item.reasonDetail}
+                      - {item.reasonDetail.length > 80 ? item.reasonDetail.substring(0, 80) + '...' : item.reasonDetail}
                     </span>
                   )}
                 </div>

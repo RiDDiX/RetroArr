@@ -125,7 +125,7 @@
   pointer-events: auto;
 }
 
-/* Unidentified — desaturate + pin a pixel-font "NO MATCH" badge. */
+/* Unidentified - desaturate + pin a pixel-font "NO MATCH" badge. */
 .game-card.is-unidentified { filter: grayscale(.3); }
 .game-card.is-unidentified::before {
   content: 'NO MATCH';

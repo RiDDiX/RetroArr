@@ -90,7 +90,7 @@ namespace RetroArr.Core.Logging
             var layout = new SimpleLayout(
                 "${longdate}|${level:uppercase=true:padding=-5}|${scopeproperty:item=RequestId:whenEmpty=-}|${logger}|${message}${onexception:inner=|${exception:format=tostring}}");
 
-            // App.log — catches everything from RetroArr loggers
+            // App.log - catches everything from RetroArr loggers
             var appTarget = CreateFileTarget("app", "app", layout, archiveSize);
             config.AddTarget(appTarget);
 

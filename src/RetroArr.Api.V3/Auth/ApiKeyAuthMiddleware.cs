@@ -60,7 +60,7 @@ namespace RetroArr.Api.V3.Auth
                 return false;
 
             // Emulator assets + player html + rom stream get loaded by
-            // <script>, iframe, and fetch — can't add an api key header
+            // <script>, iframe, and fetch - can't add an api key header
             // on those, so let them through.
             if (path.StartsWith("/api/v3/emulator/assets/", StringComparison.OrdinalIgnoreCase))
                 return false;
@@ -97,7 +97,7 @@ namespace RetroArr.Api.V3.Auth
         private static bool IsLoopback(HttpContext context)
         {
             // A proxy terminating on loopback would bypass auth entirely
-            // without this check — X-Forwarded-For means the real caller
+            // without this check - X-Forwarded-For means the real caller
             // is remote, so treat it as such.
             if (context.Request.Headers.ContainsKey("X-Forwarded-For")
                 || context.Request.Headers.ContainsKey("Forwarded"))

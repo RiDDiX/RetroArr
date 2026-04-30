@@ -446,7 +446,7 @@ namespace RetroArr.Api.V3.Settings
             var existing = _configService.LoadScreenScraperSettings();
             if (IsMaskedOrEmpty(request.Password)) request.Password = existing.Password;
 
-            // Dev credentials are app-level — never accept from frontend, always keep existing/env values
+            // Dev credentials are app-level - never accept from frontend, always keep existing/env values
             request.DevId = existing.DevId;
             request.DevPassword = existing.DevPassword;
 
@@ -730,7 +730,7 @@ namespace RetroArr.Api.V3.Settings
                     _logger.Info($"[GOG] Created download directory: {downloadPath}");
                 }
 
-                // Get actual download URL — always refresh the token first
+                // Get actual download URL - always refresh the token first
                 const string GogClientId = "46899977096215655";
                 const string GogClientSecret = "9d85c43b1482497dbbce61f6e4aa173a433796eeae2ca8c5f6129f2dc4de46d9";
                 var client = new GogClient(gogSettings.RefreshToken);
@@ -759,7 +759,7 @@ namespace RetroArr.Api.V3.Settings
                 }
                 else if (!System.IO.Path.HasExtension(fileName) && !string.IsNullOrEmpty(cdnFileName) && System.IO.Path.HasExtension(cdnFileName))
                 {
-                    // Display name has no extension — append extension from CDN URL
+                    // Display name has no extension - append extension from CDN URL
                     var ext = System.IO.Path.GetExtension(cdnFileName);
                     fileName = fileName + ext;
                     _logger.Info($"[GOG] Appended extension from CDN: {ext} -> {fileName}");

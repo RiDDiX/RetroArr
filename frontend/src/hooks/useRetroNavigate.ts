@@ -7,7 +7,7 @@ type DocWithVT = Document & {
 
 /**
  * Wraps react-router navigation in document.startViewTransition where
- * available. Everywhere else it's a plain navigate() — no animation,
+ * available. Everywhere else it's a plain navigate() - no animation,
  * no error. Respects prefers-reduced-motion.
  */
 export function useRetroNavigate() {

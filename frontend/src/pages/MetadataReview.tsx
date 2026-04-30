@@ -123,7 +123,7 @@ const MetadataReview: React.FC = () => {
   };
 
   const formatScore = (score?: number): string => {
-    if (score == null) return '—';
+    if (score == null) return '-';
     return `${(score * 100).toFixed(0)}%`;
   };
 

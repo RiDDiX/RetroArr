@@ -158,7 +158,7 @@ namespace RetroArr.Core.Plugins
             }
             catch
             {
-                // Plugin may not read stdin — that's fine
+                // Plugin may not read stdin - that's fine
             }
 
             // Read stdout and stderr with timeout
@@ -171,7 +171,7 @@ namespace RetroArr.Core.Plugins
             }
             catch (OperationCanceledException)
             {
-                // Timeout — kill the process
+                // Timeout - kill the process
                 try { process.Kill(true); } catch { /* best effort */ }
                 throw;
             }

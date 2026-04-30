@@ -64,7 +64,7 @@
 }
 .shelf__all:hover { color: var(--platform-accent); }
 
-/* Horizontal scroll-snap row — the XMB-style shelf. */
+/* Horizontal scroll-snap row - the XMB-style shelf. */
 .shelf__row {
   display: grid;
   grid-auto-flow: column;

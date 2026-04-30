@@ -32,7 +32,7 @@ namespace RetroArr.Core.Test.Games
         [Test]
         public void Detect_StemMatchAcrossPlatforms_NotFlagged()
         {
-            // Same stem but different platforms — legitimate (e.g. PS1 release and
+            // Same stem but different platforms - legitimate (e.g. PS1 release and
             // a Saturn release both called "Tekken 2.cue" wouldn't actually share
             // a directory, but the test pins the rule that platform must match).
             var games = new List<DuplicateProbe>

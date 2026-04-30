@@ -70,7 +70,7 @@ const SaveStates: React.FC = () => {
 
   const upload = async (slot: number, file: File) => {
     if (file.size > SAVE_STATE_MAX_MB * 1024 * 1024) {
-      setError(`File is ${(file.size / 1024 / 1024).toFixed(1)} MB — the server caps save states at ${SAVE_STATE_MAX_MB} MB.`);
+      setError(`File is ${(file.size / 1024 / 1024).toFixed(1)} MB - the server caps save states at ${SAVE_STATE_MAX_MB} MB.`);
       return;
     }
     setBusy(true);
@@ -95,7 +95,7 @@ const SaveStates: React.FC = () => {
 
   return (
     <div className="page-content">
-      <h1>Save states — game #{gameId}</h1>
+      <h1>Save states - game #{gameId}</h1>
       {error && <div className="alert alert-error">{error}</div>}
       {info && <div className="alert alert-info">{info}</div>}
 
@@ -114,8 +114,8 @@ const SaveStates: React.FC = () => {
             return (
               <tr key={s}>
                 <td>{s}</td>
-                <td>{data ? fmtBytes(data.size) : '—'}</td>
-                <td>{data ? new Date(data.modified).toLocaleString() : '—'}</td>
+                <td>{data ? fmtBytes(data.size) : '-'}</td>
+                <td>{data ? new Date(data.modified).toLocaleString() : '-'}</td>
                 <td>
                   {data && (
                     <>

@@ -1,8 +1,8 @@
-/* Retro utility classes. Layer on top of tokens.css — these are the
+/* Retro utility classes. Layer on top of tokens.css - these are the
    "seasoning" effects. Keep them opt-in: add the class where you want
    the effect, don't apply globally. */
 
-/* Horizontal CRT scanlines. Use on hero panels, boot screen — never on
+/* Horizontal CRT scanlines. Use on hero panels, boot screen - never on
    dense tables, the moiré kills readability. */
 .retro-scanlines {
   position: relative;
@@ -23,7 +23,7 @@
   border-radius: inherit;
 }
 
-/* Soft phosphor glow on the platform accent — use on interactive
+/* Soft phosphor glow on the platform accent - use on interactive
    elements that should feel "lit". */
 .retro-glow {
   box-shadow: var(--shadow-glow);
@@ -38,7 +38,7 @@
     0 0 16px color-mix(in srgb, var(--glow-color) 40%, transparent);
 }
 
-/* CRT vignette — put on a single fixed element at the app shell, never
+/* CRT vignette - put on a single fixed element at the app shell, never
    nest. Uses ::before so the child content remains interactive. */
 .retro-vignette::before {
   content: '';
@@ -60,7 +60,7 @@
   background-size: 120px 120px;
 }
 
-/* Chromatic aberration on hover — display-font headings only. */
+/* Chromatic aberration on hover - display-font headings only. */
 .retro-hover-chroma {
   transition: text-shadow var(--duration-fast) var(--ease-menu);
 }
@@ -70,7 +70,7 @@
      1px 0 0 rgba(0, 220, 255, .55);
 }
 
-/* Skeleton CRT sweep — replaces the generic shimmer you get from most
+/* Skeleton CRT sweep - replaces the generic shimmer you get from most
    UI libraries. One horizontal beam, matches the power-on vibe. */
 .skeleton {
   background: var(--bg-secondary);
@@ -105,7 +105,7 @@
   .skeleton::after { animation: none; opacity: .08; }
 }
 
-/* LED pulse — use on "live" indicators: scanning, downloading, connected. */
+/* LED pulse - use on "live" indicators: scanning, downloading, connected. */
 .retro-led {
   display: inline-block;
   width: 8px; height: 8px;
@@ -126,7 +126,7 @@
   .retro-led { animation: none; opacity: 1; }
 }
 
-/* Segmented progress bar — Metroid energy-tank style, block-by-block. */
+/* Segmented progress bar - Metroid energy-tank style, block-by-block. */
 .retro-bar {
   --retro-bar-value: 0;
   --retro-bar-blocks: 20;
@@ -162,7 +162,7 @@
   .retro-bar__block--lead { animation: none; }
 }
 
-/* Typography helpers — use inline where needed. */
+/* Typography helpers - use inline where needed. */
 .pixel   { font-family: var(--font-pixel); letter-spacing: .05em; }
 .mono    { font-family: var(--font-mono);  }
 .display { font-family: var(--font-display); letter-spacing: .01em; }

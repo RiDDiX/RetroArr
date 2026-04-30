@@ -11,7 +11,7 @@ interface PlatformIconProps {
 
 // Map platform slugs/names to icon filenames
 const PLATFORM_ICON_MAP: Record<string, string> = {
-    // Nintendo — Home Consoles
+    // Nintendo - Home Consoles
     'nes': 'nes.svg',
     'famicom': 'nes.svg',
     'nintendo-entertainment-system': 'nes.svg',
@@ -35,7 +35,7 @@ const PLATFORM_ICON_MAP: Record<string, string> = {
     'nintendo-switch': 'switch.svg',
     'switch2': 'switch.svg',
 
-    // Nintendo — Handhelds
+    // Nintendo - Handhelds
     'gb': 'gb.svg',
     'gameboy': 'gb.svg',
     'game-boy': 'gb.svg',
@@ -179,7 +179,7 @@ const PLATFORM_ICON_MAP: Record<string, string> = {
 
 // Fallback: resolve by backend platform id when a caller can't supply a slug yet
 // (e.g. ReviewImport rendering items before the platform list is loaded).
-// Keep in sync with PlatformDefinitions.cs — only ids that have a corresponding
+// Keep in sync with PlatformDefinitions.cs - only ids that have a corresponding
 // icon in PLATFORM_ICON_MAP are listed here; everything else returns null.
 const PLATFORM_ID_TO_SLUG: Record<number, string> = {
     1: 'pc', 2: 'macos', 3: 'dos', 4: 'amiga', 5: 'cd32', 6: 'c64',

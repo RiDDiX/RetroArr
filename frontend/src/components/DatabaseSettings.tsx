@@ -346,7 +346,7 @@ const DatabaseSettings: React.FC<DatabaseSettingsProps> = () => {
                                             <tr key={`${c.reason}-${c.key}-${idx}`}>
                                                 <td>{['Path stem', 'Title + platform', 'IGDB id', 'Serial + platform'][c.reason] ?? '?'}</td>
                                                 <td><code>{c.key}</code></td>
-                                                <td>{c.platformName ?? '—'}</td>
+                                                <td>{c.platformName ?? '-'}</td>
                                                 <td>
                                                     {c.games.map((g) => (
                                                         <div key={g.gameId}>#{g.gameId} · {g.title}{g.path ? <> · <code>{g.path}</code></> : null}</div>
@@ -536,7 +536,7 @@ const DatabaseSettings: React.FC<DatabaseSettingsProps> = () => {
                                     type="password"
                                     value={config.password || ''}
                                     onChange={(e) => setConfig({ ...config, password: e.target.value })}
-                                    placeholder={config.hasPassword ? 'stored — leave empty to keep' : 'enter password'}
+                                    placeholder={config.hasPassword ? 'stored - leave empty to keep' : 'enter password'}
                                 />
                                 {config.hasPassword && (
                                     <small style={{ color: 'var(--ctp-overlay0)', display: 'block', marginTop: '0.25rem' }}>

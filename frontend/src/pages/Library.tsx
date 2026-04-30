@@ -242,7 +242,7 @@ const Library: React.FC = () => {
     }).catch(() => {});
 
     // Listen for global library updates (e.g. from Auto-Scan in Settings).
-    // Debounce to avoid hammering the API during bulk scans — the scanner
+    // Debounce to avoid hammering the API during bulk scans - the scanner
     // fires this event per game added, which can be hundreds per second.
     // The handler reads current loader refs so filter changes after mount
     // don't reload the wrong slice.
@@ -629,7 +629,7 @@ const Library: React.FC = () => {
   // ProtonDB filter only makes sense on PC/Steam platforms. We don't hide it
   // everywhere, but we use the PC category to decide whether to surface it.
   const showProtonFilter = useMemo(() => {
-    if (!selectedPlatformData) return true; // "All platforms" — keep it visible
+    if (!selectedPlatformData) return true; // "All platforms" - keep it visible
     const cat = (selectedPlatformData as { category?: string }).category?.toLowerCase();
     return !cat || cat === 'pc' || cat === 'computer';
   }, [selectedPlatformData]);
@@ -674,7 +674,7 @@ const Library: React.FC = () => {
                       key={p.id}
                       className={`sidebar-platform-item ${selectedPlatform === p.id.toString() ? 'active' : ''}`}
                       onClick={() => handlePlatformChange(p.id.toString())}
-                      title={`${p.name} — /${p.folderName}/`}
+                      title={`${p.name} - /${p.folderName}/`}
                     >
                       <PlatformIcon platformSlug={p.slug} platformName={p.name} platformId={p.id} size={16} className="sidebar-platform-icon" />
                       <span className="sidebar-platform-name">{p.name}</span>
@@ -1006,7 +1006,7 @@ const Library: React.FC = () => {
           ) : searchQuery ? (
             <EmptyState
               sprite="gameover"
-              title={t('noGamesFound') || 'Game Over — no matches'}
+              title={t('noGamesFound') || 'Game Over - no matches'}
               body={t('tryDifferentSearch') || 'Try a different search term.'}
             />
           ) : !isIgdbConfigured ? (

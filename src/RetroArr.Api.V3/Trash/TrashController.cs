@@ -24,7 +24,7 @@ namespace RetroArr.Api.V3.Trash
         public ActionResult Restore(string id)
         {
             if (_trash.Restore(id)) return Ok(new { message = "Restored." });
-            return Conflict(new { message = "Could not restore — payload missing or original path occupied." });
+            return Conflict(new { message = "Could not restore - payload missing or original path occupied." });
         }
 
         [HttpDelete("{id}")]

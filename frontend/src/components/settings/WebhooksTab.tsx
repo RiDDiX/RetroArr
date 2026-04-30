@@ -252,7 +252,7 @@ const WebhooksTab: React.FC<Props> = ({ t }) => {
               {w.lastTriggeredAt && (
                 <div className="webhook-meta">
                   {t('webhooksLastTriggered') || 'Last triggered'}: {new Date(w.lastTriggeredAt).toLocaleString()}
-                  {w.lastResponseCode != null ? ` — HTTP ${w.lastResponseCode}` : ''}
+                  {w.lastResponseCode != null ? ` - HTTP ${w.lastResponseCode}` : ''}
                 </div>
               )}
               {w.lastError && <div className="webhook-error">{w.lastError}</div>}

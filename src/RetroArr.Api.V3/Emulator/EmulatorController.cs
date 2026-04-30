@@ -596,7 +596,7 @@ namespace RetroArr.Api.V3.Emulator
 
             // Browsers only honour COOP/COEP (and expose SharedArrayBuffer) on
             // "secure contexts": HTTPS or localhost. Over plain http on a LAN
-            // IP, threaded cores (psp, nds, n64) cannot work — fail early with
+            // IP, threaded cores (psp, nds, n64) cannot work - fail early with
             // a clear message instead of letting EmulatorJS crash cryptically.
             var host = Request.Host.Host;
             var isSecure = Request.IsHttps

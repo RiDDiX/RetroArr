@@ -120,13 +120,13 @@ namespace RetroArr.Core.Download.TrackedDownloads
                 // Downloading but client no longer reports it: gone (deleted or auto-cleaned)
                 if (tracked.State == TrackedDownloadState.Downloading)
                 {
-                    _logger.Info($"[TrackedDownload] Removing stale entry '{tracked.Title}' — no longer in client queue.");
+                    _logger.Info($"[TrackedDownload] Removing stale entry '{tracked.Title}' - no longer in client queue.");
                     _cache.TryRemove(tracked.DownloadId, out _);
                     removed++;
                     continue;
                 }
 
-                // ImportPending/ImportBlocked/Importing — client removed it but files may still exist.
+                // ImportPending/ImportBlocked/Importing - client removed it but files may still exist.
                 // Allow a grace period (1 hour) before cleaning up.
                 if (tracked.State == TrackedDownloadState.ImportPending ||
                     tracked.State == TrackedDownloadState.ImportBlocked ||
@@ -135,7 +135,7 @@ namespace RetroArr.Core.Download.TrackedDownloads
                     var age = DateTime.UtcNow - tracked.Added;
                     if (age.TotalHours > 1)
                     {
-                        _logger.Info($"[TrackedDownload] Removing stale import entry '{tracked.Title}' — not in client queue for over 1h.");
+                        _logger.Info($"[TrackedDownload] Removing stale import entry '{tracked.Title}' - not in client queue for over 1h.");
                         _cache.TryRemove(tracked.DownloadId, out _);
                         removed++;
                     }
@@ -194,7 +194,7 @@ namespace RetroArr.Core.Download.TrackedDownloads
 
                 foreach (var entry in entries)
                 {
-                    // Don't restore transient states — reset Importing back to ImportPending
+                    // Don't restore transient states - reset Importing back to ImportPending
                     if (entry.State == TrackedDownloadState.Importing)
                         entry.State = TrackedDownloadState.ImportPending;
 

@@ -68,7 +68,7 @@ namespace RetroArr.Core.Download
                             await RefreshClientDownloadsAsync(clientConfig, seenDownloadIds);
                         }
 
-                        // Phase 1.5: Reconcile — remove stale entries no longer in any client
+                        // Phase 1.5: Reconcile - remove stale entries no longer in any client
                         _trackedDownloadService.ReconcileWithClientIds(seenDownloadIds);
 
                         // Phase 2: Process tracked downloads (Check + Import)

@@ -88,7 +88,7 @@ namespace RetroArr.Core.Test.Games
         {
             var (title, serial) = _sut.CleanGameTitle(input);
             Assert.That(serial, Is.EqualTo("CUSA07408"));
-            // Title may be empty after stripping — the metadata lookup fills it
+            // Title may be empty after stripping - the metadata lookup fills it
             Assert.That(title, Is.Not.Null);
         }
 

@@ -105,5 +105,31 @@ namespace RetroArr.Core.Test.Games
             Assert.That(platform, Is.Not.Null, $"Platform {slug} not found");
             Assert.That(platform!.MatchesFolderName(platform.FolderName), Is.True);
         }
+
+        [Test]
+        public void UnknownSentinel_IsRegistered()
+        {
+            Assert.That(PlatformDefinitions.PlatformDictionary.ContainsKey(PlatformDefinitions.UnknownPlatformId), Is.True);
+            var unknown = PlatformDefinitions.PlatformDictionary[PlatformDefinitions.UnknownPlatformId];
+            Assert.That(unknown.Slug, Is.EqualTo("unknown"));
+            Assert.That(unknown.FolderName, Is.EqualTo("unknown"));
+        }
+
+        [Test]
+        public void UnknownSentinel_IsDisabledAndOutOfRealRange()
+        {
+            var unknown = PlatformDefinitions.PlatformDictionary[PlatformDefinitions.UnknownPlatformId];
+            Assert.That(unknown.Enabled, Is.False, "Unknown must not show up in the UI platform list");
+            Assert.That(unknown.Id, Is.GreaterThan(189), "Unknown Id must sit above the real platform range");
+        }
+
+        [Test]
+        public void UnknownSentinel_PassesValidationGuards()
+        {
+            // SqliteGameRepository.EnsureKnownPlatform rejects PlatformId <= 0 or unknown ids.
+            // The sentinel must satisfy both predicates so review-queue rows can persist.
+            Assert.That(PlatformDefinitions.UnknownPlatformId, Is.GreaterThan(0));
+            Assert.That(PlatformDefinitions.PlatformDictionary.ContainsKey(PlatformDefinitions.UnknownPlatformId), Is.True);
+        }
     }
 }

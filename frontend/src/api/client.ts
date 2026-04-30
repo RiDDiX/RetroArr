@@ -17,7 +17,7 @@ export function getApiKey(): string | null {
 }
 
 // Append the current API key as a query parameter. Use this for native
-// <img src>, <video src>, and anchor downloads — they don't go through
+// <img src>, <video src>, and anchor downloads - they don't go through
 // the axios interceptor or the window.fetch wrapper, so they'd otherwise
 // hit the auth middleware without credentials on LAN access.
 export function withApiKey(url: string): string {
@@ -50,7 +50,7 @@ async function bootstrapApiKey(): Promise<string | null> {
         return resp.data.apiKey;
       }
     } catch {
-      // Non-loopback — user must paste the key manually in settings.
+      // Non-loopback - user must paste the key manually in settings.
     } finally {
       _bootstrapPromise = null;
     }

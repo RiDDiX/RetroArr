@@ -435,7 +435,7 @@ const LibraryResort: React.FC = () => {
           <FontAwesomeIcon icon={faFolderTree} size="3x" />
           <h2>Library Resort / Rename</h2>
           <p>
-            Scan your library to detect folder structure issues — wrong platform folders,
+            Scan your library to detect folder structure issues - wrong platform folders,
             misnamed game folders, compatibility mode mismatches, and more.
           </p>
           <button className="resort-btn btn-scan" onClick={scan} disabled={scanning}>

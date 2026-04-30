@@ -49,7 +49,7 @@
 }
 
 /* View transitions: if the browser supports startViewTransition, these
-   hooks fade the main region across navigations. No fallback needed —
+   hooks fade the main region across navigations. No fallback needed -
    browsers without support just skip straight to the new tree. */
 ::view-transition-old(root),
 ::view-transition-new(root) {

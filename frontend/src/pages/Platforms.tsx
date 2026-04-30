@@ -56,7 +56,7 @@ export default function Platforms() {
       const platformsResp = await platformsApi.getEnabled();
       const enabled = platformsResp.data || [];
 
-      // Fire per-platform sample requests in parallel — cheap because
+      // Fire per-platform sample requests in parallel - cheap because
       // each is capped at SHELF_PAGE_SIZE.
       const results = await Promise.all(
         enabled.map(async (p) => {

@@ -7,7 +7,7 @@ namespace RetroArr.Core.Test.Games
     [TestFixture]
     public class PlatformResolutionTest
     {
-        // ==================== MatchesFolderName — Folder-based detection ====================
+        // ==================== MatchesFolderName - Folder-based detection ====================
 
         [TestCase("gamecube", 43, "Nintendo GameCube")]
         [TestCase("gb", 50, "Game Boy")]

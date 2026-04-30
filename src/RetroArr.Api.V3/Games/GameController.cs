@@ -411,7 +411,7 @@ namespace RetroArr.Api.V3.Games
 
             // Pre-check: another game on this platform with the same Title + Region?
             // Catch it here so the caller gets a useful 409 instead of a raw
-            // database violation. Region variants are allowed — the unique index
+            // database violation. Region variants are allowed - the unique index
             // is (Title, PlatformId, Region), so only an exact 3-way match fires.
             try
             {
@@ -490,7 +490,7 @@ namespace RetroArr.Api.V3.Games
                 return Conflict(new { code = "duplicate_title", message = ex.Message });
             }
 
-            // Delete the source metadata row. Files are kept in place — if the
+            // Delete the source metadata row. Files are kept in place - if the
             // user wants the file gone too, they can hit Remove on the row first.
             await _repository.DeleteAsync(sourceId);
             _logger.Info($"[Game] Merged {sourceId} into {targetId}");
@@ -518,7 +518,7 @@ namespace RetroArr.Api.V3.Games
                 return Ok(new { changed = false, platformId = game.PlatformId, platformName = resolved.Name });
 
             // Look for an existing row on the target platform with the same
-            // title — that's a collision we don't auto-merge. Let the user pick.
+            // title - that's a collision we don't auto-merge. Let the user pick.
             var all = await _repository.GetAllLightAsync();
             var collision = all.FirstOrDefault(g => g.Id != id
                 && g.PlatformId == resolved.Id
@@ -601,7 +601,7 @@ namespace RetroArr.Api.V3.Games
                 {
                     // Defence in depth: never wipe a directory that still holds
                     // other games (happens when game.Path is the platform folder
-                    // for single-file ROM systems — e.g. NDS rom sits at
+                    // for single-file ROM systems - e.g. NDS rom sits at
                     // /media/nds/foo.nds but game.Path got set to /media/nds).
                     // Prefer the specific file via ExecutablePath when we can.
                     if (System.IO.Directory.Exists(pathToDelete))
@@ -611,7 +611,7 @@ namespace RetroArr.Api.V3.Games
                             && IsSubPath(game.ExecutablePath, pathToDelete)
                             && !System.IO.Path.GetFullPath(pathToDelete).Equals(System.IO.Path.GetFullPath(game.ExecutablePath), StringComparison.OrdinalIgnoreCase))
                         {
-                            // game.Path is a folder, ExecutablePath is the actual ROM — delete just the file.
+                            // game.Path is a folder, ExecutablePath is the actual ROM - delete just the file.
                             pathToDelete = game.ExecutablePath;
                         }
                         else
@@ -630,7 +630,7 @@ namespace RetroArr.Api.V3.Games
                                 _logger.Error($"[Delete] REFUSED to delete directory {pathToDelete}: it still holds {collisions.Count}+ other library entries (sample ids: {string.Join(", ", collisions)}).");
                                 return Conflict(new
                                 {
-                                    message = $"Refusing to delete '{pathToDelete}' — it contains other games in the library. Fix the game's path in Settings or use file-level delete.",
+                                    message = $"Refusing to delete '{pathToDelete}' - it contains other games in the library. Fix the game's path in Settings or use file-level delete.",
                                     otherGameIds = collisions,
                                 });
                             }
@@ -1427,7 +1427,7 @@ namespace RetroArr.Api.V3.Games
             }
         }
 
-        // Sonarr/Radarr-style {Library}/{platformFolder}/{title}/ — assigns to game.Path if not set
+        // Sonarr/Radarr-style {Library}/{platformFolder}/{title}/ - assigns to game.Path if not set
         [HttpPost("{id}/folder")]
         public async Task<ActionResult> CreateGameFolder(int id)
         {
@@ -2116,7 +2116,7 @@ namespace RetroArr.Api.V3.Games
 
             if (platformId <= 0 || !PlatformDefinitions.PlatformDictionary.ContainsKey(platformId))
             {
-                _logger.Warn($"[API] CreateFromFile: Rejected — could not resolve platform for '{gameTitle}' (folder '{request.PlatformFolder}').");
+                _logger.Warn($"[API] CreateFromFile: Rejected - could not resolve platform for '{gameTitle}' (folder '{request.PlatformFolder}').");
                 return BadRequest(new { code = "invalid_platform", message = "Could not resolve a valid platform. Pass platformId or a folder that matches a known platform." });
             }
 

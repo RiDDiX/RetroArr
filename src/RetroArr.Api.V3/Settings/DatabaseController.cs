@@ -255,13 +255,13 @@ namespace RetroArr.Api.V3.Settings
                 foreach (var g in nullRegionRows) g.Region = string.Empty;
                 result.RegionsCanonicalised = nullRegionRows.Count;
 
-                // 2. Orphan PlatformIds → pin to PC + flag review
+                // 2. Orphan PlatformIds: park on Unknown so folder stays absolute and the row hits review.
                 var orphans = await context.Games
                     .Where(g => g.PlatformId <= 0 || !knownPlatformIds.Contains(g.PlatformId))
                     .ToListAsync();
                 foreach (var g in orphans)
                 {
-                    g.PlatformId = 1;
+                    g.PlatformId = PlatformDefinitions.UnknownPlatformId;
                     g.NeedsMetadataReview = true;
                     if (string.IsNullOrEmpty(g.MetadataReviewReason))
                         g.MetadataReviewReason = "Original platform could not be resolved. Please reassign.";

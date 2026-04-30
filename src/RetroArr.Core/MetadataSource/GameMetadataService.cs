@@ -135,7 +135,7 @@ namespace RetroArr.Core.MetadataSource
 
         /// <summary>
         /// Score an IGDB game result against the search query variants and expected platform.
-        /// Returns 0.0–1.0 confidence.
+        /// Returns 0.0-1.0 confidence.
         /// </summary>
         public double ScoreCandidate(IgdbGame candidate, List<string> queryVariants, int? expectedIgdbPlatformId)
         {
@@ -382,7 +382,7 @@ namespace RetroArr.Core.MetadataSource
             if (resolvedPlatformId == 0)
             {
                 _logger.Warn($"[Metadata] IGDB game '{title}' (id={igdbGame.Id}) could not be resolved to a known platform. Flagged for review.");
-                resolvedPlatformId = 1; // PC (Windows) — matches scanner + post-download fallback
+                resolvedPlatformId = 1; // PC (Windows) - matches scanner + post-download fallback
                 needsReview = true;
             }
 

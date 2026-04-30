@@ -121,7 +121,7 @@ namespace RetroArr.Core.Test.Gog
             _tracker.Remove("abc");
 
             Assert.That(_tracker.Get("abc"), Is.Null);
-            // After removal, the token source is disposed — requesting cancel on a disposed CTS throws
+            // After removal, the token source is disposed - requesting cancel on a disposed CTS throws
             // This is expected behavior: the download is gone, no need to cancel
         }
     }

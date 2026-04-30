@@ -41,8 +41,9 @@ namespace RetroArr.Api.V3.Search
             }
 
             // Sanitize query: strip characters that break indexer searches
-            // e.g. "Anno 1404: History Edition" → "Anno 1404 History Edition"
-            var sanitized = System.Text.RegularExpressions.Regex.Replace(query, @"[:\(\)\[\]\{\}""'™®©\-–—]", " ");
+            // e.g. "Anno 1404: History Edition" -> "Anno 1404 History Edition".
+            // \p{Pd} covers hyphen-minus plus en/em/figure dashes without literal Unicode in source.
+            var sanitized = System.Text.RegularExpressions.Regex.Replace(query, @"[:\(\)\[\]\{\}""'™®©\p{Pd}]", " ");
             // Strip common edition/version suffixes that make queries too specific
             sanitized = System.Text.RegularExpressions.Regex.Replace(sanitized, 
                 @"\b(Definitive|Complete|Ultimate|Gold|Game of the Year|GOTY|Deluxe|Premium|Enhanced|Remastered|HD|Anniversary|Legacy|Legendary|Standard|Digital|Special)\s*(Edition|Collection|Version|Bundle)?\b", 

@@ -651,7 +651,7 @@ const Status: React.FC = () => {
                                 onBlur={() => setEditingPlatform(null)}
                                 autoFocus
                               >
-                                <option value="">— select —</option>
+                                <option value="">- select -</option>
                                 {platforms.map(p => (
                                   <option key={p.slug} value={p.folderName}>{p.name}</option>
                                 ))}
@@ -763,7 +763,7 @@ const Status: React.FC = () => {
                   {history.map(h => (
                     <tr key={h.id}>
                       <td title={h.title}>{h.cleanTitle || h.title}</td>
-                      <td><span className="platform-label">{h.platform || '—'}</span></td>
+                      <td><span className="platform-label">{h.platform || '-'}</span></td>
                       <td><span className={`status-badge ${getStateBadgeClass(h.state)}`}>{h.state}</span></td>
                       <td>{formatDate(h.importedAt)}</td>
                       <td>{h.clientName}</td>
@@ -807,7 +807,7 @@ const Status: React.FC = () => {
                 {failed.map(f => (
                   <tr key={f.id}>
                     <td title={f.title}>{f.cleanTitle || f.title}</td>
-                    <td><span className="platform-label">{f.platform || '—'}</span></td>
+                    <td><span className="platform-label">{f.platform || '-'}</span></td>
                     <td className="reason-cell" title={f.reason || ''}>{f.reason || 'Unknown'}</td>
                     <td>{formatDate(f.importedAt)}</td>
                     <td>{f.clientName}</td>
@@ -865,7 +865,7 @@ const Status: React.FC = () => {
                     </td>
                     <td>{u.downloadClientName}</td>
                     <td>{formatBytes(u.size)}</td>
-                    <td className="reason-cell" title={u.outputPath || ''}>{u.outputPath || '—'}</td>
+                    <td className="reason-cell" title={u.outputPath || ''}>{u.outputPath || '-'}</td>
                     <td>{formatDate(u.added)}</td>
                     <td>
                       <div className="control-actions">
@@ -913,10 +913,10 @@ const Status: React.FC = () => {
                   {blacklist.map(b => (
                     <tr key={b.id}>
                       <td>{b.title}</td>
-                      <td><span className="platform-label">{b.platform || '—'}</span></td>
+                      <td><span className="platform-label">{b.platform || '-'}</span></td>
                       <td className="reason-cell" title={b.reason}>{b.reason}</td>
                       <td>{formatDate(b.blacklistedAt)}</td>
-                      <td>{b.clientName || '—'}</td>
+                      <td>{b.clientName || '-'}</td>
                       <td>
                         <div className="control-actions">
                           <button className="delete-btn" onClick={() => handleBlacklistRemove(b.id)} title="Remove from blacklist">✕</button>
@@ -955,7 +955,7 @@ const Status: React.FC = () => {
                 <tbody>
                   {unmappedFiles.map((f, idx) => (
                     <tr key={idx}>
-                      <td><span className="platform-label">{f.platformFolder || '—'}</span></td>
+                      <td><span className="platform-label">{f.platformFolder || '-'}</span></td>
                       <td className="reason-cell" title={f.folder}>{f.folder}</td>
                       <td title={f.fullPath}>{f.fileName}</td>
                       <td>{f.formattedSize}</td>
@@ -990,12 +990,12 @@ const Status: React.FC = () => {
             </div>
             <div className="modal-field">
               <label>Download Path</label>
-              <div className="modal-value small">{mapModal.outputPath || '—'}</div>
+              <div className="modal-value small">{mapModal.outputPath || '-'}</div>
             </div>
             <div className="modal-field">
               <label>Platform <span className="required">*</span></label>
               <select className="filter-select" value={mapPlatform} onChange={e => { setMapPlatform(e.target.value); setMapGameId(''); setMapGameSearch(''); }}>
-                <option value="">— Select Platform —</option>
+                <option value="">- Select Platform -</option>
                 {platforms.map(p => (
                   <option key={p.slug} value={p.folderName}>{p.name}</option>
                 ))}
@@ -1030,7 +1030,7 @@ const Status: React.FC = () => {
                   value={mapGameId}
                   onChange={e => setMapGameId(e.target.value ? Number(e.target.value) : '')}
                 >
-                  <option value="">— Select Game (optional) —</option>
+                  <option value="">- Select Game (optional) -</option>
                   {gamesList
                     .filter(g => {
                       const platDef = platforms.find(p => p.folderName === mapPlatform);
@@ -1081,12 +1081,12 @@ const Status: React.FC = () => {
             </div>
             <div className="modal-field">
               <label>Platform</label>
-              <div className="modal-value">{mapFileModal.platformFolder || '—'}</div>
+              <div className="modal-value">{mapFileModal.platformFolder || '-'}</div>
             </div>
             <div className="modal-field">
               <label>Game <span className="required">*</span></label>
               <select className="filter-select" value={mapFileGameId} onChange={e => setMapFileGameId(e.target.value ? Number(e.target.value) : '')}>
-                <option value="">— Select Game —</option>
+                <option value="">- Select Game -</option>
                 {gamesList.map(g => (
                   <option key={g.id} value={g.id}>{g.title}</option>
                 ))}
@@ -1117,7 +1117,7 @@ const Status: React.FC = () => {
             </div>
             <div className="modal-field">
               <label>Platform</label>
-              <div className="modal-value">{createGameModal.platformFolder || '—'}</div>
+              <div className="modal-value">{createGameModal.platformFolder || '-'}</div>
             </div>
             <div className="modal-field">
               <label>Game Title</label>

@@ -15,7 +15,7 @@ namespace RetroArr.Core.Test.Configuration
         {
             _contentRoot = Path.Combine(Path.GetTempPath(), "retroarr_dbcfg_" + Path.GetRandomFileName());
             // ConfigurationService prefers <contentRoot>/config when it exists,
-            // otherwise it silently falls back to ~/.config/RetroArr/config —
+            // otherwise it silently falls back to ~/.config/RetroArr/config -
             // which would contaminate the developer's live install. Pre-creating
             // the dir pins the service to our temp tree.
             _configDir = Path.Combine(_contentRoot, "config");
@@ -81,7 +81,7 @@ namespace RetroArr.Core.Test.Configuration
         public void Load_WithoutProtector_TreatsExistingPlainPasswordAsIs()
         {
             // Backwards compat: if a user had pre-encrypt database.json with a
-            // plain password, loading without a protector must not blow up — it
+            // plain password, loading without a protector must not blow up - it
             // returns the plain string so the migration path keeps working.
             var path = Path.Combine(_configDir, "database.json");
             File.WriteAllText(path,

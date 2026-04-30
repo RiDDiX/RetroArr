@@ -40,7 +40,7 @@ const ApiAccessTab: React.FC<Props> = ({ t }) => {
         setApiKey(resp.data.apiKey);
         setCurrent(resp.data.apiKey);
         setRevealed(true);
-        setNotice(t('apiKeyRotated') || 'API key rotated. Copy it now — this is the only time it is shown in full.');
+        setNotice(t('apiKeyRotated') || 'API key rotated. Copy it now - this is the only time it is shown in full.');
       }
     } catch (e) {
       setError(getErrorMessage(e, 'Rotation failed'));

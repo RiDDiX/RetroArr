@@ -178,7 +178,7 @@ namespace RetroArr.Core.Games
                 }
 
                 // For file-mode games (single ROM files), the expected path keeps
-                // the original filename — ROM names carry region/revision metadata
+                // the original filename - ROM names carry region/revision metadata
                 // that must not be stripped. Only the platform folder is checked.
                 string effectiveExpected;
                 if (isFileMode)
@@ -212,7 +212,7 @@ namespace RetroArr.Core.Games
 
                 var normalizedExpected = NormalizePath(effectiveExpected);
 
-                // D5: DB path mismatch — game exists on disk but path differs from expected
+                // D5: DB path mismatch - game exists on disk but path differs from expected
                 if (!currentPath.Equals(normalizedExpected, PathComparison))
                 {
                     // Determine sub-type: wrong platform folder (D1/D8) vs wrong game name (D2)
@@ -223,7 +223,7 @@ namespace RetroArr.Core.Games
                     {
                         // Check if the current folder is a recognized platform folder
                         // (any platform, not just the one in the DB). If it is, the game
-                        // was intentionally placed there — multi-platform titles often
+                        // was intentionally placed there - multi-platform titles often
                         // exist on disk under a different platform than their DB entry.
                         bool currentFolderIsKnownPlatform = allPlatforms.Any(p => p.MatchesFolderName(currentPlatformFolder));
 
@@ -253,7 +253,7 @@ namespace RetroArr.Core.Games
                                 });
                             }
                             // else: game is in a different but valid platform folder
-                            // (e.g. DB says Steam but file is in xbox360/) — skip,
+                            // (e.g. DB says Steam but file is in xbox360/) - skip,
                             // the filesystem placement is intentional.
                         }
                         else
@@ -278,7 +278,7 @@ namespace RetroArr.Core.Games
                     }
                     else if (!isFileMode)
                     {
-                        // D2: Wrong game folder name — only for folder-mode games.
+                        // D2: Wrong game folder name - only for folder-mode games.
                         // File-mode games (ROMs) keep their original filenames because
                         // they contain region, revision, and format metadata.
                         var currentGameFolder = Path.GetFileName(currentPath.TrimEnd(Path.DirectorySeparatorChar));
@@ -327,7 +327,7 @@ namespace RetroArr.Core.Games
                 }
             }
 
-            // D6: Orphaned files — scan library folders for items not linked to any game
+            // D6: Orphaned files - scan library folders for items not linked to any game
             var gamePaths = new HashSet<string>(
                 allGames.Where(g => !string.IsNullOrEmpty(g.Path)).Select(g => NormalizePath(g.Path!)),
                 PathComparer);
@@ -700,7 +700,7 @@ namespace RetroArr.Core.Games
                 {
                     if (!string.IsNullOrEmpty(gf.RelativePath))
                     {
-                        // RelativePath is relative to game.Path — stays the same if only the root moved
+                        // RelativePath is relative to game.Path - stays the same if only the root moved
                         // But verify it still resolves
                         var fullPath = Path.Combine(newPath, gf.RelativePath);
                         if (!File.Exists(fullPath))

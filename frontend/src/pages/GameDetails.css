@@ -511,7 +511,7 @@
   border: 1px solid transparent;
 }
 
-/* Platform-specific badge colors — translucent bg + colored text for contrast */
+/* Platform-specific badge colors - translucent bg + colored text for contrast */
 .platform-tag.platform-pc {
   background: color-mix(in srgb, var(--success) 15%, transparent);
   color: var(--ctp-green);

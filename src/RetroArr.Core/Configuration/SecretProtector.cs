@@ -42,7 +42,7 @@ namespace RetroArr.Core.Configuration
             }
             catch (Exception ex)
             {
-                _logger.Warn($"[SecretProtector] decrypt failed ({ex.GetType().Name}): {ex.Message}. Config file will read blank — re-enter the credential to re-seal.");
+                _logger.Warn($"[SecretProtector] decrypt failed ({ex.GetType().Name}): {ex.Message}. Config file will read blank - re-enter the credential to re-seal.");
                 return string.Empty;
             }
         }

@@ -1,10 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
-using RetroArr.Core.Prowlarr;
 using RetroArr.Core.Debug;
 using RetroArr.Core.Games;
-using System;
-using System.Net.Http;
-using System.Threading.Tasks;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 
@@ -15,13 +11,11 @@ namespace RetroArr.Api.V3.Debug
     [SuppressMessage("Microsoft.Design", "CA1031:DoNotCatchGeneralExceptionTypes")]
     public class DebugController : ControllerBase
     {
-        private readonly ProwlarrSettings _prowlarrSettings;
         private readonly DebugLogService _debugLog;
         private readonly MediaScannerService _scanner;
 
-        public DebugController(ProwlarrSettings prowlarrSettings, DebugLogService debugLog, MediaScannerService scanner)
+        public DebugController(DebugLogService debugLog, MediaScannerService scanner)
         {
-            _prowlarrSettings = prowlarrSettings;
             _debugLog = debugLog;
             _scanner = scanner;
         }
@@ -65,36 +59,6 @@ namespace RetroArr.Api.V3.Debug
         {
             _debugLog.ClearLogs();
             return Ok(new { message = "Logs cleared" });
-        }
-
-        [HttpGet("prowlarr-raw")]
-        public async Task<IActionResult> GetProwlarrRaw([FromQuery] string query = "game")
-        {
-            if (!_prowlarrSettings.IsConfigured)
-            {
-                return BadRequest("Prowlarr not configured");
-            }
-
-            try
-            {
-                using var httpClient = new HttpClient { BaseAddress = new Uri(_prowlarrSettings.Url) };
-                using var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/search?query={Uri.EscapeDataString(query)}");
-                request.Headers.Add("X-Api-Key", _prowlarrSettings.ApiKey);
-
-                var response = await httpClient.SendAsync(request);
-                var content = await response.Content.ReadAsStringAsync();
-                
-                return Ok(new { 
-                    StatusCode = (int)response.StatusCode,
-                    ContentType = response.Content.Headers.ContentType?.ToString(),
-                    RawContent = content,
-                    ContentLength = content.Length
-                });
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { error = ex.Message });
-            }
         }
     }
 }

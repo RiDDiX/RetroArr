@@ -53,7 +53,7 @@ class ProgressHubClient {
     this.connection = new HubConnectionBuilder()
       .withUrl(HUB_URL, {
         accessTokenFactory: () => getApiKey() ?? '',
-        // Send the API key as header too — loopback requests bypass auth; LAN needs this.
+        // Send the API key as header too - loopback requests bypass auth; LAN needs this.
         headers: getApiKey() ? { 'X-Api-Key': getApiKey()! } : undefined,
       })
       .withAutomaticReconnect({

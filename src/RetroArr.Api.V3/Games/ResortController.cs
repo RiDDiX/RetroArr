@@ -207,12 +207,12 @@ namespace RetroArr.Api.V3.Games
                 return NotFound(new { message = $"Game {gameId} not found." });
 
             var issues = await _resortService.ScanAsync(new ResortScanRequest { GameId = gameId });
-            // Exclude folder-level operations — renaming the game folder would break game.Path
+            // Exclude folder-level operations - renaming the game folder would break game.Path
             issues = issues.Where(i =>
                 i.ProposedAction != OperationType.RenameGameFolder &&
                 i.ProposedAction != OperationType.MoveGameFolder).ToList();
             if (issues.Count == 0)
-                return Ok(new { message = "No rename needed — files are already correctly named.", operations = Array.Empty<object>() });
+                return Ok(new { message = "No rename needed - files are already correctly named.", operations = Array.Empty<object>() });
 
             var allIds = issues.Select(i => i.Id).ToList();
             var plan = _resortService.GeneratePreview(allIds, ConflictResolution.Skip);
@@ -227,7 +227,7 @@ namespace RetroArr.Api.V3.Games
                 return NotFound(new { message = $"Game {gameId} not found." });
 
             var issues = await _resortService.ScanAsync(new ResortScanRequest { GameId = gameId });
-            // Exclude folder-level operations — renaming the game folder would break game.Path
+            // Exclude folder-level operations - renaming the game folder would break game.Path
             issues = issues.Where(i =>
                 i.ProposedAction != OperationType.RenameGameFolder &&
                 i.ProposedAction != OperationType.MoveGameFolder).ToList();

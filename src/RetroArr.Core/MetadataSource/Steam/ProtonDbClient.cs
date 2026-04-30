@@ -44,7 +44,7 @@ namespace RetroArr.Core.MetadataSource.Steam
             }
             catch (TaskCanceledException)
             {
-                // Timeout — skip silently
+                // Timeout - skip silently
                 return null;
             }
             catch (Exception ex)

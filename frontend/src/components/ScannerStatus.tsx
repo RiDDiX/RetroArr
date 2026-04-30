@@ -62,7 +62,7 @@ const ScannerStatus: React.FC = () => {
             fetchStatus();
         });
         const offLibrary = progressHub.on('libraryUpdated', () => {
-            // Don't relay every single event — the Library page debounces
+            // Don't relay every single event - the Library page debounces
             // on its end, but we still want to avoid flooding the event bus.
             // The poll interval already picks up new games every 3s.
             fetchStatus();

@@ -252,7 +252,7 @@ namespace RetroArr.Core.Test.Games
         public void FileModeGame_ExpectedPath_PreservesOriginalFilename()
         {
             // For a ROM file like "2 Fast 4 Gnomz (Europe).3ds", the expected
-            // path must keep the original filename — only the platform folder matters.
+            // path must keep the original filename - only the platform folder matters.
             var platform = new Platform { Id = 107, Name = "Nintendo 3DS", FolderName = "3ds", Slug = "3ds" };
             var game = new Game { Id = 1, Title = "2 Fast 4 Gnomz", PlatformId = 107 };
             game.Path = Path.Combine("/media", "3ds", "2 Fast 4 Gnomz (Europe).3ds");
@@ -264,7 +264,7 @@ namespace RetroArr.Core.Test.Games
 
             // Expected path keeps the full original filename with region and extension
             Assert.That(expected, Is.EqualTo(Path.Combine("/media", "3ds", "2 Fast 4 Gnomz (Europe).3ds")));
-            // No issue detected — path already matches
+            // No issue detected - path already matches
             Assert.That(expected, Is.EqualTo(game.Path));
         }
 
@@ -289,7 +289,7 @@ namespace RetroArr.Core.Test.Games
         [Test]
         public void FileModeGame_WrongPlatformFolder_PreservesFilename()
         {
-            // A ROM in the wrong platform folder — the fix should move the FILE
+            // A ROM in the wrong platform folder - the fix should move the FILE
             // to the correct folder while keeping the original filename
             var platform = new Platform { Id = 107, Name = "Nintendo 3DS", FolderName = "3ds", Slug = "3ds" };
             var game = new Game { Id = 3, Title = "2 Fast 4 Gnomz", PlatformId = 107 };
@@ -324,7 +324,7 @@ namespace RetroArr.Core.Test.Games
         public void MultiPlatformGame_InValidAlternativePlatformFolder_NoIssue()
         {
             // A game with DB PlatformId=Steam but physically in xbox360/ should
-            // NOT be flagged — xbox360 is a recognized platform, placement is intentional.
+            // NOT be flagged - xbox360 is a recognized platform, placement is intentional.
             var xbox360 = PlatformDefinitions.AllPlatforms.FirstOrDefault(p =>
                 p.MatchesFolderName("xbox360"));
             Assert.That(xbox360, Is.Not.Null, "xbox360 must be a known platform");
@@ -336,7 +336,7 @@ namespace RetroArr.Core.Test.Games
         [Test]
         public void UnknownPlatformFolder_ShouldBeDetected()
         {
-            // A game in "xbox36" (typo) should be flagged — it's not a known platform.
+            // A game in "xbox36" (typo) should be flagged - it's not a known platform.
             var allPlatforms = PlatformDefinitions.AllPlatforms;
             bool isKnown = allPlatforms.Any(p => p.MatchesFolderName("xbox36"));
             Assert.That(isKnown, Is.False, "'xbox36' should not match any platform");

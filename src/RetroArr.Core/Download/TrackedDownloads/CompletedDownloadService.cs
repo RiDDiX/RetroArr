@@ -11,7 +11,7 @@ namespace RetroArr.Core.Download.TrackedDownloads
 {
     /// <summary>
     /// Two-phase completed download handler.
-    /// Phase 1 (Check): Validates path, category, platform — sets ImportPending, ImportBlocked, or Unmapped.
+    /// Phase 1 (Check): Validates path, category, platform - sets ImportPending, ImportBlocked, or Unmapped.
     /// Phase 2 (Import): Runs PostDownloadProcessor, flushes result to History DB, enforces Blacklist.
     /// </summary>
     [SuppressMessage("Microsoft.Design", "CA1031:DoNotCatchGeneralExceptionTypes")]
@@ -60,7 +60,7 @@ namespace RetroArr.Core.Download.TrackedDownloads
                 trackedDownload.MarkIgnored();
                 trackedDownload.Warn("This download is blacklisted and will not be processed.");
                 _trackedDownloadService.Save();
-                _logger.LogInformation("[CompletedDownload] '{Title}' is blacklisted — skipping.", trackedDownload.Title);
+                _logger.LogInformation("[CompletedDownload] '{Title}' is blacklisted - skipping.", trackedDownload.Title);
                 return;
             }
 
@@ -102,12 +102,12 @@ namespace RetroArr.Core.Download.TrackedDownloads
                     trackedDownload.Warn("Platform not detected. Assign a platform manually from the Unmapped tab.");
                     trackedDownload.State = TrackedDownloadState.ImportBlocked;
                     trackedDownload.IsUnmapped = true;
-                    _logger.LogInformation("[CompletedDownload] '{Title}' has no platform — marked as unmapped.", trackedDownload.Title);
+                    _logger.LogInformation("[CompletedDownload] '{Title}' has no platform - marked as unmapped.", trackedDownload.Title);
                     return;
                 }
             }
 
-            // Path is valid and platform assigned — ready for import
+            // Path is valid and platform assigned - ready for import
             trackedDownload.ClearWarnings();
             trackedDownload.IsUnmapped = false;
             trackedDownload.State = TrackedDownloadState.ImportPending;
@@ -137,7 +137,7 @@ namespace RetroArr.Core.Download.TrackedDownloads
             if (existingHistory != null && existingHistory.State == DownloadHistoryState.Imported)
             {
                 trackedDownload.MarkImported();
-                _logger.LogInformation("[CompletedDownload] '{Title}' was already imported — skipping re-import.", trackedDownload.Title);
+                _logger.LogInformation("[CompletedDownload] '{Title}' was already imported - skipping re-import.", trackedDownload.Title);
                 return;
             }
 
@@ -237,7 +237,7 @@ namespace RetroArr.Core.Download.TrackedDownloads
         /// </summary>
         private bool ValidatePath(TrackedDownload trackedDownload, DownloadClient clientConfig)
         {
-            // Check if path is empty — client may still be post-processing
+            // Check if path is empty - client may still be post-processing
             if (string.IsNullOrEmpty(trackedDownload.OutputPath))
             {
                 trackedDownload.Warn("Download path is empty. The download client may still be post-processing. Will retry.");

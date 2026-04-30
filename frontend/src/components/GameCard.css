@@ -22,7 +22,7 @@
 }
 
 /* Only promote the card to its own compositor layer while the user is
-   actually interacting with it — otherwise a 200-card grid would eat
+   actually interacting with it - otherwise a 200-card grid would eat
    memory for nothing. */
 .game-card:hover,
 .game-card:focus-within {

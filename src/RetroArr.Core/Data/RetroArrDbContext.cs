@@ -78,10 +78,10 @@ namespace RetroArr.Core.Data
                     .HasForeignKey(f => f.GameId);
 
                 // FK to Platform so orphan PlatformIds are rejected at the DB
-                // layer. Wire both sides — Platform has a Games collection, so
+                // layer. Wire both sides - Platform has a Games collection, so
                 // leaving WithMany() empty makes EF fabricate a shadow FK
                 // (PlatformId1) and every lookup falls over at SELECT time.
-                // Restrict (not Cascade) — deleting a Platform while games
+                // Restrict (not Cascade) - deleting a Platform while games
                 // reference it should fail loud, not wipe the library.
                 entity.HasOne(e => e.Platform)
                     .WithMany(p => p.Games)
@@ -91,7 +91,7 @@ namespace RetroArr.Core.Data
                 // Region is part of the key so that legitimate regional variants
                 // (e.g. "AFL Live 2004 (AU)" vs the same title in (EU)) can live
                 // side by side. SQLite treats NULL as distinct, so untagged
-                // duplicates aren't merged — the user can clean those up via
+                // duplicates aren't merged - the user can clean those up via
                 // the review gate.
                 entity.HasIndex(e => new { e.Title, e.PlatformId, e.Region })
                     .IsUnique()

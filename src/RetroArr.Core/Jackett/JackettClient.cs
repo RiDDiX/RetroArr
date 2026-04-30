@@ -134,7 +134,7 @@ namespace RetroArr.Core.Jackett
                     return "usenet";
                 if (!string.IsNullOrEmpty(MagnetUri) || (!string.IsNullOrEmpty(Link) && Link.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase)))
                     return "torrent";
-                // Check categories: 5000-5999 = TV, 7000-7999 = Other — not reliable for protocol
+                // Check categories: 5000-5999 = TV, 7000-7999 = Other - not reliable for protocol
                 // Check tracker name for NZB indicators
                 if (Tracker.Contains("nzb", StringComparison.OrdinalIgnoreCase))
                     return "usenet";

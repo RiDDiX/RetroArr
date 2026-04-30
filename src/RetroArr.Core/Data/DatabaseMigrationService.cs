@@ -246,7 +246,7 @@ namespace RetroArr.Core.Data
                 {
                     var quotedTable = dbType == DatabaseType.PostgreSQL ? $"\"{table}\"" : table;
                     // Table names can't be parameterised, but they come from the
-                    // hardcoded `tables` array above — never user input.
+                    // hardcoded `tables` array above - never user input.
                     var sql = "DELETE FROM " + quotedTable;
                     await ctx.Database.ExecuteSqlRawAsync(sql);
                 }

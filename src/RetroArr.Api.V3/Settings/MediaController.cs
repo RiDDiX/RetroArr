@@ -144,7 +144,7 @@ namespace RetroArr.Api.V3.Settings
         public async Task<IActionResult> HealPlatforms()
         {
             if (_scannerService.IsScanning)
-                return Conflict(new { message = "A scan is already running — heal will run at the end of it." });
+                return Conflict(new { message = "A scan is already running - heal will run at the end of it." });
             var (healed, dupesDropped, mergedDuplicates) = await _scannerService.HealWrongPlatformsAsync();
             return Ok(new { healed, dupesDropped, mergedDuplicates });
         }

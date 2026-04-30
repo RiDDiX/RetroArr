@@ -1,11 +1,11 @@
 /* Design tokens for the retro redesign. Sits ON TOP of the existing
-   Catppuccin theme — reuses the runtime theme variables (--accent,
+   Catppuccin theme - reuses the runtime theme variables (--accent,
    --text-primary, --background, …) so ThemeEditor keeps working.
    New tokens added here are used by the new retro components; older
    components continue to consume the old names until they're migrated. */
 
 :root {
-  /* Background layers — alias onto the existing --background set */
+  /* Background layers - alias onto the existing --background set */
   --bg-primary:   var(--background);
   --bg-secondary: var(--surface-1);
   --bg-elevated:  var(--surface-2);
@@ -19,7 +19,7 @@
   --accent-danger:  var(--error);
   --accent-info:    var(--info);
 
-  /* Platform accent — overridden by .plat-<slug> wrappers.
+  /* Platform accent - overridden by .plat-<slug> wrappers.
      Fallback = whatever the user's theme accent currently is. */
   --platform-accent: var(--accent);
 
@@ -52,7 +52,7 @@
   --s-7: 48px;
   --s-8: 64px;
 
-  /* Radii — new scale, coexists with legacy --radius-* */
+  /* Radii - new scale, coexists with legacy --radius-* */
   --r-sharp: 2px;
   --r-card:  10px;
   --r-panel: 14px;
@@ -82,7 +82,7 @@
   --fs-hero: 4rem;
 }
 
-/* Respect OS reduced-motion preference — zero out everything. */
+/* Respect OS reduced-motion preference - zero out everything. */
 @media (prefers-reduced-motion: reduce) {
   :root {
     --duration-instant: 0ms;

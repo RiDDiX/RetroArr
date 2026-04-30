@@ -118,7 +118,7 @@ namespace RetroArr.Core.Indexers
                 }
             }
 
-            // Nothing matched — mark as unknown so callers can route to review
+            // Nothing matched - mark as unknown so callers can route to review
             // instead of silently filing every unresolved release as PC.
             result.DetectedPlatform = "Unknown";
             result.PlatformFolder = "unknown";

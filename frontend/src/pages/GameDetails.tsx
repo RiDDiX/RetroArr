@@ -924,7 +924,7 @@ const GameDetails: React.FC = () => {
         // Log provider diagnostics
         if (response.data.providers) {
           for (const p of response.data.providers) {
-            console.log(`[Release Search] Provider ${p.name}: ${p.status}${p.error ? ' — ' + p.error : ''} (${p.count ?? 0} results)`);
+            console.log(`[Release Search] Provider ${p.name}: ${p.status}${p.error ? ' - ' + p.error : ''} (${p.count ?? 0} results)`);
           }
         }
         if (response.data.diagnostics?.message) {
@@ -1134,7 +1134,7 @@ const GameDetails: React.FC = () => {
   const backPlatformName = locationState?.fromPlatformName || game?.platform?.name || '';
   const backUrl = backPlatformId ? `/library?platform=${backPlatformId}` : '/library';
   const backLabel = backPlatformName 
-    ? `${t('backToLibrary')} — ${backPlatformName}`
+    ? `${t('backToLibrary')} - ${backPlatformName}`
     : t('backToLibrary');
 
   if (error || !game) {
@@ -2826,7 +2826,7 @@ const GameDetails: React.FC = () => {
         <p style={{ marginBottom: '0.75rem' }}>{conflict?.message}</p>
         {conflict?.otherGameTitle && (
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-            <strong>#{conflict.otherGameId}</strong> — {conflict.otherGameTitle}
+            <strong>#{conflict.otherGameId}</strong> - {conflict.otherGameTitle}
           </p>
         )}
         {conflict?.otherGamePath && (

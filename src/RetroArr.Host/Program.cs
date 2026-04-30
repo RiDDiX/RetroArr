@@ -169,7 +169,7 @@ namespace RetroArr.Host
             var keyDir = Path.Combine(bootstrapConfig.GetConfigDirectory(), "keys");
             SecretProtector? secretProtector = null;
             try { secretProtector = new SecretProtector(keyDir); }
-            catch (Exception ex) { Log($"[Startup] Warning: could not initialize SecretProtector — secrets will stay plaintext: {ex.Message}"); }
+            catch (Exception ex) { Log($"[Startup] Warning: could not initialize SecretProtector - secrets will stay plaintext: {ex.Message}"); }
 
             // Note: ConfigurationService adds "/config" to the path passed to it
             var configService = new ConfigurationService(exePath, secretProtector);
@@ -358,7 +358,7 @@ namespace RetroArr.Host
 
             // Read x-forwarded-* from swag/traefik/caddy/nginx so IsHttps and
             // the client ip come out right when a proxy terminates tls.
-            // Trusts rfc1918 + loopback by default — override with
+            // Trusts rfc1918 + loopback by default - override with
             // RETROARR_TRUSTED_PROXIES="172.20.0.0/16,10.1.2.3/32" if you
             // need to tighten it.
             var forwardedOpts = new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions

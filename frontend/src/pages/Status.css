@@ -130,7 +130,7 @@
     color: var(--text-primary);
 }
 
-/* ===== Progress — segmented "energy tank" look ===== */
+/* ===== Progress - segmented "energy tank" look ===== */
 .progress-bar-container {
     width: 100%;
     height: 10px;

@@ -100,7 +100,7 @@ export function Sidebar() {
           className="sidebar__logo-btn"
           onClick={toggleKofi}
           type="button"
-          aria-label="RetroArr — show info"
+          aria-label="RetroArr - show info"
         >
           <img src={appLogo} alt="" className="sidebar__logo-eye" />
           <span className="sidebar__wordmark">RetroArr</span>

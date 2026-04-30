@@ -31,8 +31,9 @@ namespace RetroArr.Core.Games
         private readonly TitleCleanerService _titleCleaner;
         
         // Sentinel used when platform resolution from key/slug/path fails.
-        // Must match an existing row in Platforms; PostDownloadProcessor uses the same id.
-        private const int UnresolvedPlatformIdFallback = 1; // PC (Windows)
+        // Routes to the seeded Unknown platform so folder remains absolute; rows land
+        // in the review queue instead of being misclassified as PC.
+        private const int UnresolvedPlatformIdFallback = PlatformDefinitions.UnknownPlatformId;
 
         // Scan State Tracking (thread-safe via volatile + lock)
         private readonly object _stateLock = new();
@@ -600,7 +601,7 @@ namespace RetroArr.Core.Games
                 {
                     gamesAdded = await ScanFolderModeAsync(folderPath, rule, existingGames, platformKey, metadataService, _scanCts.Token);
 
-                    // Also scan loose files — same reason as the platform-subfolder path above.
+                    // Also scan loose files - same reason as the platform-subfolder path above.
                     if (!_scanCts.Token.IsCancellationRequested)
                     {
                         var looseAdded = await ScanFileModeAsync(folderPath, rule, existingGames, platformKey, metadataService, _scanCts.Token);
@@ -705,7 +706,7 @@ namespace RetroArr.Core.Games
                     // Advanced Scanner Logic V2: Find the best executable in the folder structure
                     var (bestExePath, isInstaller) = FindBestExecutable(dir, rule.Extensions, isExternal: false);
                     
-                    // For console folder-mode platforms the folder IS the game — no executable required.
+                    // For console folder-mode platforms the folder IS the game - no executable required.
                     // PC platforms still need an executable to avoid picking up random folders.
                     if (string.IsNullOrEmpty(bestExePath) && pcPlatforms.Contains(platformKey))
                         continue;
@@ -1541,7 +1542,7 @@ namespace RetroArr.Core.Games
                 // Path is authoritative: the file lives where it lives, so the
                 // folder dictates the platform. If a rival row already owns
                 // this title on the target platform, the current row is a
-                // stale duplicate — drop it and let the rival keep the slot.
+                // stale duplicate - drop it and let the rival keep the slot.
                 if (!string.IsNullOrEmpty(platformKey) && platformKey != "default")
                 {
                     var correctPlatform = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.MatchesFolderName(platformKey));
@@ -1560,7 +1561,7 @@ namespace RetroArr.Core.Games
                         }
                         else
                         {
-                            Log($"[Scanner] Dropping miscategorized '{existingByPath.Title}' (id={existingByPath.Id}, platform={existingByPath.PlatformId}) — rival id={rival.Id} already owns title on platform {correctPlatform.Id}");
+                            Log($"[Scanner] Dropping miscategorized '{existingByPath.Title}' (id={existingByPath.Id}, platform={existingByPath.PlatformId}) - rival id={rival.Id} already owns title on platform {correctPlatform.Id}");
                             try
                             {
                                 await _gameRepository.DeleteAsync(existingByPath.Id);
@@ -1642,7 +1643,7 @@ namespace RetroArr.Core.Games
             Game? finalGame = await TryFetchMetadata(gameTitle, existingGames, metadataService, localPath, platformKey, serial, executablePath, isExternal);
 
             // TryFetchMetadata may have matched an existing game by IgdbId and already updated it.
-            // In that case finalGame.Id > 0 — do not try to insert again.
+            // In that case finalGame.Id > 0 - do not try to insert again.
             if (finalGame != null && finalGame.Id > 0)
                 return true;
 
@@ -1736,7 +1737,7 @@ namespace RetroArr.Core.Games
 
                 if (preferScreenScraper)
                 {
-                    Log($"[Scanner] Platform {scanPlatformId} prefers ScreenScraper — trying ScreenScraper first");
+                    Log($"[Scanner] Platform {scanPlatformId} prefers ScreenScraper - trying ScreenScraper first");
                     var ssResults = await metadataService.SearchScreenScraperAsync(searchVariants.First(), platformKey);
                     if (ssResults.Count > 0)
                     {
@@ -1776,13 +1777,13 @@ namespace RetroArr.Core.Games
                     var best = scored.First();
                     Log($"[Scanner] Best match: '{best.Game.Name}' (IGDB {best.Game.Id}) confidence={best.Score:F2}");
 
-                    // Check if already in library — but only for the SAME platform
+                    // Check if already in library - but only for the SAME platform
                     var existing = existingGames.FirstOrDefault(g => g.IgdbId == best.Game.Id);
                     if (existing != null)
                     {
                         if (scanPlatformId > 0 && existing.PlatformId != scanPlatformId)
                         {
-                            Log($"[Scanner] IGDB {best.Game.Id} exists on platform {existing.PlatformId}, scanning for {scanPlatformId} — skipping update, will create new entry");
+                            Log($"[Scanner] IGDB {best.Game.Id} exists on platform {existing.PlatformId}, scanning for {scanPlatformId} - skipping update, will create new entry");
                             // Don't update the cross-platform game; fall through to fetch fresh metadata
                         }
                         else
@@ -1834,7 +1835,7 @@ namespace RetroArr.Core.Games
                         {
                             if (scanPlatformId > 0 && match.PlatformId != scanPlatformId)
                             {
-                                Log($"[Scanner] Legacy: IGDB {gameData.IgdbId} exists on platform {match.PlatformId}, scanning for {scanPlatformId} — skipping");
+                                Log($"[Scanner] Legacy: IGDB {gameData.IgdbId} exists on platform {match.PlatformId}, scanning for {scanPlatformId} - skipping");
                                 continue;
                             }
                             match.Path = localPath;
@@ -1881,7 +1882,7 @@ namespace RetroArr.Core.Games
             if (offlinePlatformId == UnresolvedPlatformIdFallback && (string.IsNullOrEmpty(platformKey) || platformKey == "default"))
             {
                 var pathPlatformId = ResolvePlatformFromPath(localPath);
-                if (pathPlatformId.HasValue && pathPlatformId.Value > 0)
+                if (pathPlatformId.HasValue && pathPlatformId.Value > 0 && pathPlatformId.Value != UnresolvedPlatformIdFallback)
                 {
                     offlinePlatformId = pathPlatformId.Value;
                 }
@@ -1893,8 +1894,8 @@ namespace RetroArr.Core.Games
 
             // Surface unanchored rows (no scraper, no platform) for manual review.
             var reviewReason = hitPlatformFallback
-                ? "Offline fallback — no scraper match and no platform folder match"
-                : "Offline fallback — no scraper match";
+                ? "Offline fallback: no scraper match and no platform folder match."
+                : "Offline fallback: no scraper match.";
 
             return new Game
             {
@@ -1916,7 +1917,7 @@ namespace RetroArr.Core.Games
         {
             if (existing.MetadataConfirmedByUser)
             {
-                Log($"[Scanner] Skip metadata overwrite for '{existing.Title}' (user-confirmed match — backfilling paths only).");
+                Log($"[Scanner] Skip metadata overwrite for '{existing.Title}' (user-confirmed match - backfilling paths only).");
                 if (string.IsNullOrEmpty(existing.Path) && !string.IsNullOrEmpty(freshData.Path))
                     existing.Path = freshData.Path;
                 if (string.IsNullOrEmpty(existing.ExecutablePath) && !string.IsNullOrEmpty(freshData.ExecutablePath))
@@ -1943,10 +1944,16 @@ namespace RetroArr.Core.Games
             if (folderPlatId == UnresolvedPlatformIdFallback && (string.IsNullOrEmpty(platformKey) || platformKey == "default"))
             {
                 var pathPlatformId = ResolvePlatformFromPath(existing.Path ?? freshData.Path);
-                if (pathPlatformId.HasValue && pathPlatformId.Value > 0)
+                if (pathPlatformId.HasValue && pathPlatformId.Value > 0 && pathPlatformId.Value != UnresolvedPlatformIdFallback)
                     folderPlatId = pathPlatformId.Value;
             }
-            existing.PlatformId = folderPlatId > 0 ? folderPlatId : freshData.PlatformId;
+            existing.PlatformId = folderPlatId;
+            if (folderPlatId == UnresolvedPlatformIdFallback)
+            {
+                existing.NeedsMetadataReview = true;
+                if (string.IsNullOrEmpty(existing.MetadataReviewReason))
+                    existing.MetadataReviewReason = "Platform unresolved: no folder match.";
+            }
             if (string.IsNullOrEmpty(existing.Path) && !string.IsNullOrEmpty(freshData.Path))
                 existing.Path = freshData.Path;
             if (string.IsNullOrEmpty(existing.ExecutablePath) && !string.IsNullOrEmpty(freshData.ExecutablePath))
@@ -1978,11 +1985,16 @@ namespace RetroArr.Core.Games
             if (folderPlatformId == UnresolvedPlatformIdFallback && (string.IsNullOrEmpty(platformKey) || platformKey == "default"))
             {
                 var pathPlatformId = ResolvePlatformFromPath(localPath);
-                if (pathPlatformId.HasValue && pathPlatformId.Value > 0)
+                if (pathPlatformId.HasValue && pathPlatformId.Value > 0 && pathPlatformId.Value != UnresolvedPlatformIdFallback)
                     folderPlatformId = pathPlatformId.Value;
             }
-            if (folderPlatformId > 0)
-                finalGame.PlatformId = folderPlatformId;
+            finalGame.PlatformId = folderPlatformId;
+            if (folderPlatformId == UnresolvedPlatformIdFallback)
+            {
+                finalGame.NeedsMetadataReview = true;
+                if (string.IsNullOrEmpty(finalGame.MetadataReviewReason))
+                    finalGame.MetadataReviewReason = "Platform unresolved: no folder match.";
+            }
 
             if (isInstaller) finalGame.Status = GameStatus.InstallerDetected;
 
@@ -2216,7 +2228,7 @@ namespace RetroArr.Core.Games
 
             if (string.IsNullOrEmpty(ext)) return false;
 
-            // Platform whitelist beats the global blacklist — .bin is garbage
+            // Platform whitelist beats the global blacklist - .bin is garbage
             // on PC but a real ROM on PS1/PS2/Saturn/MegaDrive.
             if (validExtensions != null)
                 return validExtensions.Contains(ext, StringComparer.OrdinalIgnoreCase);
@@ -2291,9 +2303,9 @@ namespace RetroArr.Core.Games
                 Log($"[Platform] Error looking up slug '{dbSlug}': {ex.Message}");
             }
 
-            // 4. Ultimate fallback: file the row under PC (Windows) so the scan keeps running,
-            //    but log loudly so it shows up in review.
-            Log($"[Platform] WARNING: Could not resolve platform for key '{platformKey}'. Falling back to PC (Windows).");
+            // 4. Ultimate fallback: route to the Unknown sentinel so folder stays authoritative
+            //    and the row surfaces in the review queue.
+            Log($"[Platform] WARNING: Could not resolve platform for key '{platformKey}'. Routing to Unknown.");
             return UnresolvedPlatformIdFallback;
         }
 
@@ -2400,7 +2412,7 @@ namespace RetroArr.Core.Games
                         ? "DLC"
                         : lowerFolder.Contains("update") || lowerFolder.Contains("patch")
                             ? "Patch"
-                            : "Patch"; // Mixed folders like "Updates+DLCs" — classify per-file
+                            : "Patch"; // Mixed folders like "Updates+DLCs" - classify per-file
 
                     // Collect all files (flat + subfolders up to 3 levels)
                     var allFiles = new List<string>();
@@ -2582,7 +2594,7 @@ namespace RetroArr.Core.Games
                 ? existingGames.Where(g => g.PlatformId == platformId).ToList()
                 : existingGames;
 
-            // Strategy 1: Serial match (PS3/PS4/PS5 — highest confidence)
+            // Strategy 1: Serial match (PS3/PS4/PS5 - highest confidence)
             if (!string.IsNullOrEmpty(info.Serial))
             {
                 // Check if any existing game has this serial in its path or GameFiles
@@ -2708,7 +2720,7 @@ namespace RetroArr.Core.Games
                         missingIds.Add(game.Id);
                         flagged++;
                     }
-                    // Already flagged earlier — retention sweep at scan end handles final purge.
+                    // Already flagged earlier - retention sweep at scan end handles final purge.
                 }
                 else
                 {
@@ -2809,7 +2821,7 @@ namespace RetroArr.Core.Games
                 }
                 else
                 {
-                    Log($"[Heal] Dropping duplicate '{g.Title}' (id={g.Id}, platform={g.PlatformId}) — correct entry on platform {pathPlatform.Id} already exists");
+                    Log($"[Heal] Dropping duplicate '{g.Title}' (id={g.Id}, platform={g.PlatformId}) - correct entry on platform {pathPlatform.Id} already exists");
                     try
                     {
                         await _gameRepository.DeleteAsync(g.Id);

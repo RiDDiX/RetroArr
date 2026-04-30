@@ -75,7 +75,7 @@ namespace RetroArr.Core.Launcher
                 return;
             }
 
-            // Windows .exe on Linux — resolve runner
+            // Windows .exe on Linux - resolve runner
             var runner = ResolveRunner(preferredRunner);
             _logger.Info($"[NativeLaunchStrategy] Windows exe on Linux. Runner: {runner}");
 

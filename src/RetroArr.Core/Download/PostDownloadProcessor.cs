@@ -127,7 +127,7 @@ namespace RetroArr.Core.Download
 
                 if (!success)
                 {
-                    _logger.Error($"[PostDownload] Extraction failed after {maxAttempts} attempts for {archivePath} — leaving archive in place for manual recovery.");
+                    _logger.Error($"[PostDownload] Extraction failed after {maxAttempts} attempts for {archivePath} - leaving archive in place for manual recovery.");
                     failed.Add(archivePath);
                 }
             }
@@ -657,13 +657,20 @@ namespace RetroArr.Core.Download
                     game = await metadataService.GetGameMetadataAsync(searchResults.First().IgdbId!.Value);
                 }
 
+                bool unresolvedPlatform = platformId == Games.PlatformDefinitions.UnknownPlatformId;
                 if (game != null)
                 {
                     game.Path = Path.GetDirectoryName(path);
                     game.ExecutablePath = path;
                     game.Added = DateTime.UtcNow;
                     game.PlatformId = platformId;
-                    
+                    if (unresolvedPlatform)
+                    {
+                        game.NeedsMetadataReview = true;
+                        if (string.IsNullOrEmpty(game.MetadataReviewReason))
+                            game.MetadataReviewReason = "Platform unresolved: no folder match.";
+                    }
+
                     // Installer tagging
                     var fileName = Path.GetFileNameWithoutExtension(path).ToLowerInvariant();
                     if (fileName.Contains("setup") || fileName.Contains("install"))
@@ -685,7 +692,9 @@ namespace RetroArr.Core.Download
                         Added = DateTime.UtcNow,
                         PlatformId = platformId,
                         Status = GameStatus.Released,
-                        Overview = "Imported via download client. Metadata not found."
+                        Overview = "Imported via download client. Metadata not found.",
+                        NeedsMetadataReview = unresolvedPlatform,
+                        MetadataReviewReason = unresolvedPlatform ? "Platform unresolved: no folder match." : null
                     };
                     await _gameRepository.AddAsync(fallbackGame);
                     _logger.Info($"[PostDownload] Added '{title}' to library without metadata (Platform: {platformFolder}, PlatformId: {platformId}).");
@@ -699,11 +708,11 @@ namespace RetroArr.Core.Download
 
         private static int ResolvePlatformId(string? platformFolder)
         {
-            if (string.IsNullOrEmpty(platformFolder)) return 1; // Default: PC
+            if (string.IsNullOrEmpty(platformFolder)) return Games.PlatformDefinitions.UnknownPlatformId;
 
             var match = Games.PlatformDefinitions.AllPlatforms
                 .FirstOrDefault(p => p.MatchesFolderName(platformFolder));
-            return match?.Id ?? 1;
+            return match?.Id ?? Games.PlatformDefinitions.UnknownPlatformId;
         }
 
         private string CleanReleaseName(string input)

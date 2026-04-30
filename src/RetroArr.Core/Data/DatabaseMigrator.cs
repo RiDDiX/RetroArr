@@ -127,7 +127,7 @@ namespace RetroArr.Core.Data
             (string Name, string SqliteType, string PgType, string MariaType)[] requiredColumns, DatabaseType dbType)
         {
             var existing = GetExistingColumns(connection, tableName, dbType);
-            if (existing.Count == 0) return; // Table doesn't exist yet — EnsureCreated will handle it
+            if (existing.Count == 0) return; // Table doesn't exist yet - EnsureCreated will handle it
 
             foreach (var col in requiredColumns)
             {
@@ -234,7 +234,7 @@ namespace RetroArr.Core.Data
             if (dbType != DatabaseType.SQLite) return; // Non-SQLite indexes created by EnsureCreated
             var indexes = new[]
             {
-                // Drop the old Title+PlatformId unique index — region-variants kept colliding.
+                // Drop the old Title+PlatformId unique index - region-variants kept colliding.
                 "DROP INDEX IF EXISTS IX_Games_Title_PlatformId;",
                 "CREATE UNIQUE INDEX IF NOT EXISTS IX_Games_Title_PlatformId_Region ON Games (Title, PlatformId, Region);",
                 "CREATE UNIQUE INDEX IF NOT EXISTS IX_Games_Path ON Games (Path) WHERE Path IS NOT NULL;"
@@ -326,7 +326,7 @@ namespace RetroArr.Core.Data
                     return;
                 }
 
-                _logger.Warn($"[Database] Rescuing {orphans.Count} game row(s) with unknown PlatformId — pinning to PC and flagging for review.");
+                _logger.Warn($"[Database] Rescuing {orphans.Count} game row(s) with unknown PlatformId - pinning to PC and flagging for review.");
 
                 string updateSql = dbType == DatabaseType.PostgreSQL
                     ? @"UPDATE ""Games"" SET ""PlatformId"" = 1, ""NeedsMetadataReview"" = 1, ""MetadataReviewReason"" = 'Original platform could not be resolved during upgrade. Please reassign.' WHERE ""Id"" = @id"

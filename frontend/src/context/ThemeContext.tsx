@@ -57,7 +57,7 @@ export const THEMES: Theme[] = [
   {
     id: 'retroarr',
     name: 'RetroArr',
-    description: 'The signature RetroArr look — deep dark with warm amber accents',
+    description: 'The signature RetroArr look - deep dark with warm amber accents',
     author: 'RetroArr',
     colors: {
       base: '#0d1117',

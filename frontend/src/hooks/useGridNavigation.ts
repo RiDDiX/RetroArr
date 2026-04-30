@@ -5,7 +5,7 @@ type Options = {
 };
 
 /* Roving-tabindex arrow-key nav for any container of focusable items.
-   Arrow keys walk the siblings in visual (2D) order — left/right step by one,
+   Arrow keys walk the siblings in visual (2D) order - left/right step by one,
    up/down compute the column count from offsetTop boundaries. Enter falls
    through to the item's own click handler. Home/End jump to first/last.
    Tab still escapes the grid normally. */

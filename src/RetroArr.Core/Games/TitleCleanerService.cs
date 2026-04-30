@@ -53,7 +53,7 @@ namespace RetroArr.Core.Games
             return false;
         }
 
-        // Region tokens found in filenames — ordered by specificity (longest first)
+        // Region tokens found in filenames - ordered by specificity (longest first)
         private static readonly (string Token, string Region)[] _regionTokens = new[]
         {
             // Full names
@@ -84,7 +84,7 @@ namespace RetroArr.Core.Games
             ("U", "USA"), ("E", "Europe")
         };
 
-        // Known 2–3 letter language codes found in ROM filenames
+        // Known 2-3 letter language codes found in ROM filenames
         private static readonly HashSet<string> _knownLanguageCodes = new(StringComparer.OrdinalIgnoreCase)
         {
             "En", "Fr", "De", "Es", "It", "Nl", "Sv", "No", "Da", "Fi", "Pt", "Ja", "Zh",
@@ -461,9 +461,9 @@ namespace RetroArr.Core.Games
         /// Parses bracketed tokens like (USA), (Europe) (En,Fr,De,Es,It), (Rev 1), (Beta), [JP]
         /// Also handles dash-separated PSX/PSP style: (EU - AU), (EN - ES - FR)
         /// Returns:
-        ///   Region   — comma-separated region names (e.g. "USA", "USA, Europe", "Japan")
-        ///   Languages — comma-separated language codes (e.g. "En, Fr, De, Es, It")
-        ///   Revision  — revision/variant tag (e.g. "Rev A", "Beta", "Disc 1", "v2.00")
+        ///   Region   - comma-separated region names (e.g. "USA", "USA, Europe", "Japan")
+        ///   Languages - comma-separated language codes (e.g. "En, Fr, De, Es, It")
+        ///   Revision  - revision/variant tag (e.g. "Rev A", "Beta", "Disc 1", "v2.00")
         /// Returns (null, null, null) if nothing detected.
         /// </summary>
         public static (string? Region, string? Languages, string? Revision) ExtractFilenameMetadata(string originalName)

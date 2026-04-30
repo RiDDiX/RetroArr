@@ -304,7 +304,7 @@ namespace RetroArr.Core.MetadataSource.Gog
                 return null;
             }
 
-            // 200 response — expect JSON with downlink
+            // 200 response - expect JSON with downlink
             var content = await response.Content.ReadAsStringAsync();
             _logger.Info($"[GOG] Download URL response body: {content.Substring(0, Math.Min(200, content.Length))}...");
 

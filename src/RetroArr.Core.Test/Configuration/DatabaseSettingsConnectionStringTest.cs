@@ -13,7 +13,7 @@ namespace RetroArr.Core.Test.Configuration
             var s = new DatabaseSettings { Type = DatabaseType.SQLite, SqlitePath = "retroarr.db" };
             var cs = s.GetConnectionString("/cfg");
 
-            // Foreign keys must be on — otherwise Game.PlatformId FKs aren't enforced.
+            // Foreign keys must be on - otherwise Game.PlatformId FKs aren't enforced.
             Assert.That(cs, Does.Contain("Foreign Keys=True"));
             Assert.That(cs, Does.Contain(Path.Combine("/cfg", "retroarr.db")));
         }
@@ -81,7 +81,7 @@ namespace RetroArr.Core.Test.Configuration
         public void IsConfigured_TrueForSqliteByDefault()
         {
             // SQLite has no auth, so a default-constructed settings object should
-            // be valid out of the box for fresh installs.
+            // pass validation on a fresh install.
             Assert.That(new DatabaseSettings { Type = DatabaseType.SQLite }.IsConfigured, Is.True);
         }
 

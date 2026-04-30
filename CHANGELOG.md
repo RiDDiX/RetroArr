@@ -501,7 +501,7 @@
 - chore: bump version to v1.0.64 [skip ci] (85c143d)
 - fix: space-version normalization always overwrites partial _versionRegex match (9a7e393)
 - Fix Switch TitleID classification, add Vita/PSP serials, scene tag stripping, docs (b016d29)
-- fix: scanner stops prematurely — per-platform exception isolation + faster batching (f861eae)
+- fix: scanner stops prematurely - per-platform exception isolation + faster batching (f861eae)
 - fix: cleanup stale games + resync files on rescan (2fb49e9)
 - chore: bump version to v1.0.63 [skip ci] (47c7aa2)
 - feat: supplementary content detection (Updates, DLCs, Patches) (24fcacd)
@@ -518,7 +518,7 @@
 ### Changes
 - fix: space-version normalization always overwrites partial _versionRegex match (9a7e393)
 - Fix Switch TitleID classification, add Vita/PSP serials, scene tag stripping, docs (b016d29)
-- fix: scanner stops prematurely — per-platform exception isolation + faster batching (f861eae)
+- fix: scanner stops prematurely - per-platform exception isolation + faster batching (f861eae)
 - fix: cleanup stale games + resync files on rescan (2fb49e9)
 - chore: bump version to v1.0.63 [skip ci] (47c7aa2)
 - feat: supplementary content detection (Updates, DLCs, Patches) (24fcacd)
@@ -657,7 +657,7 @@
 ## v1.0.42 (2026-03-16)
 
 ### Changes
-- fix: audit hardening — 11 defect fixes + tests (a71a97b)
+- fix: audit hardening - 11 defect fixes + tests (a71a97b)
 - feat: enhance Map & Import with game selector + file type detection (9069bfe)
 
 ## v1.0.41 (2026-03-16)
@@ -669,7 +669,7 @@
 
 ### Changes
 - fix: seed Platforms table on startup + harden GetGameFiles (af29c2d)
-- fix: prevent 500 on GetGameFiles — add try-catch + remove dynamic cast (b134f03)
+- fix: prevent 500 on GetGameFiles - add try-catch + remove dynamic cast (b134f03)
 
 ## v1.0.39 (2026-03-16)
 
@@ -720,7 +720,7 @@
 ## v1.0.31 (2026-03-16)
 
 ### Changes
-- fix: platform scan not finding games — 4 bugs fixed (cefa930)
+- fix: platform scan not finding games - 4 bugs fixed (cefa930)
 
 ## v1.0.30 (2026-03-16)
 
@@ -742,7 +742,7 @@
 
 ### Changes
 - fix: add missing DB migration columns for metadata review fields (2344ad6)
-- fix: scanner platform detection — match by FolderName OR Slug, add missing platform rules (0bbff23)
+- fix: scanner platform detection - match by FolderName OR Slug, add missing platform rules (0bbff23)
 
 ## v1.0.26 (2026-03-16)
 
@@ -863,7 +863,7 @@
 ## v1.0.5 (2026-03-14)
 
 ### Changes
-- RetroArr v1.0.4 — Self-hosted game library manager & PVR (247209b)
+- RetroArr v1.0.4 - Self-hosted game library manager & PVR (247209b)
 
 ## v1.0.4 (2026-03-14)
 

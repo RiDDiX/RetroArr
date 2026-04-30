@@ -25,7 +25,7 @@
   opacity: 1;
 }
 
-/* Logo fades + grows a hair — no big motion. */
+/* Logo fades + grows a hair - no big motion. */
 .boot__logo {
   font-family: var(--font-display);
   font-size: var(--fs-hero);

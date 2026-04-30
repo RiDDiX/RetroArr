@@ -122,7 +122,7 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
           setSteamSyncing(false);
           const msg = status.error
             ? `✗ Error: ${status.error}`
-            : `✓ Sync complete — ${status.added} added, ${status.linked} linked, ${status.skipped} skipped${status.failed > 0 ? `, ${status.failed} failed` : ''}`;
+            : `✓ Sync complete - ${status.added} added, ${status.linked} linked, ${status.skipped} skipped${status.failed > 0 ? `, ${status.failed} failed` : ''}`;
           setSteamSyncResult({ success: !status.error, message: msg });
         }
       } catch {
@@ -171,7 +171,7 @@ const ConnectionsTab: React.FC<ConnectionsTabProps> = ({ t }) => {
           setProtonRefreshing(false);
           const msg = status.error
             ? `✗ Error: ${status.error}`
-            : `✓ ProtonDB refresh complete — ${status.updated} updated, ${status.skipped} skipped`;
+            : `✓ ProtonDB refresh complete - ${status.updated} updated, ${status.skipped} skipped`;
           setProtonRefreshResult({ success: !status.error, message: msg });
         }
       } catch {

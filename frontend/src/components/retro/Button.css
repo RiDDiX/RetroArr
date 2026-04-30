@@ -27,7 +27,7 @@
 .retro-btn:focus-visible          { outline: 2px solid var(--platform-accent); outline-offset: 2px; }
 .retro-btn:disabled               { opacity: .5; cursor: not-allowed; }
 
-/* Primary — the cartridge-in-slot button */
+/* Primary - the cartridge-in-slot button */
 .retro-btn--primary {
   background: var(--platform-accent);
   color: var(--text-inverse, #0b0a10);
@@ -39,7 +39,7 @@
   box-shadow: 0 0 0 1px var(--platform-accent), var(--shadow-glow);
 }
 
-/* Secondary — outlined, subtle glow on hover */
+/* Secondary - outlined, subtle glow on hover */
 .retro-btn--secondary {
   color: var(--text-primary);
   border-color: rgba(255, 255, 255, .12);
@@ -49,7 +49,7 @@
   color: var(--platform-accent);
 }
 
-/* Ghost — text-only */
+/* Ghost - text-only */
 .retro-btn--ghost {
   color: var(--text-secondary);
   padding: 8px 10px;
@@ -60,7 +60,7 @@
   background: rgba(255, 255, 255, .04);
 }
 
-/* Danger — unmistakable but not generic red */
+/* Danger - unmistakable but not generic red */
 .retro-btn--danger {
   color: var(--accent-danger);
   background: color-mix(in srgb, var(--accent-danger) 16%, transparent);
@@ -71,7 +71,7 @@
   color: var(--text-inverse, #0b0a10);
 }
 
-/* Loading — label dims, LED pulse appears on the right */
+/* Loading - label dims, LED pulse appears on the right */
 .retro-btn.is-loading .retro-btn__label { opacity: .5; }
 .retro-btn.is-loading::after {
   content: '';

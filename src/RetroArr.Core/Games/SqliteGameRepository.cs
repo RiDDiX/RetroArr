@@ -57,7 +57,7 @@ namespace RetroArr.Core.Games
 
             var totalItems = await query.CountAsync();
 
-            // Tier ranking via inline CASE — SQLite can't sort on an enum-
+            // Tier ranking via inline CASE - SQLite can't sort on an enum-
             // like string directly, so map each tier to a number first.
             query = sortOrder switch
             {
@@ -163,7 +163,7 @@ namespace RetroArr.Core.Games
 
             // GameImages is OwnsOne (flattened into the Games table). Replacing
             // the reference makes EF mark the old entity as Deleted + insert a
-            // new one — which blows up because there's no separate table to
+            // new one - which blows up because there's no separate table to
             // delete from. Copy the values into the tracked instance instead.
             if (game.Images != null)
             {

@@ -43,7 +43,7 @@ export function GameCard({
       className={`game-card plat-${platformSlug} ${unidentified ? 'is-unidentified' : ''} ${className}`.trim()}
       tabIndex={0}
       role="button"
-      aria-label={`${title} — ${platformSlug}`}
+      aria-label={`${title} - ${platformSlug}`}
       onClick={onOpen}
       onKeyDown={handleKey}
     >
