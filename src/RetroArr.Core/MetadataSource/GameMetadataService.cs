@@ -2,6 +2,7 @@ using RetroArr.Core.MetadataSource.Steam;
 using RetroArr.Core.MetadataSource.Igdb;
 using RetroArr.Core.MetadataSource.ScreenScraper;
 using RetroArr.Core.MetadataSource.TheGamesDb;
+using RetroArr.Core.MetadataSource.SteamGridDb;
 using RetroArr.Core.Games;
 using System.Text.RegularExpressions;
 using System.Collections.Generic;
@@ -26,17 +27,85 @@ namespace RetroArr.Core.MetadataSource
         private readonly SteamClient _steamClient;
         private readonly ScreenScraperClient? _screenScraperClient;
         private readonly TheGamesDbClient? _theGamesDbClient;
+        private readonly SteamGridDbClient? _steamGridDbClient;
 
-        public GameMetadataService(IgdbClient igdbClient, SteamClient steamClient, ScreenScraperClient? screenScraperClient = null, TheGamesDbClient? theGamesDbClient = null)
+        public GameMetadataService(IgdbClient igdbClient, SteamClient steamClient, ScreenScraperClient? screenScraperClient = null, TheGamesDbClient? theGamesDbClient = null, SteamGridDbClient? steamGridDbClient = null)
         {
             _igdbClient = igdbClient;
             _steamClient = steamClient;
             _screenScraperClient = screenScraperClient;
             _theGamesDbClient = theGamesDbClient;
+            _steamGridDbClient = steamGridDbClient;
         }
 
         public bool HasScreenScraper => _screenScraperClient != null;
         public bool HasTheGamesDb => _theGamesDbClient != null;
+        public bool HasSteamGridDb => _steamGridDbClient != null;
+
+        /// <summary>
+        /// Fills missing image slots on a matched game using SteamGridDB. Only runs
+        /// when no other provider already supplied the corresponding artwork.
+        /// </summary>
+        public async Task EnrichImagesFromSteamGridDbAsync(Game game)
+        {
+            if (_steamGridDbClient == null || game == null) return;
+            if (game.Images == null) game.Images = new GameImages();
+
+            bool needsCover = string.IsNullOrEmpty(game.Images.CoverUrl);
+            bool needsBackground = string.IsNullOrEmpty(game.Images.BackgroundUrl);
+            bool needsBanner = string.IsNullOrEmpty(game.Images.BannerUrl);
+            if (!needsCover && !needsBackground && !needsBanner) return;
+
+            try
+            {
+                var (status, candidates) = await _steamGridDbClient.SearchGamesAsync(game.Title);
+                if (status != SteamGridDbStatus.Ok || candidates.Count == 0) return;
+
+                // best-effort: take the first verified result, otherwise the first hit
+                var match = candidates.FirstOrDefault(c => c.Verified == true) ?? candidates[0];
+                _logger.Info($"[Metadata] SteamGridDB match for '{game.Title}' -> {match.Id} ({match.Name})");
+
+                if (needsCover)
+                {
+                    var (gridStatus, grids) = await _steamGridDbClient.GetGridsAsync(match.Id);
+                    if (gridStatus == SteamGridDbStatus.Ok)
+                    {
+                        var pick = SteamGridDbClient.PickBest(grids);
+                        if (pick != null && !string.IsNullOrEmpty(pick.Url))
+                        {
+                            game.Images.CoverUrl = pick.Url;
+                            if (string.IsNullOrEmpty(game.Images.CoverLargeUrl)) game.Images.CoverLargeUrl = pick.Url;
+                        }
+                    }
+                }
+
+                if (needsBackground)
+                {
+                    var (heroStatus, heroes) = await _steamGridDbClient.GetHeroesAsync(match.Id);
+                    if (heroStatus == SteamGridDbStatus.Ok)
+                    {
+                        var pick = SteamGridDbClient.PickBest(heroes);
+                        if (pick != null && !string.IsNullOrEmpty(pick.Url))
+                            game.Images.BackgroundUrl = pick.Url;
+                    }
+                }
+
+                if (needsBanner)
+                {
+                    var (logoStatus, logos) = await _steamGridDbClient.GetLogosAsync(match.Id);
+                    if (logoStatus == SteamGridDbStatus.Ok)
+                    {
+                        var pick = SteamGridDbClient.PickBest(logos);
+                        if (pick != null && !string.IsNullOrEmpty(pick.Url))
+                            game.Images.BannerUrl = pick.Url;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn($"[Metadata] SteamGridDB enrichment failed for '{game.Title}': {ex.Message}");
+            }
+        }
 
         public async Task<List<Game>> SearchGamesAsync(string query, string? platformKey = null, string? lang = null, string? serial = null)
         {

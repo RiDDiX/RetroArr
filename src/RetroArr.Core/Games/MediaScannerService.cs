@@ -1658,6 +1658,10 @@ namespace RetroArr.Core.Games
             if (!string.IsNullOrEmpty(revision) && string.IsNullOrEmpty(finalGame.Revision))
                 finalGame.Revision = revision;
 
+            // last step: pull missing artwork from SteamGridDB if the user opted in
+            if (metadataService.HasSteamGridDb)
+                await metadataService.EnrichImagesFromSteamGridDbAsync(finalGame);
+
             if (existingByTitle != null)
                 return await MergeMetadataIntoExisting(existingByTitle, finalGame, platformKey);
 

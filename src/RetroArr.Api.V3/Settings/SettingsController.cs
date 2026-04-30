@@ -564,6 +564,69 @@ namespace RetroArr.Api.V3.Settings
             return Ok(new { success = true, message = "TheGamesDB settings cleared." });
         }
 
+        // ==================== SteamGridDB Settings ====================
+
+        [HttpGet("steamgriddb")]
+        public ActionResult GetSteamGridDbSettings()
+        {
+            var settings = _configService.LoadSteamGridDbSettings();
+            return Ok(new
+            {
+                ApiKey = MaskSecret(settings.ApiKey),
+                settings.Enabled,
+                settings.IsConfigured
+            });
+        }
+
+        [HttpPost("steamgriddb")]
+        public IActionResult SaveSteamGridDbSettings([FromBody] SteamGridDbSettings request)
+        {
+            var existing = _configService.LoadSteamGridDbSettings();
+            if (IsMaskedOrEmpty(request.ApiKey)) request.ApiKey = existing.ApiKey;
+
+            _configService.SaveSteamGridDbSettings(request);
+            _metadataServiceFactory.RefreshConfiguration();
+            _logger.Info($"[Settings] Saving SteamGridDB Settings. ENABLED = {request.Enabled}");
+            return Ok(new { success = true, message = "SteamGridDB settings saved." });
+        }
+
+        [HttpPost("steamgriddb/test")]
+        public async Task<IActionResult> TestSteamGridDbSettings([FromBody] SteamGridDbSettings request)
+        {
+            try
+            {
+                var existing = _configService.LoadSteamGridDbSettings();
+                var apiKey = IsMaskedOrEmpty(request.ApiKey) ? existing.ApiKey : request.ApiKey;
+                if (string.IsNullOrWhiteSpace(apiKey))
+                    return Ok(new { success = false, message = "Enter an API key first" });
+
+                using var httpClient = new System.Net.Http.HttpClient();
+                var client = new RetroArr.Core.MetadataSource.SteamGridDb.SteamGridDbClient(httpClient, apiKey);
+                var (status, games) = await client.SearchGamesAsync("super mario world");
+
+                if (status == RetroArr.Core.MetadataSource.SteamGridDb.SteamGridDbStatus.AuthFailed)
+                    return Ok(new { success = false, message = "Login failed, check your API key" });
+                if (status == RetroArr.Core.MetadataSource.SteamGridDb.SteamGridDbStatus.NetworkError)
+                    return Ok(new { success = false, message = "Network error talking to SteamGridDB" });
+                if (games.Count > 0)
+                    return Ok(new { success = true, message = $"Connection successful, found: {games[0].Name}" });
+                return Ok(new { success = true, message = "Connection successful (API responded, no results for test query)" });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { success = false, error = $"Connection failed: {ex.Message}" });
+            }
+        }
+
+        [HttpDelete("steamgriddb")]
+        public IActionResult DeleteSteamGridDbSettings()
+        {
+            var emptySettings = new SteamGridDbSettings { ApiKey = "", Enabled = false };
+            _configService.SaveSteamGridDbSettings(emptySettings);
+            _metadataServiceFactory.RefreshConfiguration();
+            return Ok(new { success = true, message = "SteamGridDB settings cleared." });
+        }
+
         // ==================== GOG Settings ====================
 
         [HttpGet("gog")]

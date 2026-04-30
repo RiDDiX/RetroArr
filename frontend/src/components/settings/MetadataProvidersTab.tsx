@@ -28,6 +28,13 @@ const MetadataProvidersTab: React.FC<MetadataProvidersTabProps> = ({ t }) => {
   const [tgdbTesting, setTgdbTesting] = useState(false);
   const [tgdbTestResult, setTgdbTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
+  // SteamGridDB (image-only fallback)
+  const [sgdbApiKey, setSgdbApiKey] = useState('');
+  const [sgdbEnabled, setSgdbEnabled] = useState(true);
+  const [sgdbConfigured, setSgdbConfigured] = useState(false);
+  const [sgdbTesting, setSgdbTesting] = useState(false);
+  const [sgdbTestResult, setSgdbTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
   useEffect(() => {
     loadSettings();
   }, []);
@@ -50,8 +57,50 @@ const MetadataProvidersTab: React.FC<MetadataProvidersTabProps> = ({ t }) => {
         setTgdbEnabled(tgdbRes.data.enabled !== false);
         setTgdbConfigured(tgdbRes.data.isConfigured === true);
       } catch { /* TheGamesDB not available */ }
+
+      try {
+        const sgdbRes = await apiClient.get('/settings/steamgriddb');
+        setSgdbEnabled(sgdbRes.data.enabled !== false);
+        setSgdbConfigured(sgdbRes.data.isConfigured === true);
+      } catch { /* SteamGridDB not available */ }
     } catch (error) {
       console.error('Error loading metadata provider settings:', error);
+    }
+  };
+
+  // SteamGridDB handlers
+  const handleSaveSgdb = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await apiClient.post('/settings/steamgriddb', { apiKey: sgdbApiKey, enabled: sgdbEnabled });
+      alert(t('sgdbSettingsSaved') || 'SteamGridDB settings saved');
+    } catch (error: unknown) {
+      alert(`${t('error')}: ${getErrorMessage(error)}`);
+    }
+  };
+
+  const handleTestSgdb = async () => {
+    setSgdbTesting(true);
+    setSgdbTestResult(null);
+    try {
+      const response = await apiClient.post('/settings/steamgriddb/test', { apiKey: sgdbApiKey });
+      setSgdbTestResult({ success: response.data.success !== false, message: response.data.message || 'Connection successful' });
+    } catch (error: unknown) {
+      setSgdbTestResult({ success: false, message: getErrorMessage(error) });
+    } finally {
+      setSgdbTesting(false);
+    }
+  };
+
+  const handleDisconnectSgdb = async () => {
+    if (!window.confirm(t('disconnectConfirm'))) return;
+    try {
+      await apiClient.delete('/settings/steamgriddb');
+      setSgdbApiKey('');
+      setSgdbEnabled(false);
+      setSgdbConfigured(false);
+    } catch (error: unknown) {
+      console.error('Error disconnecting SteamGridDB:', error);
     }
   };
 
@@ -262,6 +311,47 @@ const MetadataProvidersTab: React.FC<MetadataProvidersTabProps> = ({ t }) => {
           </div>
           {tgdbTestResult && (
             <div className={`test-result ${tgdbTestResult.success ? 'success' : 'error'}`}>{tgdbTestResult.message}</div>
+          )}
+        </form>
+      </div>
+
+      <div className="settings-section">
+        <div className="section-header-with-logo">
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '1.5rem' }}>🖼️</span> SteamGridDB
+          </h3>
+        </div>
+        <p className="settings-description">
+          {t('sgdbDesc') || 'SteamGridDB provides community-made grids, heroes and logos. Used only to fill missing artwork after another provider already matched the game.'}
+        </p>
+        <form onSubmit={handleSaveSgdb}>
+          <div className="form-group">
+            <label htmlFor="sgdb-api-key">{t('apiKey') || 'API Key'}</label>
+            <input type="password" id="sgdb-api-key" placeholder={sgdbConfigured ? '••••••••' : (t('apiKey') || 'API Key')} value={sgdbApiKey} onChange={(e) => setSgdbApiKey(e.target.value)} />
+            <small>
+              {t('sgdbHelp') || 'Generate a key in your '}
+              <a href="https://www.steamgriddb.com/profile/preferences/api" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--ctp-blue)' }}>SteamGridDB profile</a>
+            </small>
+          </div>
+          <div className="form-group">
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input type="checkbox" checked={sgdbEnabled} onChange={(e) => setSgdbEnabled(e.target.checked)} />
+              {t('enabled') || 'Enabled'}
+            </label>
+          </div>
+          <div className="button-group">
+            <button type="button" className="btn-secondary" onClick={handleTestSgdb} disabled={sgdbTesting || (!sgdbApiKey && !sgdbConfigured)}>
+              {sgdbTesting ? t('testing') : t('testConnection')}
+            </button>
+            <button type="submit" className="btn-primary">{t('save')}</button>
+            {(sgdbApiKey || sgdbConfigured) && (
+              <button type="button" className="btn-delete" onClick={handleDisconnectSgdb} style={{ marginLeft: '10px' }}>
+                {t('disconnect')}
+              </button>
+            )}
+          </div>
+          {sgdbTestResult && (
+            <div className={`test-result ${sgdbTestResult.success ? 'success' : 'error'}`}>{sgdbTestResult.message}</div>
           )}
         </form>
       </div>
