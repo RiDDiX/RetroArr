@@ -1,3 +1,8 @@
+## v1.0.163 (2026-04-30)
+
+### Changes
+- add steamgriddb image-only fallback for missing artwork (b269a3a)
+
 ## v1.0.162 (2026-04-30)
 
 ### Changes
