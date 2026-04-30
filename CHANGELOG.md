@@ -1,3 +1,8 @@
+## v1.0.169 (2026-04-30)
+
+### Changes
+- link in-game patches and dlcs to parent on windows-style platforms (3664067)
+
 ## v1.0.168 (2026-04-30)
 
 ### Changes
