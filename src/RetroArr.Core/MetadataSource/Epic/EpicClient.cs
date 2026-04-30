@@ -11,8 +11,7 @@ using System.Threading.Tasks;
 
 namespace RetroArr.Core.MetadataSource.Epic
 {
-    // Epic Launcher OAuth client. The id+secret pair is the same one every OSS Epic
-    // tool uses (Legendary, Heroic, Rare). Endpoints verified against legendary/api/egs.py.
+    // Epic Launcher OAuth, same id+secret every OSS Epic tool uses
     [SuppressMessage("Microsoft.Reliability", "CA2007:DoNotDirectlyAwaitATask")]
     [SuppressMessage("Microsoft.Performance", "CA1869:CacheAndReuseJsonSerializerOptions")]
     [SuppressMessage("Microsoft.Globalization", "CA1304:SpecifyCultureInfo")]
@@ -38,7 +37,7 @@ namespace RetroArr.Core.MetadataSource.Epic
             _httpClient = httpClient ?? new HttpClient();
         }
 
-        // The launcher itself sets this UA when it talks to ol.epicgames.com.
+        // UA the real launcher sends to ol.epicgames.com
         private const string LauncherUserAgent = "EpicGamesLauncher/13.3.0-30309001+++Portal+Release-Live Windows/10.0.22631.1.768.64bit";
 
         public string? AccessToken => _accessToken;
@@ -94,8 +93,7 @@ namespace RetroArr.Core.MetadataSource.Epic
             return token;
         }
 
-        // Owned assets for Windows. Each entry has namespace + catalogItemId we feed
-        // into the catalog endpoint to get title, description and key images.
+        // owned Windows assets, each carries namespace + catalogItemId for the catalog lookup
         public async Task<List<EpicAsset>> GetOwnedAssetsAsync()
         {
             if (string.IsNullOrEmpty(_accessToken))
@@ -117,7 +115,7 @@ namespace RetroArr.Core.MetadataSource.Epic
                    ?? new List<EpicAsset>();
         }
 
-        // Catalog lookup by namespace + catalogItemId. Response is keyed by catalogItemId.
+        // catalog lookup by namespace + catalogItemId, response is keyed by catalogItemId
         public async Task<EpicCatalogItem?> GetCatalogItemAsync(string ns, string catalogItemId, string locale = "en-US", string country = "US")
         {
             if (string.IsNullOrEmpty(_accessToken))
@@ -212,13 +210,14 @@ namespace RetroArr.Core.MetadataSource.Epic
 
         public bool LooksLikeGame()
         {
-            // Catalog returns DLC, addons, demo, etc. Filter to actual base games.
+            // only filter clear non-games. Epic tags real games with "applications" too
             if (Categories == null || Categories.Count == 0) return true;
             var paths = Categories.Select(c => c.Path?.ToLowerInvariant() ?? string.Empty).ToList();
             if (paths.Any(p => p == "addons" || p.StartsWith("addons/"))) return false;
             if (paths.Any(p => p == "digitalextras" || p.StartsWith("digitalextras/"))) return false;
-            if (paths.Any(p => p == "applications" || p == "software/edu")) return false;
-            return paths.Any(p => p == "games" || p.StartsWith("games/")) || paths.Count == 0;
+            if (paths.Any(p => p == "soundtrack" || p.StartsWith("soundtrack/"))) return false;
+            if (paths.Any(p => p == "software/edu")) return false;
+            return true;
         }
     }
 

@@ -19,8 +19,7 @@ namespace RetroArr.Core.MetadataSource.Epic
         Unconfigured
     }
 
-    // Anonymous Store GraphQL client. No login. Endpoint and query shape verified
-    // against the schema published by woctezuma's epic-games-search project.
+    // anonymous Store GraphQL client, no login required
     [SuppressMessage("Microsoft.Reliability", "CA2007:DoNotDirectlyAwaitATask")]
     [SuppressMessage("Microsoft.Performance", "CA1869:CacheAndReuseJsonSerializerOptions")]
     [SuppressMessage("Microsoft.Globalization", "CA1304:SpecifyCultureInfo")]
@@ -33,8 +32,8 @@ namespace RetroArr.Core.MetadataSource.Epic
         private const string GraphqlEndpoint = "https://www.epicgames.com/graphql";
 
         private const string SearchStoreQuery =
-            "query searchStoreQuery($keywords: String, $country: String!, $locale: String, $count: Int, $start: Int, $category: String) " +
-            "{ Catalog { searchStore(keywords: $keywords country: $country locale: $locale count: $count start: $start category: $category) " +
+            "query searchStoreQuery($keywords: String, $country: String!, $locale: String, $count: Int, $start: Int) " +
+            "{ Catalog { searchStore(keywords: $keywords country: $country locale: $locale count: $count start: $start) " +
             "{ elements { title id namespace description seller { name } developer urlSlug effectiveDate keyImages { type url } categories { path } } paging { count total } } } }";
 
         public EpicMetadataClient(HttpClient? httpClient = null)
@@ -42,8 +41,7 @@ namespace RetroArr.Core.MetadataSource.Epic
             _httpClient = httpClient ?? new HttpClient();
         }
 
-        // Epic's edge layer (Akamai) drops requests without a real browser User-Agent.
-        // Sending the same headers the store website uses keeps us on the happy path.
+        // Akamai blocks requests without a real browser UA
         private const string DefaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
         internal static EpicMetadataStatus ClassifyResponse(HttpStatusCode httpCode, string? body)
@@ -79,15 +77,15 @@ namespace RetroArr.Core.MetadataSource.Epic
             {
                 var payload = new
                 {
+                    operationName = "searchStoreQuery",
                     query = SearchStoreQuery,
-                    variables = new Dictionary<string, object?>
+                    variables = new
                     {
-                        ["keywords"] = query,
-                        ["country"] = country,
-                        ["locale"] = locale,
-                        ["count"] = count,
-                        ["start"] = 0,
-                        ["category"] = "games/edition/base|bundles/games|editors|software/edu"
+                        keywords = query,
+                        country,
+                        locale,
+                        count,
+                        start = 0
                     }
                 };
                 var json = JsonSerializer.Serialize(payload);
@@ -99,6 +97,7 @@ namespace RetroArr.Core.MetadataSource.Epic
                 req.Headers.Accept.ParseAdd("application/json");
                 req.Headers.Referrer = new Uri("https://www.epicgames.com/store/");
                 req.Headers.TryAddWithoutValidation("Origin", "https://www.epicgames.com");
+                req.Headers.ExpectContinue = false;
 
                 using var resp = await _httpClient.SendAsync(req);
                 var body = await resp.Content.ReadAsStringAsync();
@@ -183,6 +182,7 @@ namespace RetroArr.Core.MetadataSource.Epic
             var paths = Categories.Select(c => c.Path?.ToLowerInvariant() ?? string.Empty).ToList();
             if (paths.Any(p => p == "addons" || p.StartsWith("addons/"))) return false;
             if (paths.Any(p => p == "digitalextras" || p.StartsWith("digitalextras/"))) return false;
+            if (paths.Any(p => p == "soundtrack" || p.StartsWith("soundtrack/"))) return false;
             return true;
         }
     }

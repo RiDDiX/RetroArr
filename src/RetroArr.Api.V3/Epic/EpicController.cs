@@ -51,8 +51,7 @@ namespace RetroArr.Api.V3.Epic
             public string Code { get; set; } = string.Empty;
         }
 
-        // accepts a raw authorizationCode, the JSON blob from the redirect page,
-        // or the full ?code=XXX URL pasted back from the browser
+        // accepts the raw code, the JSON blob from the redirect page, or the full URL
         [HttpPost("auth/code")]
         public async Task<ActionResult> ExchangeCode([FromBody] EpicCodeRequest request)
         {
@@ -97,7 +96,7 @@ namespace RetroArr.Api.V3.Epic
         [HttpPost("settings")]
         public ActionResult SaveSettings([FromBody] EpicSettings request)
         {
-            // explicit clear: empty body wipes the saved tokens
+            // empty body clears the saved tokens
             _configService.SaveEpicSettings(request ?? new EpicSettings());
             return Ok(new { success = true });
         }
@@ -116,7 +115,7 @@ namespace RetroArr.Api.V3.Epic
                 if (refreshed == null)
                     return BadRequest(new { success = false, message = "Epic token refresh failed. Please reconnect your account." });
 
-                // persist fresh tokens before doing any heavy lifting
+                // save fresh tokens before the long catalog walk
                 _configService.SaveEpicSettings(new EpicSettings
                 {
                     RefreshToken = refreshed.RefreshToken,
@@ -141,7 +140,7 @@ namespace RetroArr.Api.V3.Epic
                 }
                 _logger.Info($"[Epic] Sync deduped to {dedupedAssets.Count} unique catalog item(s)");
 
-                // small concurrency window so catalog lookups don't take minutes on big libraries
+                // bounded fan-out so catalog lookups don't crawl on big libraries
                 using var gate = new System.Threading.SemaphoreSlim(4);
                 var lookups = dedupedAssets.Select(async asset =>
                 {
