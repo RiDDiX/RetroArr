@@ -1,3 +1,8 @@
+## v1.0.164 (2026-04-30)
+
+### Changes
+- extend per-platform metadata source override to thegamesdb and steamgriddb (604ba72)
+
 ## v1.0.163 (2026-04-30)
 
 ### Changes
