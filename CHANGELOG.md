@@ -1,3 +1,8 @@
+## v1.0.162 (2026-04-30)
+
+### Changes
+- add thegamesdb metadata provider as third fallback (4a2843f)
+
 ## v1.0.161 (2026-04-30)
 
 ### Changes
