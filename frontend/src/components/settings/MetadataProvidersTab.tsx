@@ -21,6 +21,13 @@ const MetadataProvidersTab: React.FC<MetadataProvidersTabProps> = ({ t }) => {
   const [screenScraperTesting, setScreenScraperTesting] = useState(false);
   const [screenScraperTestResult, setScreenScraperTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
+  // TheGamesDB
+  const [tgdbApiKey, setTgdbApiKey] = useState('');
+  const [tgdbEnabled, setTgdbEnabled] = useState(true);
+  const [tgdbConfigured, setTgdbConfigured] = useState(false);
+  const [tgdbTesting, setTgdbTesting] = useState(false);
+  const [tgdbTestResult, setTgdbTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
   useEffect(() => {
     loadSettings();
   }, []);
@@ -37,8 +44,50 @@ const MetadataProvidersTab: React.FC<MetadataProvidersTabProps> = ({ t }) => {
         setScreenScraperEnabled(ssRes.data.enabled !== false);
         setScreenScraperConfigured(ssRes.data.isConfigured === true);
       } catch { /* ScreenScraper not available */ }
+
+      try {
+        const tgdbRes = await apiClient.get('/settings/thegamesdb');
+        setTgdbEnabled(tgdbRes.data.enabled !== false);
+        setTgdbConfigured(tgdbRes.data.isConfigured === true);
+      } catch { /* TheGamesDB not available */ }
     } catch (error) {
       console.error('Error loading metadata provider settings:', error);
+    }
+  };
+
+  // TheGamesDB handlers
+  const handleSaveTgdb = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await apiClient.post('/settings/thegamesdb', { apiKey: tgdbApiKey, enabled: tgdbEnabled });
+      alert(t('tgdbSettingsSaved') || 'TheGamesDB settings saved');
+    } catch (error: unknown) {
+      alert(`${t('error')}: ${getErrorMessage(error)}`);
+    }
+  };
+
+  const handleTestTgdb = async () => {
+    setTgdbTesting(true);
+    setTgdbTestResult(null);
+    try {
+      const response = await apiClient.post('/settings/thegamesdb/test', { apiKey: tgdbApiKey });
+      setTgdbTestResult({ success: response.data.success !== false, message: response.data.message || 'Connection successful' });
+    } catch (error: unknown) {
+      setTgdbTestResult({ success: false, message: getErrorMessage(error) });
+    } finally {
+      setTgdbTesting(false);
+    }
+  };
+
+  const handleDisconnectTgdb = async () => {
+    if (!window.confirm(t('disconnectConfirm'))) return;
+    try {
+      await apiClient.delete('/settings/thegamesdb');
+      setTgdbApiKey('');
+      setTgdbEnabled(false);
+      setTgdbConfigured(false);
+    } catch (error: unknown) {
+      console.error('Error disconnecting TheGamesDB:', error);
     }
   };
 
@@ -172,6 +221,47 @@ const MetadataProvidersTab: React.FC<MetadataProvidersTabProps> = ({ t }) => {
           </div>
           {screenScraperTestResult && (
             <div className={`test-result ${screenScraperTestResult.success ? 'success' : 'error'}`}>{screenScraperTestResult.message}</div>
+          )}
+        </form>
+      </div>
+
+      <div className="settings-section">
+        <div className="section-header-with-logo">
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '1.5rem' }}>🎲</span> TheGamesDB
+          </h3>
+        </div>
+        <p className="settings-description">
+          {t('tgdbDesc') || 'TheGamesDB is a community-maintained database with rich metadata and box art. Used as fallback after IGDB and ScreenScraper.'}
+        </p>
+        <form onSubmit={handleSaveTgdb}>
+          <div className="form-group">
+            <label htmlFor="tgdb-api-key">{t('apiKey') || 'API Key'}</label>
+            <input type="password" id="tgdb-api-key" placeholder={tgdbConfigured ? '••••••••' : (t('apiKey') || 'API Key')} value={tgdbApiKey} onChange={(e) => setTgdbApiKey(e.target.value)} />
+            <small>
+              {t('tgdbHelp') || 'Request a key on the '}
+              <a href="https://forums.thegamesdb.net/" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--ctp-blue)' }}>thegamesdb.net forum</a>
+            </small>
+          </div>
+          <div className="form-group">
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input type="checkbox" checked={tgdbEnabled} onChange={(e) => setTgdbEnabled(e.target.checked)} />
+              {t('enabled') || 'Enabled'}
+            </label>
+          </div>
+          <div className="button-group">
+            <button type="button" className="btn-secondary" onClick={handleTestTgdb} disabled={tgdbTesting || (!tgdbApiKey && !tgdbConfigured)}>
+              {tgdbTesting ? t('testing') : t('testConnection')}
+            </button>
+            <button type="submit" className="btn-primary">{t('save')}</button>
+            {(tgdbApiKey || tgdbConfigured) && (
+              <button type="button" className="btn-delete" onClick={handleDisconnectTgdb} style={{ marginLeft: '10px' }}>
+                {t('disconnect')}
+              </button>
+            )}
+          </div>
+          {tgdbTestResult && (
+            <div className={`test-result ${tgdbTestResult.success ? 'success' : 'error'}`}>{tgdbTestResult.message}</div>
           )}
         </form>
       </div>

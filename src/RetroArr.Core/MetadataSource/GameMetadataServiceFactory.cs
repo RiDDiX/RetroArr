@@ -1,5 +1,6 @@
 using RetroArr.Core.MetadataSource.Igdb;
 using RetroArr.Core.MetadataSource.ScreenScraper;
+using RetroArr.Core.MetadataSource.TheGamesDb;
 using RetroArr.Core.Configuration;
 using RetroArr.Core.MetadataSource.Steam;
 using System.Net.Http;
@@ -39,14 +40,20 @@ namespace RetroArr.Core.MetadataSource
             var igdbSettings = _configService.LoadIgdbSettings();
             var steamSettings = _configService.LoadSteamSettings();
             var ssSettings = _configService.LoadScreenScraperSettings();
-            
-            _logger.Info($"[MetadataFactory] Refreshing Configuration. IGDB: {igdbSettings.IsConfigured}, ScreenScraper: {ssSettings.IsConfigured}");
+            var tgdbSettings = _configService.LoadTheGamesDbSettings();
 
-            // Create ScreenScraper client if configured
+            _logger.Info($"[MetadataFactory] Refreshing Configuration. IGDB: {igdbSettings.IsConfigured}, ScreenScraper: {ssSettings.IsConfigured}, TheGamesDB: {tgdbSettings.IsConfigured}");
+
             ScreenScraperClient? ssClient = null;
             if (ssSettings.Enabled)
             {
                 ssClient = new ScreenScraperClient(_httpClient, ssSettings.Username, ssSettings.Password, ssSettings.DevId, ssSettings.DevPassword);
+            }
+
+            TheGamesDbClient? tgdbClient = null;
+            if (tgdbSettings.Enabled && tgdbSettings.IsConfigured)
+            {
+                tgdbClient = new TheGamesDbClient(_httpClient, tgdbSettings.ApiKey);
             }
 
             // Recreate on every call so credential edits take effect right away
@@ -54,14 +61,13 @@ namespace RetroArr.Core.MetadataSource
             {
                 var igdbClient = new IgdbClient(igdbSettings.ClientId, igdbSettings.ClientSecret);
                 var steamClient = new SteamClient(steamSettings.ApiKey);
-                _currentService = new GameMetadataService(igdbClient, steamClient, ssClient);
+                _currentService = new GameMetadataService(igdbClient, steamClient, ssClient, tgdbClient);
             }
             else
             {
-                // Create a dummy client for when IGDB is not configured
                 var dummyClient = new IgdbClient(string.Empty, string.Empty);
                 var steamClient = new SteamClient(steamSettings.ApiKey);
-                _currentService = new GameMetadataService(dummyClient, steamClient, ssClient);
+                _currentService = new GameMetadataService(dummyClient, steamClient, ssClient, tgdbClient);
             }
         }
     }

@@ -499,6 +499,71 @@ namespace RetroArr.Api.V3.Settings
             return Ok(new { success = true, message = "ScreenScraper settings cleared." });
         }
 
+        // ==================== TheGamesDB Settings ====================
+
+        [HttpGet("thegamesdb")]
+        public ActionResult GetTheGamesDbSettings()
+        {
+            var settings = _configService.LoadTheGamesDbSettings();
+            return Ok(new
+            {
+                ApiKey = MaskSecret(settings.ApiKey),
+                settings.Enabled,
+                settings.IsConfigured
+            });
+        }
+
+        [HttpPost("thegamesdb")]
+        public IActionResult SaveTheGamesDbSettings([FromBody] TheGamesDbSettings request)
+        {
+            var existing = _configService.LoadTheGamesDbSettings();
+            if (IsMaskedOrEmpty(request.ApiKey)) request.ApiKey = existing.ApiKey;
+
+            _configService.SaveTheGamesDbSettings(request);
+            _metadataServiceFactory.RefreshConfiguration();
+            _logger.Info($"[Settings] Saving TheGamesDB Settings. ENABLED = {request.Enabled}");
+            return Ok(new { success = true, message = "TheGamesDB settings saved." });
+        }
+
+        [HttpPost("thegamesdb/test")]
+        public async Task<IActionResult> TestTheGamesDbSettings([FromBody] TheGamesDbSettings request)
+        {
+            try
+            {
+                var existing = _configService.LoadTheGamesDbSettings();
+                var apiKey = IsMaskedOrEmpty(request.ApiKey) ? existing.ApiKey : request.ApiKey;
+                if (string.IsNullOrWhiteSpace(apiKey))
+                    return Ok(new { success = false, message = "Enter an API key first" });
+
+                using var httpClient = new System.Net.Http.HttpClient();
+                var client = new RetroArr.Core.MetadataSource.TheGamesDb.TheGamesDbClient(httpClient, apiKey);
+                var (status, games, _) = await client.SearchGamesByNameAsync("super mario world");
+
+                if (status == RetroArr.Core.MetadataSource.TheGamesDb.TheGamesDbStatus.QuotaExceeded)
+                    return Ok(new { success = false, message = "TheGamesDB monthly allowance exceeded" });
+                if (status == RetroArr.Core.MetadataSource.TheGamesDb.TheGamesDbStatus.AuthFailed)
+                    return Ok(new { success = false, message = "Login failed, check your API key" });
+                if (status == RetroArr.Core.MetadataSource.TheGamesDb.TheGamesDbStatus.NetworkError)
+                    return Ok(new { success = false, message = "Network error talking to TheGamesDB" });
+                if (games.Count > 0)
+                    return Ok(new { success = true, message = $"Connection successful, found: {games[0].GameTitle}" });
+                return Ok(new { success = true, message = "Connection successful (API responded, no results for test query)" });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { success = false, error = $"Connection failed: {ex.Message}" });
+            }
+        }
+
+        [HttpDelete("thegamesdb")]
+        public IActionResult DeleteTheGamesDbSettings()
+        {
+            var emptySettings = new TheGamesDbSettings { ApiKey = "", Enabled = false };
+            _configService.SaveTheGamesDbSettings(emptySettings);
+            _metadataServiceFactory.RefreshConfiguration();
+            return Ok(new { success = true, message = "TheGamesDB settings cleared." });
+        }
+
         // ==================== GOG Settings ====================
 
         [HttpGet("gog")]

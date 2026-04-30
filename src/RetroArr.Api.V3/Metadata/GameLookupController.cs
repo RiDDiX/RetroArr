@@ -43,6 +43,12 @@ namespace RetroArr.Api.V3.Metadata
                     games = ssGames;
                     (statusLabel, statusMessage) = MapScreenScraperStatus(ssStatus);
                 }
+                else if (sourceLabel == "thegamesdb")
+                {
+                    var (tStatus, tGames) = await metadataService.SearchTheGamesDbWithStatusAsync(term, platformKey, lang);
+                    games = tGames;
+                    (statusLabel, statusMessage) = MapTheGamesDbStatus(tStatus);
+                }
                 else
                 {
                     games = await metadataService.SearchGamesAsync(term, platformKey, lang);
@@ -77,6 +83,17 @@ namespace RetroArr.Api.V3.Metadata
             RetroArr.Core.MetadataSource.ScreenScraper.ScreenScraperStatus.AuthFailed => ("auth_failed", "ScreenScraper login failed. Check username and password in Settings."),
             RetroArr.Core.MetadataSource.ScreenScraper.ScreenScraperStatus.Unconfigured => ("unconfigured", "ScreenScraper is not configured in this build."),
             RetroArr.Core.MetadataSource.ScreenScraper.ScreenScraperStatus.NetworkError => ("network_error", "Could not reach ScreenScraper, try again."),
+            _ => ("unknown", null)
+        };
+
+        private static (string status, string? message) MapTheGamesDbStatus(RetroArr.Core.MetadataSource.TheGamesDb.TheGamesDbStatus s) => s switch
+        {
+            RetroArr.Core.MetadataSource.TheGamesDb.TheGamesDbStatus.Ok => ("ok", null),
+            RetroArr.Core.MetadataSource.TheGamesDb.TheGamesDbStatus.Empty => ("empty", null),
+            RetroArr.Core.MetadataSource.TheGamesDb.TheGamesDbStatus.QuotaExceeded => ("quota_exceeded", "TheGamesDB monthly allowance exceeded."),
+            RetroArr.Core.MetadataSource.TheGamesDb.TheGamesDbStatus.AuthFailed => ("auth_failed", "TheGamesDB login failed. Check your API key in Settings."),
+            RetroArr.Core.MetadataSource.TheGamesDb.TheGamesDbStatus.Unconfigured => ("unconfigured", "TheGamesDB is not configured."),
+            RetroArr.Core.MetadataSource.TheGamesDb.TheGamesDbStatus.NetworkError => ("network_error", "Could not reach TheGamesDB, try again."),
             _ => ("unknown", null)
         };
 

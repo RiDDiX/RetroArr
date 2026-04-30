@@ -26,6 +26,7 @@ namespace RetroArr.Core.Configuration
         private readonly string _postDownloadConfigFile;
         private readonly string _hydraConfigFile;
         private readonly string _screenScraperConfigFile;
+        private readonly string _theGamesDbConfigFile;
         private readonly string _gogConfigFile;
         private readonly string _databaseConfigFile;
         private readonly string _loggingConfigFile;
@@ -65,6 +66,7 @@ namespace RetroArr.Core.Configuration
             _postDownloadConfigFile = Path.Combine(_configDirectory, "postdownload.json");
             _hydraConfigFile = Path.Combine(_configDirectory, "hydra.json");
             _screenScraperConfigFile = Path.Combine(_configDirectory, "screenscraper.json");
+            _theGamesDbConfigFile = Path.Combine(_configDirectory, "thegamesdb.json");
             _gogConfigFile = Path.Combine(_configDirectory, "gog.json");
             _databaseConfigFile = Path.Combine(_configDirectory, "database.json");
             _loggingConfigFile = Path.Combine(_configDirectory, "logging.json");
@@ -114,6 +116,12 @@ namespace RetroArr.Core.Configuration
         {
             s.Password = Unprotect(s.Password);
             s.DevPassword = Unprotect(s.DevPassword);
+            return s;
+        }
+
+        private TheGamesDbSettings UnprotectTheGamesDb(TheGamesDbSettings s)
+        {
+            s.ApiKey = Unprotect(s.ApiKey);
             return s;
         }
 
@@ -414,6 +422,40 @@ namespace RetroArr.Core.Configuration
             catch (Exception ex) { _logger.Error($"Error saving ScreenScraper settings: {ex.Message}"); }
         }
 
+        public TheGamesDbSettings LoadTheGamesDbSettings()
+        {
+            TheGamesDbSettings settings;
+            if (File.Exists(_theGamesDbConfigFile))
+            {
+                try
+                {
+                    var json = File.ReadAllText(_theGamesDbConfigFile);
+                    settings = JsonSerializer.Deserialize<TheGamesDbSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new TheGamesDbSettings();
+                    UnprotectTheGamesDb(settings);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error($"Error loading TheGamesDB settings: {ex.Message}");
+                    settings = new TheGamesDbSettings();
+                }
+            }
+            else
+            {
+                settings = new TheGamesDbSettings();
+            }
+
+            var envKey = Environment.GetEnvironmentVariable("THEGAMESDB_APIKEY");
+            if (!string.IsNullOrEmpty(envKey)) settings.ApiKey = envKey;
+
+            return settings;
+        }
+
+        public void SaveTheGamesDbSettings(TheGamesDbSettings settings)
+        {
+            try { WriteEncryptedJson(_theGamesDbConfigFile, settings, s => s.ApiKey = Protect(s.ApiKey)); }
+            catch (Exception ex) { _logger.Error($"Error saving TheGamesDB settings: {ex.Message}"); }
+        }
+
         public GogSettings LoadGogSettings()
         {
             if (File.Exists(_gogConfigFile))
@@ -600,6 +642,13 @@ namespace RetroArr.Core.Configuration
         public string DevPassword { get; set; } = string.Empty;
         public bool Enabled { get; set; } = true;
         public bool IsConfigured => !string.IsNullOrWhiteSpace(Username) && !string.IsNullOrWhiteSpace(Password);
+    }
+
+    public class TheGamesDbSettings
+    {
+        public string ApiKey { get; set; } = string.Empty;
+        public bool Enabled { get; set; } = true;
+        public bool IsConfigured => !string.IsNullOrWhiteSpace(ApiKey);
     }
 
     public class GogSettings

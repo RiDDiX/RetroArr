@@ -1,6 +1,7 @@
 using RetroArr.Core.MetadataSource.Steam;
 using RetroArr.Core.MetadataSource.Igdb;
 using RetroArr.Core.MetadataSource.ScreenScraper;
+using RetroArr.Core.MetadataSource.TheGamesDb;
 using RetroArr.Core.Games;
 using System.Text.RegularExpressions;
 using System.Collections.Generic;
@@ -24,13 +25,18 @@ namespace RetroArr.Core.MetadataSource
         private readonly IgdbClient _igdbClient;
         private readonly SteamClient _steamClient;
         private readonly ScreenScraperClient? _screenScraperClient;
+        private readonly TheGamesDbClient? _theGamesDbClient;
 
-        public GameMetadataService(IgdbClient igdbClient, SteamClient steamClient, ScreenScraperClient? screenScraperClient = null)
+        public GameMetadataService(IgdbClient igdbClient, SteamClient steamClient, ScreenScraperClient? screenScraperClient = null, TheGamesDbClient? theGamesDbClient = null)
         {
             _igdbClient = igdbClient;
             _steamClient = steamClient;
             _screenScraperClient = screenScraperClient;
+            _theGamesDbClient = theGamesDbClient;
         }
+
+        public bool HasScreenScraper => _screenScraperClient != null;
+        public bool HasTheGamesDb => _theGamesDbClient != null;
 
         public async Task<List<Game>> SearchGamesAsync(string query, string? platformKey = null, string? lang = null, string? serial = null)
         {
@@ -77,6 +83,14 @@ namespace RetroArr.Core.MetadataSource
                         results.Add(game);
                     }
                 }
+            }
+
+            // Final fallback: TheGamesDB
+            if (results.Count == 0 && _theGamesDbClient != null)
+            {
+                _logger.Info($"[Metadata] ScreenScraper returned no results, trying TheGamesDB...");
+                var (_, tgdbGames) = await SearchTheGamesDbWithStatusAsync(query, platformKey, lang);
+                results.AddRange(tgdbGames);
             }
 
             return results;
@@ -295,6 +309,101 @@ namespace RetroArr.Core.MetadataSource
                 ? detailStatus
                 : (results.Count > 0 ? ScreenScraper.ScreenScraperStatus.Ok : ScreenScraper.ScreenScraperStatus.Empty);
             return (finalStatus, results);
+        }
+
+        public async Task<List<Game>> SearchTheGamesDbAsync(string query, string? platformKey = null, string? lang = null)
+        {
+            var (_, games) = await SearchTheGamesDbWithStatusAsync(query, platformKey, lang);
+            return games;
+        }
+
+        public async Task<(TheGamesDb.TheGamesDbStatus Status, List<Game> Games)> SearchTheGamesDbWithStatusAsync(string query, string? platformKey = null, string? lang = null)
+        {
+            var results = new List<Game>();
+
+            if (_theGamesDbClient == null)
+            {
+                _logger.Info("[Metadata] TheGamesDB not configured");
+                return (TheGamesDb.TheGamesDbStatus.Unconfigured, results);
+            }
+
+            int platformId = 0;
+            if (!string.IsNullOrEmpty(platformKey))
+            {
+                var platform = FindPlatform(platformKey);
+                if (platform != null)
+                    platformId = platform.Id;
+            }
+
+            // platform filter at the api level is not used here because our internal Platform
+            // model has no TheGamesDB platform id mapping yet. results get filtered by name
+            // similarity downstream in the scanner.
+            _logger.Info($"[Metadata] Searching TheGamesDB for: {query}");
+            await _theGamesDbClient.EnsureReferenceDataAsync();
+            var (searchStatus, tgdbGames, boxartBase) = await _theGamesDbClient.SearchGamesByNameAsync(query);
+            if (searchStatus == TheGamesDb.TheGamesDbStatus.QuotaExceeded
+                || searchStatus == TheGamesDb.TheGamesDbStatus.AuthFailed
+                || searchStatus == TheGamesDb.TheGamesDbStatus.Unconfigured
+                || searchStatus == TheGamesDb.TheGamesDbStatus.NetworkError)
+            {
+                return (searchStatus, results);
+            }
+
+            foreach (var g in tgdbGames.Take(10))
+            {
+                var mapped = MapTheGamesDbGameToGame(g, platformId, boxartBase, lang);
+                if (mapped != null)
+                {
+                    mapped.MetadataSource = "TheGamesDB";
+                    results.Add(mapped);
+                }
+            }
+            _logger.Info($"[Metadata] TheGamesDB search returning {results.Count} mapped game(s)");
+            return (results.Count > 0 ? TheGamesDb.TheGamesDbStatus.Ok : TheGamesDb.TheGamesDbStatus.Empty, results);
+        }
+
+        private Game? MapTheGamesDbGameToGame(TheGamesDb.TheGamesDbGame src, int platformId, TheGamesDb.TheGamesDbImageBaseUrls? boxartBase, string? lang = null)
+        {
+            if (string.IsNullOrEmpty(src.GameTitle)) return null;
+
+            var game = new Game
+            {
+                Title = src.GameTitle!,
+                Overview = src.Overview,
+                PlatformId = platformId,
+                Year = src.GetReleaseYear() ?? 0,
+                Status = GameStatus.Released,
+                Images = new GameImages()
+            };
+
+            if (src.GetReleaseYear().HasValue)
+            {
+                if (DateTime.TryParse(src.ReleaseDate, out var dt))
+                    game.ReleaseDate = dt;
+            }
+
+            if (src.Developers != null && src.Developers.Count > 0)
+                game.Developer = _theGamesDbClient!.ResolveDeveloper(src.Developers[0]);
+            if (src.Publishers != null && src.Publishers.Count > 0)
+                game.Publisher = _theGamesDbClient!.ResolvePublisher(src.Publishers[0]);
+
+            if (src.Genres != null && src.Genres.Count > 0)
+                game.Genres = src.Genres.Select(g => LocalizeGenre(_theGamesDbClient!.ResolveGenre(g), lang)).Where(s => !string.IsNullOrEmpty(s)).ToList();
+
+            if (src.Alternates != null && src.Alternates.Count > 0)
+                game.AlternativeTitle = string.Join("; ", src.Alternates.Where(a => !string.IsNullOrWhiteSpace(a)));
+
+            var coverUrl = TheGamesDb.TheGamesDbClient.PickBoxartUrl(src.BoxartImages, boxartBase, "large");
+            if (!string.IsNullOrEmpty(coverUrl))
+            {
+                game.Images.CoverUrl = coverUrl;
+                game.Images.CoverLargeUrl = coverUrl;
+            }
+            var coverThumb = TheGamesDb.TheGamesDbClient.PickBoxartUrl(src.BoxartImages, boxartBase, "thumb");
+            if (string.IsNullOrEmpty(game.Images.CoverUrl) && !string.IsNullOrEmpty(coverThumb))
+                game.Images.CoverUrl = coverThumb;
+
+            return game;
         }
 
         public async Task<Game?> GetGameMetadataAsync(int igdbId, string? lang = null, string? platformKey = null)
