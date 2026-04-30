@@ -1,3 +1,8 @@
+## v1.0.173 (2026-04-30)
+
+### Changes
+- stop dropping real games and fix epic store graphql request shape (7366995)
+
 ## v1.0.172 (2026-04-30)
 
 ### Changes
