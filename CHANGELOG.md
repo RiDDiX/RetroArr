@@ -1,3 +1,8 @@
+## v1.0.161 (2026-04-30)
+
+### Changes
+- split connections and indexers into focused settings tabs (3ea5c67)
+
 ## v1.0.160 (2026-04-30)
 
 ### Changes
