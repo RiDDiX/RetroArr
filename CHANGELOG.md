@@ -1,3 +1,8 @@
+## v1.0.159 (2026-04-30)
+
+### Changes
+- route unresolved platform scans to Unknown sentinel (fa33de6)
+
 ## v1.0.158 (2026-04-29)
 
 ### Changes
