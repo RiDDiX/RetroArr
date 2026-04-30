@@ -650,6 +650,9 @@ namespace RetroArr.Core.Games
                             // Scan supplementary folders (Updates+DLCs, Patches+DLCs, etc.) and link content to existing games
                             await ScanSupplementaryFoldersAsync(platformFolder, platform.FolderName, platformRule, existingGames, _scanCts.Token);
 
+                            // PC-style: Patches/DLC live inside the game folder, not next to it
+                            await ScanInGameSupplementaryFoldersAsync(platformFolder, platform.FolderName, _scanCts.Token);
+
                             // Cleanup stale games (paths no longer on disk) and resync existing games' files
                             await CleanupAndResyncPlatformAsync(platformFolder, platform.FolderName, existingGames, _scanCts.Token);
                         }
@@ -961,8 +964,11 @@ namespace RetroArr.Core.Games
 
             if (currentDepth > maxDepth) return results;
 
-            // blacklist folders
-            if (root.Name.StartsWith(".") || _folderBlacklist.Contains(root.Name) || IsMetadataSubfolder(root.Name))
+            // skip blacklist + supplementary folders so patch.exe never wins as main exe
+            if (root.Name.StartsWith(".")
+                || _folderBlacklist.Contains(root.Name)
+                || _supplementaryFolderNames.Contains(root.Name)
+                || IsMetadataSubfolder(root.Name))
             {
                 return results;
             }
@@ -2722,6 +2728,148 @@ namespace RetroArr.Core.Games
                 }
             }
             catch { }
+        }
+
+        // For each game on the platform, scan its own folder for Patches/DLC subfolders
+        // and link those files. Single-file games at platform root are skipped here.
+        private async Task ScanInGameSupplementaryFoldersAsync(string platformFolderPath, string platformKey, System.Threading.CancellationToken ct)
+        {
+            try
+            {
+                var allGames = await _gameRepository.GetAllLightAsync();
+                int platformId = 0;
+                var platDef = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.MatchesFolderName(platformKey));
+                if (platDef != null) platformId = platDef.Id;
+                if (platformId == 0) return;
+
+                var platformGames = allGames.Where(g => g.PlatformId == platformId && !string.IsNullOrEmpty(g.Path)).ToList();
+                var normalizedPlatformRoot = Path.GetFullPath(platformFolderPath).TrimEnd(Path.DirectorySeparatorChar);
+
+                foreach (var game in platformGames)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (string.IsNullOrEmpty(game.Path)) continue;
+
+                    string gameFolder;
+                    if (Directory.Exists(game.Path))
+                    {
+                        gameFolder = game.Path;
+                    }
+                    else if (File.Exists(game.Path))
+                    {
+                        gameFolder = Path.GetDirectoryName(game.Path) ?? string.Empty;
+                    }
+                    else
+                    {
+                        continue;
+                    }
+
+                    var normalizedGameFolder = Path.GetFullPath(gameFolder).TrimEnd(Path.DirectorySeparatorChar);
+                    // single file at platform root: handled by the platform-level scanner
+                    if (string.Equals(normalizedGameFolder, normalizedPlatformRoot, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    string[] subDirs;
+                    try { subDirs = Directory.GetDirectories(gameFolder); }
+                    catch { continue; }
+
+                    foreach (var subDir in subDirs)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        var subName = Path.GetFileName(subDir);
+                        if (!_supplementaryFolderNames.Contains(subName)) continue;
+
+                        var lowerSub = subName.ToLowerInvariant();
+                        string defaultType = lowerSub.Contains("dlc") && !lowerSub.Contains("update") && !lowerSub.Contains("patch")
+                            ? "DLC"
+                            : "Patch";
+
+                        await LinkInGameSupplementaryAsync(game, subDir, defaultType, platformFolderPath, ct);
+                    }
+                }
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                Log($"[Supplementary] In-game scan error in '{platformFolderPath}': {ex.Message}", LogLevel.Warning);
+            }
+        }
+
+        private async Task LinkInGameSupplementaryAsync(Game parent, string supplementaryDir, string defaultType, string platformFolderPath, System.Threading.CancellationToken ct)
+        {
+            var linked = new List<GameFile>();
+
+            // loose files directly inside (Battlefield Vietnam/Patches/*.exe)
+            try
+            {
+                foreach (var fi in new DirectoryInfo(supplementaryDir).EnumerateFiles())
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (fi.Name.StartsWith(".")) continue;
+                    var info = _titleCleaner.ClassifySupplementaryContent(fi.Name);
+                    if (info.FileType == "Main") info.FileType = defaultType;
+
+                    var rel = Path.GetRelativePath(platformFolderPath, fi.FullName).Replace('\\', '/');
+                    linked.Add(new GameFile
+                    {
+                        GameId = parent.Id,
+                        RelativePath = rel,
+                        Size = fi.Length,
+                        DateAdded = DateTime.UtcNow,
+                        FileType = info.FileType,
+                        Version = info.Version,
+                        ContentName = info.ContentName ?? fi.Name,
+                        TitleId = info.TitleId,
+                        Serial = info.Serial
+                    });
+                }
+            }
+            catch { }
+
+            // bundled subfolders (Imperator Rome/Patch/Update v1.2.0/...)
+            try
+            {
+                foreach (var bundleDir in Directory.GetDirectories(supplementaryDir))
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var bundleName = Path.GetFileName(bundleDir);
+                    var bundleInfo = _titleCleaner.ClassifySupplementaryContent(bundleName);
+                    if (bundleInfo.FileType == "Main") bundleInfo.FileType = defaultType;
+
+                    foreach (var fi in new DirectoryInfo(bundleDir).EnumerateFiles("*", SearchOption.AllDirectories))
+                    {
+                        if (fi.Name.StartsWith(".")) continue;
+                        var rel = Path.GetRelativePath(platformFolderPath, fi.FullName).Replace('\\', '/');
+                        linked.Add(new GameFile
+                        {
+                            GameId = parent.Id,
+                            RelativePath = rel,
+                            Size = fi.Length,
+                            DateAdded = DateTime.UtcNow,
+                            FileType = bundleInfo.FileType,
+                            Version = bundleInfo.Version,
+                            ContentName = bundleName,
+                            TitleId = bundleInfo.TitleId,
+                            Serial = bundleInfo.Serial
+                        });
+                    }
+                }
+            }
+            catch { }
+
+            if (linked.Count == 0) return;
+
+            try
+            {
+                await _gameRepository.SyncGameFilesAsync(parent.Id, linked);
+                Log($"[Supplementary] Linked {linked.Count} in-game file(s) under '{Path.GetFileName(supplementaryDir)}' -> '{parent.Title}'");
+            }
+            catch (Exception ex)
+            {
+                Log($"[Supplementary] Sync failed for '{parent.Title}': {ex.Message}", LogLevel.Warning);
+            }
         }
 
         private Game? FindParentGame(TitleCleanerService.SupplementaryContentInfo info, List<Game> existingGames, string platformKey)
