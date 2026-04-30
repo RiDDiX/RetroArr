@@ -434,6 +434,12 @@ namespace RetroArr.Core.Games
 
         private readonly DuplicateGameMergeService? _mergeService;
 
+        // discovery-only mode: walk the same paths but persist candidates instead of
+        // running the full metadata pipeline. The flag is flipped inside DiscoverOnlyAsync.
+        private bool _discoveryOnlyMode;
+        private DiscoveredGameRepository? _discoveryRepo;
+        private int _discoveriesAdded;
+
         public MediaScannerService(
             ConfigurationService configService,
             IGameMetadataServiceFactory metadataServiceFactory,
@@ -441,7 +447,8 @@ namespace RetroArr.Core.Games
             TitleCleanerService titleCleaner,
             DebugLogService? debugLog = null,
             ReviewItemService? reviewService = null,
-            DuplicateGameMergeService? mergeService = null)
+            DuplicateGameMergeService? mergeService = null,
+            DiscoveredGameRepository? discoveryRepo = null)
         {
             _configService = configService;
             _metadataServiceFactory = metadataServiceFactory;
@@ -450,6 +457,62 @@ namespace RetroArr.Core.Games
             _debugLog = debugLog;
             _reviewService = reviewService;
             _mergeService = mergeService;
+            _discoveryRepo = discoveryRepo;
+        }
+
+        public async Task<int> DiscoverOnlyAsync(string? overridePath = null, string? overridePlatform = null)
+        {
+            if (_discoveryRepo == null)
+            {
+                Log("[Discovery] No repository wired, cannot run discovery scan.", LogLevel.Warning);
+                return 0;
+            }
+            _discoveryOnlyMode = true;
+            _discoveriesAdded = 0;
+            try
+            {
+                await ScanAsync(overridePath, overridePlatform);
+                return _discoveriesAdded;
+            }
+            finally
+            {
+                _discoveryOnlyMode = false;
+            }
+        }
+
+        public bool IsDiscoveryMode => _discoveryOnlyMode;
+
+        // Temporary per-import override that wins over the per-platform setting.
+        // Single-threaded scan loop, so a plain field is fine.
+        private string? _metadataSourceOverride;
+
+        public async Task<bool> ImportDiscoveredAsync(DiscoveredGame discovered, string? metadataSourceOverride = null)
+        {
+            if (discovered == null) return false;
+            var existingGames = await _gameRepository.GetAllLightAsync();
+            var metadataService = _metadataServiceFactory.CreateService();
+
+            _metadataSourceOverride = string.IsNullOrEmpty(metadataSourceOverride) ? null : metadataSourceOverride.ToLowerInvariant();
+            try
+            {
+                return await ProcessPotentialGame(
+                    discovered.Title,
+                    existingGames,
+                    metadataService,
+                    discovered.Path,
+                    discovered.PlatformKey,
+                    discovered.Serial,
+                    discovered.ExecutablePath,
+                    discovered.IsInstaller,
+                    discovered.IsExternal,
+                    discovered.Region,
+                    discovered.Languages,
+                    discovered.Revision);
+            }
+            finally
+            {
+                _metadataSourceOverride = null;
+            }
         }
 
         public void StopScan()
@@ -1502,6 +1565,34 @@ namespace RetroArr.Core.Games
                             continue;
                         }
 
+                        if (_discoveryOnlyMode && _discoveryRepo != null)
+                        {
+                            int? platId = null;
+                            if (!string.IsNullOrEmpty(candidate.PlatformKey))
+                            {
+                                var plat = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.MatchesFolderName(candidate.PlatformKey));
+                                if (plat != null) platId = plat.Id;
+                            }
+                            await _discoveryRepo.UpsertAsync(new DiscoveredGame
+                            {
+                                Title = candidate.Title,
+                                Path = candidate.Path,
+                                PlatformKey = candidate.PlatformKey,
+                                PlatformId = platId,
+                                Serial = candidate.Serial,
+                                ExecutablePath = exePath,
+                                IsExternal = candidate.IsExternal,
+                                IsInstaller = isInstaller,
+                                Region = candidate.Region,
+                                Languages = candidate.Languages,
+                                Revision = candidate.Revision,
+                                DiscoveredAt = DateTime.UtcNow
+                            });
+                            _discoveriesAdded++;
+                            added++;
+                            continue;
+                        }
+
                         if (await ProcessPotentialGame(candidate.Title, existingGames, metadataService, candidate.Path, candidate.PlatformKey, candidate.Serial, exePath, isInstaller, candidate.IsExternal, candidate.Region, candidate.Languages, candidate.Revision))
                         {
                             added++;
@@ -1736,10 +1827,13 @@ namespace RetroArr.Core.Games
 
                 // Check per-platform metadata source preference. The configured provider
                 // is tried first for the listed sources; if it returns nothing the default
-                // chain (IGDB then ScreenScraper then TheGamesDB) takes over.
-                var preferredSource = scanPlatformId > 0
-                    ? PlatformService.GetMetadataSource(scanPlatformId).ToLowerInvariant()
-                    : PlatformService.MetadataSourceIgdb;
+                // chain (IGDB then ScreenScraper then TheGamesDB) takes over. An import-time
+                // override (set by ImportDiscoveredAsync) wins over the platform setting.
+                var preferredSource = !string.IsNullOrEmpty(_metadataSourceOverride)
+                    ? _metadataSourceOverride!
+                    : (scanPlatformId > 0
+                        ? PlatformService.GetMetadataSource(scanPlatformId).ToLowerInvariant()
+                        : PlatformService.MetadataSourceIgdb);
 
                 if (preferredSource == PlatformService.MetadataSourceScreenScraper)
                 {

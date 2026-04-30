@@ -252,6 +252,7 @@ namespace RetroArr.Host
             builder.Services.AddSingleton<RetroArr.Core.Download.RenameQueueService>();
             builder.Services.AddSingleton<RetroArr.Core.Download.History.DownloadHistoryRepository>();
             builder.Services.AddSingleton<RetroArr.Core.Download.History.DownloadBlacklistRepository>();
+            builder.Services.AddSingleton<RetroArr.Core.Games.DiscoveredGameRepository>();
 
             // GOG Download Tracker
             builder.Services.AddSingleton<RetroArr.Core.MetadataSource.Gog.GogDownloadTracker>();

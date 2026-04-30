@@ -1,0 +1,126 @@
+.discover-page {
+  padding: 1.5rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.discover-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.discover-header h1 {
+  margin: 0 0 0.5rem 0;
+  color: var(--ctp-text);
+}
+
+.discover-subtitle {
+  color: var(--ctp-subtext1);
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.discover-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.discover-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--ctp-surface0);
+  border: 1px solid var(--ctp-surface1);
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.discover-counter {
+  font-weight: 600;
+  color: var(--ctp-text);
+}
+
+.discover-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--ctp-surface0);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.discover-table th,
+.discover-table td {
+  padding: 0.6rem 0.8rem;
+  text-align: left;
+  border-bottom: 1px solid var(--ctp-surface1);
+  vertical-align: middle;
+}
+
+.discover-table th {
+  background: var(--ctp-surface1);
+  font-weight: 600;
+  color: var(--ctp-subtext1);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.discover-table tbody tr:hover {
+  background: var(--ctp-surface1);
+}
+
+.discover-table .col-checkbox { width: 36px; }
+.discover-table .col-platform { width: 130px; }
+.discover-table .col-source { width: 170px; }
+
+.discover-path {
+  font-family: monospace;
+  font-size: 0.8rem;
+  color: var(--ctp-subtext0);
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.discover-empty {
+  padding: 3rem 1rem;
+  text-align: center;
+  color: var(--ctp-subtext0);
+  background: var(--ctp-surface0);
+  border: 1px dashed var(--ctp-surface1);
+  border-radius: 8px;
+}
+
+.discover-source-select {
+  padding: 0.25rem 0.4rem;
+  background: var(--ctp-base);
+  color: var(--ctp-text);
+  border: 1px solid var(--ctp-surface2);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  width: 100%;
+}
+
+.discover-import-bar {
+  position: sticky;
+  bottom: 1rem;
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--ctp-surface1);
+  border: 1px solid var(--ctp-surface2);
+  border-radius: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+}

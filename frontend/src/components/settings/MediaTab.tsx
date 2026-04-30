@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import apiClient, { getErrorMessage, isAxiosError } from '../../api/client';
 import FolderExplorerModal from '../FolderExplorerModal';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFolderOpen, faSync } from '@fortawesome/free-solid-svg-icons';
+import { faFolderOpen, faSync, faSearch } from '@fortawesome/free-solid-svg-icons';
 
 interface MediaTabProps {
   language: string;
@@ -10,6 +11,8 @@ interface MediaTabProps {
 }
 
 const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
+  const navigate = useNavigate();
+  const [pendingDiscoveries, setPendingDiscoveries] = useState<number>(0);
   const [folderPath, setFolderPath] = useState('');
   const [downloadPath, setDownloadPath] = useState('');
   const [destinationPath, setDestinationPath] = useState('');
@@ -76,6 +79,31 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
   };
 
   useEffect(() => { loadPermissions(); }, []);
+
+  // poll pending discovery count so the badge stays current after import or scan
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await apiClient.get<{ count: number }>('/discovery/count');
+        if (!cancelled) setPendingDiscoveries(res.data?.count ?? 0);
+      } catch {
+        if (!cancelled) setPendingDiscoveries(0);
+      }
+    };
+    tick();
+    const id = setInterval(tick, 8000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  const triggerDiscoveryScan = async () => {
+    try {
+      await apiClient.post('/discovery/scan');
+      navigate('/discover');
+    } catch (error: unknown) {
+      alert(`${t('error')}: ${getErrorMessage(error)}`);
+    }
+  };
 
   // Monitor Scan Status
   useEffect(() => {
@@ -222,6 +250,29 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
           <h3>{t('mediaFolderTitle')}</h3>
         </div>
         <p className="settings-description">{t('mediaFolderDesc')}</p>
+
+        {pendingDiscoveries > 0 && (
+          <div
+            style={{
+              marginBottom: '12px',
+              padding: '8px 12px',
+              borderRadius: '6px',
+              border: '1px solid var(--ctp-yellow)',
+              background: 'rgba(249, 226, 175, 0.1)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              flexWrap: 'wrap'
+            }}
+          >
+            <span style={{ color: 'var(--ctp-text)' }}>
+              {pendingDiscoveries} discovered game{pendingDiscoveries === 1 ? '' : 's'} waiting to be imported.
+            </span>
+            <button type="button" className="btn-primary" style={{ marginLeft: 'auto' }} onClick={() => navigate('/discover')}>
+              Continue with {pendingDiscoveries}
+            </button>
+          </div>
+        )}
         <form onSubmit={handleSaveMediaSettings}>
           <div className="form-group">
             <label htmlFor="folder-path">{t('mediaFolderPath')}</label>
@@ -229,6 +280,15 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
               <input id="folder-path" type="text" value={folderPath} onChange={(e) => setFolderPath(e.target.value)} onBlur={() => saveMediaConfig({ folderPath })} placeholder="/home/user/games" style={{ flex: 1 }} />
               <button type="button" className="btn-secondary" onClick={() => handleScanNow()} disabled={scanning || !folderPath} title={t('scanNow')}>
                 <FontAwesomeIcon icon={faSync} spin={scanning} />
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={triggerDiscoveryScan}
+                disabled={scanning || !folderPath}
+                title="Scan only, do not fetch metadata yet"
+              >
+                <FontAwesomeIcon icon={faSearch} />
               </button>
               <button type="button" className="btn-secondary" onClick={() => {
                 // @ts-expect-error Photino native bridge

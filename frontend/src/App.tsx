@@ -19,6 +19,7 @@ const SaveStates = React.lazy(() => import('./pages/SaveStates'));
 const Platforms = React.lazy(() => import('./pages/Platforms'));
 const NotFound = React.lazy(() => import('./pages/NotFound'));
 const Trash = React.lazy(() => import('./pages/Trash'));
+const Discover = React.lazy(() => import('./pages/Discover'));
 import { AppShell } from './components/layout/AppShell';
 import { BootScreen } from './components/retro';
 import ScannerStatus from './components/ScannerStatus';
@@ -71,6 +72,7 @@ function App() {
               <Route path="/settings" element={<Settings />} />
               <Route path="/about" element={<About />} />
               <Route path="/trash" element={<Trash />} />
+              <Route path="/discover" element={<Discover />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>

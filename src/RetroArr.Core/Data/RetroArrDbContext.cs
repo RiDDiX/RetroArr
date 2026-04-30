@@ -31,6 +31,9 @@ namespace RetroArr.Core.Data
         public DbSet<DownloadHistoryEntry> DownloadHistory { get; set; }
         public DbSet<DownloadBlacklistEntry> DownloadBlacklist { get; set; }
 
+        // Scanner discoveries pending user import
+        public DbSet<DiscoveredGame> DiscoveredGames { get; set; }
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -223,6 +226,18 @@ namespace RetroArr.Core.Data
                     .HasDatabaseName("IX_DownloadBlacklist_DownloadId");
                 entity.HasIndex(e => e.Title)
                     .HasDatabaseName("IX_DownloadBlacklist_Title");
+            });
+
+            modelBuilder.Entity<DiscoveredGame>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Title).IsRequired();
+                entity.Property(e => e.Path).IsRequired();
+                entity.HasIndex(e => e.Path)
+                    .IsUnique()
+                    .HasDatabaseName("IX_DiscoveredGames_Path");
+                entity.HasIndex(e => e.PlatformKey)
+                    .HasDatabaseName("IX_DiscoveredGames_PlatformKey");
             });
         }
     }

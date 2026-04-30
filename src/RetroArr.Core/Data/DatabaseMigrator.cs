@@ -62,6 +62,7 @@ namespace RetroArr.Core.Data
                 EnsureTablesSafe(connection, dbType);
                 EnsureColumns(connection, "GameFiles", GameFilesColumns, dbType);
                 EnsureDownloadTablesSafe(connection, dbType);
+                EnsureDiscoveryTablesSafe(connection, dbType);
                 EnsureIndexesSafe(connection, dbType);
                 EnsurePlatformsSafe(connection, dbType);
                 RescueOrphanPlatformRefs(connection, dbType);
@@ -226,6 +227,38 @@ namespace RetroArr.Core.Data
             catch (Exception ex)
             {
                 _logger.Info($"[Database] DownloadBlacklist table skipped: {ex.Message}");
+            }
+        }
+
+        private static void EnsureDiscoveryTablesSafe(DbConnection connection, DatabaseType dbType)
+        {
+            if (dbType != DatabaseType.SQLite) return;
+            try
+            {
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS DiscoveredGames (
+                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        Title TEXT NOT NULL,
+                        Path TEXT NOT NULL,
+                        PlatformKey TEXT,
+                        PlatformId INTEGER,
+                        Serial TEXT,
+                        ExecutablePath TEXT,
+                        IsExternal INTEGER NOT NULL DEFAULT 0,
+                        IsInstaller INTEGER NOT NULL DEFAULT 0,
+                        Region TEXT,
+                        Languages TEXT,
+                        Revision TEXT,
+                        DiscoveredAt TEXT NOT NULL DEFAULT '0001-01-01 00:00:00'
+                    );
+                    CREATE UNIQUE INDEX IF NOT EXISTS IX_DiscoveredGames_Path ON DiscoveredGames(Path);
+                    CREATE INDEX IF NOT EXISTS IX_DiscoveredGames_PlatformKey ON DiscoveredGames(PlatformKey);";
+                cmd.ExecuteNonQuery();
+            }
+            catch (Exception ex)
+            {
+                _logger.Info($"[Database] DiscoveredGames table skipped: {ex.Message}");
             }
         }
 
