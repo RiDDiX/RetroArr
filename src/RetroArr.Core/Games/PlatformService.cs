@@ -33,6 +33,16 @@ namespace RetroArr.Core.Games
 
         public const string MetadataSourceIgdb = "igdb";
         public const string MetadataSourceScreenScraper = "screenscraper";
+        public const string MetadataSourceTheGamesDb = "thegamesdb";
+        public const string MetadataSourceSteamGridDb = "steamgriddb";
+
+        public static readonly string[] AllMetadataSources = new[]
+        {
+            MetadataSourceIgdb,
+            MetadataSourceScreenScraper,
+            MetadataSourceTheGamesDb,
+            MetadataSourceSteamGridDb
+        };
 
         static PlatformService()
         {
@@ -179,6 +189,9 @@ namespace RetroArr.Core.Games
             lock (_lock)
             {
                 var normalized = (source ?? MetadataSourceIgdb).ToLowerInvariant();
+                if (System.Array.IndexOf(AllMetadataSources, normalized) < 0)
+                    normalized = MetadataSourceIgdb;
+
                 if (normalized == MetadataSourceIgdb)
                 {
                     _metadataSourceOverrides.Remove(platformId);

@@ -159,6 +159,8 @@ const PlatformsTab: React.FC<PlatformsTabProps> = ({ t }) => {
                     >
                       <option value="igdb">IGDB</option>
                       <option value="screenscraper">ScreenScraper</option>
+                      <option value="thegamesdb">TheGamesDB</option>
+                      <option value="steamgriddb">SteamGridDB</option>
                     </select>
                     <label className="toggle-switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '20px', flexShrink: 0 }}>
                       <input

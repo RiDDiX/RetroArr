@@ -1734,14 +1734,16 @@ namespace RetroArr.Core.Games
 
                 Log($"[Scanner] Search variants: {string.Join(" | ", searchVariants)}");
 
-                // Check per-platform metadata source preference
-                var preferScreenScraper = scanPlatformId > 0
-                    && PlatformService.GetMetadataSource(scanPlatformId)
-                        .Equals(PlatformService.MetadataSourceScreenScraper, StringComparison.OrdinalIgnoreCase);
+                // Check per-platform metadata source preference. The configured provider
+                // is tried first for the listed sources; if it returns nothing the default
+                // chain (IGDB then ScreenScraper then TheGamesDB) takes over.
+                var preferredSource = scanPlatformId > 0
+                    ? PlatformService.GetMetadataSource(scanPlatformId).ToLowerInvariant()
+                    : PlatformService.MetadataSourceIgdb;
 
-                if (preferScreenScraper)
+                if (preferredSource == PlatformService.MetadataSourceScreenScraper)
                 {
-                    Log($"[Scanner] Platform {scanPlatformId} prefers ScreenScraper - trying ScreenScraper first");
+                    Log($"[Scanner] Platform {scanPlatformId} prefers ScreenScraper, trying it first");
                     var ssResults = await metadataService.SearchScreenScraperAsync(searchVariants.First(), platformKey);
                     if (ssResults.Count > 0)
                     {
@@ -1756,8 +1758,30 @@ namespace RetroArr.Core.Games
                         Log($"[Scanner] ScreenScraper match: '{best.Title}'");
                         return best;
                     }
-                    Log($"[Scanner] ScreenScraper returned no results, falling back to IGDB");
+                    Log($"[Scanner] ScreenScraper returned no results, falling back to default chain");
                 }
+                else if (preferredSource == PlatformService.MetadataSourceTheGamesDb)
+                {
+                    Log($"[Scanner] Platform {scanPlatformId} prefers TheGamesDB, trying it first");
+                    var tgdbResults = await metadataService.SearchTheGamesDbAsync(searchVariants.First(), platformKey);
+                    if (tgdbResults.Count > 0)
+                    {
+                        var best = tgdbResults.First();
+                        best.Path = localPath;
+                        best.ExecutablePath = executablePath;
+                        best.IsExternal = isExternal;
+                        best.MetadataSource = "TheGamesDB";
+                        best.NeedsMetadataReview = false;
+                        if (best.PlatformId == 0 && scanPlatformId > 0)
+                            best.PlatformId = scanPlatformId;
+                        Log($"[Scanner] TheGamesDB match: '{best.Title}'");
+                        return best;
+                    }
+                    Log($"[Scanner] TheGamesDB returned no results, falling back to default chain");
+                }
+                // SteamGridDB as preferred source has no classical metadata path. The image
+                // enrichment runs at the end regardless, so we just fall through to the
+                // default chain to populate synopsis, year, developer etc.
 
                 // Multi-variant search with platform fallback (IGDB)
                 var igdbCandidates = await metadataService.SearchWithVariantsAsync(searchVariants, platformKey, null, serial);
