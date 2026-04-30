@@ -35,13 +35,15 @@ namespace RetroArr.Core.Games
         public const string MetadataSourceScreenScraper = "screenscraper";
         public const string MetadataSourceTheGamesDb = "thegamesdb";
         public const string MetadataSourceSteamGridDb = "steamgriddb";
+        public const string MetadataSourceEpic = "epic";
 
         public static readonly string[] AllMetadataSources = new[]
         {
             MetadataSourceIgdb,
             MetadataSourceScreenScraper,
             MetadataSourceTheGamesDb,
-            MetadataSourceSteamGridDb
+            MetadataSourceSteamGridDb,
+            MetadataSourceEpic
         };
 
         static PlatformService()

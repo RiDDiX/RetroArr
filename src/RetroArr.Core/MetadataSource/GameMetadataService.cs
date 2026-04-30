@@ -3,6 +3,7 @@ using RetroArr.Core.MetadataSource.Igdb;
 using RetroArr.Core.MetadataSource.ScreenScraper;
 using RetroArr.Core.MetadataSource.TheGamesDb;
 using RetroArr.Core.MetadataSource.SteamGridDb;
+using RetroArr.Core.MetadataSource.Epic;
 using RetroArr.Core.Games;
 using System.Text.RegularExpressions;
 using System.Collections.Generic;
@@ -28,19 +29,22 @@ namespace RetroArr.Core.MetadataSource
         private readonly ScreenScraperClient? _screenScraperClient;
         private readonly TheGamesDbClient? _theGamesDbClient;
         private readonly SteamGridDbClient? _steamGridDbClient;
+        private readonly EpicMetadataClient? _epicMetadataClient;
 
-        public GameMetadataService(IgdbClient igdbClient, SteamClient steamClient, ScreenScraperClient? screenScraperClient = null, TheGamesDbClient? theGamesDbClient = null, SteamGridDbClient? steamGridDbClient = null)
+        public GameMetadataService(IgdbClient igdbClient, SteamClient steamClient, ScreenScraperClient? screenScraperClient = null, TheGamesDbClient? theGamesDbClient = null, SteamGridDbClient? steamGridDbClient = null, EpicMetadataClient? epicMetadataClient = null)
         {
             _igdbClient = igdbClient;
             _steamClient = steamClient;
             _screenScraperClient = screenScraperClient;
             _theGamesDbClient = theGamesDbClient;
             _steamGridDbClient = steamGridDbClient;
+            _epicMetadataClient = epicMetadataClient;
         }
 
         public bool HasScreenScraper => _screenScraperClient != null;
         public bool HasTheGamesDb => _theGamesDbClient != null;
         public bool HasSteamGridDb => _steamGridDbClient != null;
+        public bool HasEpicMetadata => _epicMetadataClient != null;
 
         /// <summary>
         /// Fills missing image slots on a matched game using SteamGridDB. Only runs
@@ -154,7 +158,7 @@ namespace RetroArr.Core.MetadataSource
                 }
             }
 
-            // Final fallback: TheGamesDB
+            // Fallback: TheGamesDB
             if (results.Count == 0 && _theGamesDbClient != null)
             {
                 _logger.Info($"[Metadata] ScreenScraper returned no results, trying TheGamesDB...");
@@ -162,7 +166,79 @@ namespace RetroArr.Core.MetadataSource
                 results.AddRange(tgdbGames);
             }
 
+            // Final fallback: Epic Store
+            if (results.Count == 0 && _epicMetadataClient != null)
+            {
+                _logger.Info($"[Metadata] TheGamesDB returned no results, trying Epic Store...");
+                var (_, epicGames) = await SearchEpicWithStatusAsync(query, platformKey, lang);
+                results.AddRange(epicGames);
+            }
+
             return results;
+        }
+
+        public async Task<List<Game>> SearchEpicAsync(string query, string? platformKey = null, string? lang = null)
+        {
+            var (_, games) = await SearchEpicWithStatusAsync(query, platformKey, lang);
+            return games;
+        }
+
+        public async Task<(Epic.EpicMetadataStatus Status, List<Game> Games)> SearchEpicWithStatusAsync(string query, string? platformKey = null, string? lang = null)
+        {
+            var results = new List<Game>();
+            if (_epicMetadataClient == null) return (Epic.EpicMetadataStatus.Unconfigured, results);
+
+            int platformId = 0;
+            if (!string.IsNullOrEmpty(platformKey))
+            {
+                var platform = FindPlatform(platformKey);
+                if (platform != null) platformId = platform.Id;
+            }
+
+            _logger.Info($"[Metadata] Searching Epic Store for: {query}");
+            var (status, elements) = await _epicMetadataClient.SearchAsync(query);
+            if (status != Epic.EpicMetadataStatus.Ok) return (status, results);
+
+            foreach (var e in elements.Take(10))
+            {
+                var mapped = MapEpicElementToGame(e, platformId, lang);
+                if (mapped != null)
+                {
+                    mapped.MetadataSource = "Epic";
+                    results.Add(mapped);
+                }
+            }
+            return (results.Count > 0 ? Epic.EpicMetadataStatus.Ok : Epic.EpicMetadataStatus.Empty, results);
+        }
+
+        private Game? MapEpicElementToGame(Epic.EpicStoreElement src, int platformId, string? lang = null)
+        {
+            if (string.IsNullOrEmpty(src.Title)) return null;
+            _ = lang;
+
+            var game = new Game
+            {
+                Title = src.Title!,
+                Overview = src.Description,
+                PlatformId = platformId,
+                Year = src.GetReleaseYear() ?? 0,
+                Status = GameStatus.Released,
+                Developer = src.Developer,
+                Publisher = src.Seller?.Name,
+                EpicId = src.Id,
+                Images = new GameImages
+                {
+                    CoverUrl = src.PickImage("OfferImageTall", "DieselStoreFrontTall", "Thumbnail"),
+                    CoverLargeUrl = src.PickImage("OfferImageTall", "DieselStoreFrontTall"),
+                    BackgroundUrl = src.PickImage("OfferImageWide", "DieselStoreFrontWide", "VaultClosed"),
+                    BannerUrl = src.PickImage("DieselGameBoxLogo", "ProductLogo")
+                }
+            };
+
+            if (DateTime.TryParse(src.EffectiveDate, out var dt))
+                game.ReleaseDate = dt;
+
+            return game;
         }
 
         /// <summary>

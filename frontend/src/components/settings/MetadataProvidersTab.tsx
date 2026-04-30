@@ -35,6 +35,13 @@ const MetadataProvidersTab: React.FC<MetadataProvidersTabProps> = ({ t }) => {
   const [sgdbTesting, setSgdbTesting] = useState(false);
   const [sgdbTestResult, setSgdbTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
+  // Epic Store (anonymous, no API key)
+  const [epicStoreEnabled, setEpicStoreEnabled] = useState(true);
+  const [epicStoreLocale, setEpicStoreLocale] = useState('en-US');
+  const [epicStoreCountry, setEpicStoreCountry] = useState('US');
+  const [epicStoreTesting, setEpicStoreTesting] = useState(false);
+  const [epicStoreTestResult, setEpicStoreTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
   useEffect(() => {
     loadSettings();
   }, []);
@@ -63,8 +70,52 @@ const MetadataProvidersTab: React.FC<MetadataProvidersTabProps> = ({ t }) => {
         setSgdbEnabled(sgdbRes.data.enabled !== false);
         setSgdbConfigured(sgdbRes.data.isConfigured === true);
       } catch { /* SteamGridDB not available */ }
+
+      try {
+        const epicStoreRes = await apiClient.get('/settings/epicstore');
+        setEpicStoreEnabled(epicStoreRes.data.enabled !== false);
+        if (epicStoreRes.data.locale) setEpicStoreLocale(epicStoreRes.data.locale);
+        if (epicStoreRes.data.country) setEpicStoreCountry(epicStoreRes.data.country);
+      } catch { /* Epic Store not available */ }
     } catch (error) {
       console.error('Error loading metadata provider settings:', error);
+    }
+  };
+
+  const handleSaveEpicStore = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await apiClient.post('/settings/epicstore', {
+        enabled: epicStoreEnabled,
+        locale: epicStoreLocale,
+        country: epicStoreCountry
+      });
+      alert(t('epicStoreSettingsSaved') || 'Epic Store settings saved');
+    } catch (error: unknown) {
+      alert(`${t('error')}: ${getErrorMessage(error)}`);
+    }
+  };
+
+  const handleTestEpicStore = async () => {
+    setEpicStoreTesting(true);
+    setEpicStoreTestResult(null);
+    try {
+      const response = await apiClient.post('/settings/epicstore/test');
+      setEpicStoreTestResult({ success: response.data.success !== false, message: response.data.message || 'Connection successful' });
+    } catch (error: unknown) {
+      setEpicStoreTestResult({ success: false, message: getErrorMessage(error) });
+    } finally {
+      setEpicStoreTesting(false);
+    }
+  };
+
+  const handleDisableEpicStore = async () => {
+    if (!window.confirm(t('disconnectConfirm'))) return;
+    try {
+      await apiClient.delete('/settings/epicstore');
+      setEpicStoreEnabled(false);
+    } catch (error: unknown) {
+      console.error('Error disabling Epic Store:', error);
     }
   };
 
@@ -352,6 +403,49 @@ const MetadataProvidersTab: React.FC<MetadataProvidersTabProps> = ({ t }) => {
           </div>
           {sgdbTestResult && (
             <div className={`test-result ${sgdbTestResult.success ? 'success' : 'error'}`}>{sgdbTestResult.message}</div>
+          )}
+        </form>
+      </div>
+
+      <div className="settings-section">
+        <div className="section-header-with-logo">
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '1.5rem' }}>🎯</span> Epic Store
+          </h3>
+        </div>
+        <p className="settings-description">
+          {t('epicStoreDesc') || 'Anonymous Epic Store metadata via the public GraphQL API. No login required, used as final fallback after IGDB, ScreenScraper and TheGamesDB.'}
+        </p>
+        <form onSubmit={handleSaveEpicStore}>
+          <div className="form-group">
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input type="checkbox" checked={epicStoreEnabled} onChange={(e) => setEpicStoreEnabled(e.target.checked)} />
+              {t('enabled') || 'Enabled'}
+            </label>
+          </div>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <div className="form-group" style={{ flex: 1 }}>
+              <label htmlFor="epicstore-locale">Locale</label>
+              <input type="text" id="epicstore-locale" value={epicStoreLocale} onChange={(e) => setEpicStoreLocale(e.target.value)} placeholder="en-US" />
+            </div>
+            <div className="form-group" style={{ flex: 1 }}>
+              <label htmlFor="epicstore-country">Country</label>
+              <input type="text" id="epicstore-country" value={epicStoreCountry} onChange={(e) => setEpicStoreCountry(e.target.value)} placeholder="US" />
+            </div>
+          </div>
+          <div className="button-group">
+            <button type="button" className="btn-secondary" onClick={handleTestEpicStore} disabled={epicStoreTesting}>
+              {epicStoreTesting ? t('testing') : t('testConnection')}
+            </button>
+            <button type="submit" className="btn-primary">{t('save')}</button>
+            {epicStoreEnabled && (
+              <button type="button" className="btn-delete" onClick={handleDisableEpicStore} style={{ marginLeft: '10px' }}>
+                {t('disable') || 'Disable'}
+              </button>
+            )}
+          </div>
+          {epicStoreTestResult && (
+            <div className={`test-result ${epicStoreTestResult.success ? 'success' : 'error'}`}>{epicStoreTestResult.message}</div>
           )}
         </form>
       </div>

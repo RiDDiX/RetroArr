@@ -2,6 +2,7 @@ using RetroArr.Core.MetadataSource.Igdb;
 using RetroArr.Core.MetadataSource.ScreenScraper;
 using RetroArr.Core.MetadataSource.TheGamesDb;
 using RetroArr.Core.MetadataSource.SteamGridDb;
+using RetroArr.Core.MetadataSource.Epic;
 using RetroArr.Core.Configuration;
 using RetroArr.Core.MetadataSource.Steam;
 using System.Net.Http;
@@ -43,8 +44,9 @@ namespace RetroArr.Core.MetadataSource
             var ssSettings = _configService.LoadScreenScraperSettings();
             var tgdbSettings = _configService.LoadTheGamesDbSettings();
             var sgdbSettings = _configService.LoadSteamGridDbSettings();
+            var epicMetaSettings = _configService.LoadEpicMetadataSettings();
 
-            _logger.Info($"[MetadataFactory] Refreshing Configuration. IGDB: {igdbSettings.IsConfigured}, ScreenScraper: {ssSettings.IsConfigured}, TheGamesDB: {tgdbSettings.IsConfigured}, SteamGridDB: {sgdbSettings.IsConfigured}");
+            _logger.Info($"[MetadataFactory] Refreshing Configuration. IGDB: {igdbSettings.IsConfigured}, ScreenScraper: {ssSettings.IsConfigured}, TheGamesDB: {tgdbSettings.IsConfigured}, SteamGridDB: {sgdbSettings.IsConfigured}, EpicStore: {epicMetaSettings.Enabled}");
 
             ScreenScraperClient? ssClient = null;
             if (ssSettings.Enabled)
@@ -64,18 +66,24 @@ namespace RetroArr.Core.MetadataSource
                 sgdbClient = new SteamGridDbClient(_httpClient, sgdbSettings.ApiKey);
             }
 
+            EpicMetadataClient? epicMetaClient = null;
+            if (epicMetaSettings.Enabled)
+            {
+                epicMetaClient = new EpicMetadataClient(_httpClient);
+            }
+
             // Recreate on every call so credential edits take effect right away
             if (igdbSettings.IsConfigured)
             {
                 var igdbClient = new IgdbClient(igdbSettings.ClientId, igdbSettings.ClientSecret);
                 var steamClient = new SteamClient(steamSettings.ApiKey);
-                _currentService = new GameMetadataService(igdbClient, steamClient, ssClient, tgdbClient, sgdbClient);
+                _currentService = new GameMetadataService(igdbClient, steamClient, ssClient, tgdbClient, sgdbClient, epicMetaClient);
             }
             else
             {
                 var dummyClient = new IgdbClient(string.Empty, string.Empty);
                 var steamClient = new SteamClient(steamSettings.ApiKey);
-                _currentService = new GameMetadataService(dummyClient, steamClient, ssClient, tgdbClient, sgdbClient);
+                _currentService = new GameMetadataService(dummyClient, steamClient, ssClient, tgdbClient, sgdbClient, epicMetaClient);
             }
         }
     }

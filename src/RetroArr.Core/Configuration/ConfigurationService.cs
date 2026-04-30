@@ -30,6 +30,7 @@ namespace RetroArr.Core.Configuration
         private readonly string _steamGridDbConfigFile;
         private readonly string _gogConfigFile;
         private readonly string _epicConfigFile;
+        private readonly string _epicMetadataConfigFile;
         private readonly string _databaseConfigFile;
         private readonly string _loggingConfigFile;
         private readonly string _cacheConfigFile;
@@ -72,6 +73,7 @@ namespace RetroArr.Core.Configuration
             _steamGridDbConfigFile = Path.Combine(_configDirectory, "steamgriddb.json");
             _gogConfigFile = Path.Combine(_configDirectory, "gog.json");
             _epicConfigFile = Path.Combine(_configDirectory, "epic.json");
+            _epicMetadataConfigFile = Path.Combine(_configDirectory, "epic_metadata.json");
             _databaseConfigFile = Path.Combine(_configDirectory, "database.json");
             _loggingConfigFile = Path.Combine(_configDirectory, "logging.json");
             _cacheConfigFile = Path.Combine(_configDirectory, "cache.json");
@@ -563,6 +565,26 @@ namespace RetroArr.Core.Configuration
             catch (Exception ex) { _logger.Error($"Error saving Epic settings: {ex.Message}"); }
         }
 
+        public EpicMetadataSettings LoadEpicMetadataSettings()
+        {
+            if (File.Exists(_epicMetadataConfigFile))
+            {
+                try
+                {
+                    var json = File.ReadAllText(_epicMetadataConfigFile);
+                    return JsonSerializer.Deserialize<EpicMetadataSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new EpicMetadataSettings();
+                }
+                catch (Exception ex) { _logger.Error($"Error loading Epic metadata settings: {ex.Message}"); }
+            }
+            return new EpicMetadataSettings();
+        }
+
+        public void SaveEpicMetadataSettings(EpicMetadataSettings settings)
+        {
+            try { File.WriteAllText(_epicMetadataConfigFile, JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true })); }
+            catch (Exception ex) { _logger.Error($"Error saving Epic metadata settings: {ex.Message}"); }
+        }
+
         public GogOAuthSettings LoadGogOAuthSettings()
         {
             // GOG OAuth settings (client ID/secret) - for advanced users
@@ -753,6 +775,14 @@ namespace RetroArr.Core.Configuration
         public string? AccountId { get; set; }
         public string? DisplayName { get; set; }
         public bool IsConfigured => !string.IsNullOrWhiteSpace(RefreshToken);
+    }
+
+    public class EpicMetadataSettings
+    {
+        public bool Enabled { get; set; } = true;
+        public string Locale { get; set; } = "en-US";
+        public string Country { get; set; } = "US";
+        public bool IsConfigured => Enabled;
     }
 
     public class GogOAuthSettings

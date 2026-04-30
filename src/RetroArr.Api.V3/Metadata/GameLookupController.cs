@@ -49,6 +49,12 @@ namespace RetroArr.Api.V3.Metadata
                     games = tGames;
                     (statusLabel, statusMessage) = MapTheGamesDbStatus(tStatus);
                 }
+                else if (sourceLabel == "epic" || sourceLabel == "epicstore")
+                {
+                    var (eStatus, eGames) = await metadataService.SearchEpicWithStatusAsync(term, platformKey, lang);
+                    games = eGames;
+                    (statusLabel, statusMessage) = MapEpicMetadataStatus(eStatus);
+                }
                 else
                 {
                     games = await metadataService.SearchGamesAsync(term, platformKey, lang);
@@ -94,6 +100,15 @@ namespace RetroArr.Api.V3.Metadata
             RetroArr.Core.MetadataSource.TheGamesDb.TheGamesDbStatus.AuthFailed => ("auth_failed", "TheGamesDB login failed. Check your API key in Settings."),
             RetroArr.Core.MetadataSource.TheGamesDb.TheGamesDbStatus.Unconfigured => ("unconfigured", "TheGamesDB is not configured."),
             RetroArr.Core.MetadataSource.TheGamesDb.TheGamesDbStatus.NetworkError => ("network_error", "Could not reach TheGamesDB, try again."),
+            _ => ("unknown", null)
+        };
+
+        private static (string status, string? message) MapEpicMetadataStatus(RetroArr.Core.MetadataSource.Epic.EpicMetadataStatus s) => s switch
+        {
+            RetroArr.Core.MetadataSource.Epic.EpicMetadataStatus.Ok => ("ok", null),
+            RetroArr.Core.MetadataSource.Epic.EpicMetadataStatus.Empty => ("empty", null),
+            RetroArr.Core.MetadataSource.Epic.EpicMetadataStatus.Unconfigured => ("unconfigured", "Epic Store metadata is disabled."),
+            RetroArr.Core.MetadataSource.Epic.EpicMetadataStatus.NetworkError => ("network_error", "Could not reach Epic Store."),
             _ => ("unknown", null)
         };
 

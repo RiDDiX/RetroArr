@@ -627,6 +627,54 @@ namespace RetroArr.Api.V3.Settings
             return Ok(new { success = true, message = "SteamGridDB settings cleared." });
         }
 
+        // ==================== Epic Store (anonymous metadata provider) ====================
+
+        [HttpGet("epicstore")]
+        public ActionResult GetEpicStoreSettings()
+        {
+            var settings = _configService.LoadEpicMetadataSettings();
+            return Ok(new { settings.Enabled, settings.Locale, settings.Country });
+        }
+
+        [HttpPost("epicstore")]
+        public IActionResult SaveEpicStoreSettings([FromBody] EpicMetadataSettings request)
+        {
+            var safe = request ?? new EpicMetadataSettings();
+            if (string.IsNullOrWhiteSpace(safe.Locale)) safe.Locale = "en-US";
+            if (string.IsNullOrWhiteSpace(safe.Country)) safe.Country = "US";
+            _configService.SaveEpicMetadataSettings(safe);
+            _metadataServiceFactory.RefreshConfiguration();
+            return Ok(new { success = true, message = "Epic Store settings saved." });
+        }
+
+        [HttpPost("epicstore/test")]
+        public async Task<IActionResult> TestEpicStoreSettings()
+        {
+            try
+            {
+                using var httpClient = new System.Net.Http.HttpClient();
+                var client = new RetroArr.Core.MetadataSource.Epic.EpicMetadataClient(httpClient);
+                var (status, elements) = await client.SearchAsync("fortnite");
+                if (status == RetroArr.Core.MetadataSource.Epic.EpicMetadataStatus.NetworkError)
+                    return Ok(new { success = false, message = "Could not reach Epic Store" });
+                if (elements.Count > 0)
+                    return Ok(new { success = true, message = $"Connection successful, found: {elements[0].Title}" });
+                return Ok(new { success = true, message = "Connection successful (no results for test query)" });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { success = false, error = $"Connection failed: {ex.Message}" });
+            }
+        }
+
+        [HttpDelete("epicstore")]
+        public IActionResult DeleteEpicStoreSettings()
+        {
+            _configService.SaveEpicMetadataSettings(new EpicMetadataSettings { Enabled = false });
+            _metadataServiceFactory.RefreshConfiguration();
+            return Ok(new { success = true, message = "Epic Store metadata disabled." });
+        }
+
         // ==================== GOG Settings ====================
 
         [HttpGet("gog")]

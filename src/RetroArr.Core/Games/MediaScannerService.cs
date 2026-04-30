@@ -1898,9 +1898,26 @@ namespace RetroArr.Core.Games
                     }
                     Log($"[Scanner] TheGamesDB returned no results, falling back to default chain");
                 }
-                // SteamGridDB as preferred source has no classical metadata path. The image
-                // enrichment runs at the end regardless, so we just fall through to the
-                // default chain to populate synopsis, year, developer etc.
+                else if (preferredSource == PlatformService.MetadataSourceEpic)
+                {
+                    Log($"[Scanner] Platform {scanPlatformId} prefers Epic Store, trying it first");
+                    var epicResults = await metadataService.SearchEpicAsync(searchVariants.First(), platformKey);
+                    if (epicResults.Count > 0)
+                    {
+                        var best = epicResults.First();
+                        best.Path = localPath;
+                        best.ExecutablePath = executablePath;
+                        best.IsExternal = isExternal;
+                        best.MetadataSource = "Epic";
+                        best.NeedsMetadataReview = false;
+                        if (best.PlatformId == 0 && scanPlatformId > 0)
+                            best.PlatformId = scanPlatformId;
+                        Log($"[Scanner] Epic Store match: '{best.Title}'");
+                        return best;
+                    }
+                    Log($"[Scanner] Epic Store returned no results, falling back to default chain");
+                }
+                // SteamGridDB as preferred has no metadata path. Image enrichment runs anyway at end.
 
                 // Multi-variant search with platform fallback (IGDB)
                 var igdbCandidates = await metadataService.SearchWithVariantsAsync(searchVariants, platformKey, null, serial);
