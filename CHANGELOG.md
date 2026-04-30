@@ -1,3 +1,8 @@
+## v1.0.166 (2026-04-30)
+
+### Changes
+- add translations for thegamesdb and steamgriddb provider sections (d286ee8)
+
 ## v1.0.165 (2026-04-30)
 
 ### Changes
