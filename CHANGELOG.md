@@ -1,3 +1,8 @@
+## v1.0.172 (2026-04-30)
+
+### Changes
+- harden epic http requests, surface logs, extend sync timeout (0370b73)
+
 ## v1.0.171 (2026-04-30)
 
 ### Changes
