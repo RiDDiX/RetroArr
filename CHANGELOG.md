@@ -1,3 +1,8 @@
+## v1.0.174 (2026-05-16)
+
+### Changes
+- add http and socks5 proxy for outgoing connections (66dbc41)
+
 ## v1.0.173 (2026-04-30)
 
 ### Changes
