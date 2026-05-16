@@ -527,6 +527,18 @@ export interface CacheConfig {
   isConnected?: boolean;
 }
 
+export interface ProxyConfig {
+  enabled: boolean;
+  type: string;
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  bypassLocal: boolean;
+  bypassList: string[];
+  isConfigured?: boolean;
+}
+
 export interface GameListDto {
   id: number;
   title: string;
@@ -693,6 +705,9 @@ export const settingsApi = {
   saveCache: (config: CacheConfig) => apiClient.put('/settings/cache', config),
   testCache: (config: { connectionString: string }) => apiClient.post('/settings/cache/test', config),
   clearCache: () => apiClient.post('/settings/cache/clear'),
+
+  getProxy: () => apiClient.get<ProxyConfig>('/settings/proxy'),
+  saveProxy: (config: ProxyConfig) => apiClient.post('/settings/proxy', config),
 };
 
 // -- Download Clients --

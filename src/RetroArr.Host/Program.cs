@@ -176,6 +176,11 @@ namespace RetroArr.Host
             builder.Services.AddSingleton(configService);
             if (secretProtector != null) builder.Services.AddSingleton(secretProtector);
 
+            // Outgoing proxy: one stable IWebProxy on HttpClient.DefaultProxy. No client
+            // sets its own proxy, so all of them route through this; live-updated on save.
+            System.Net.Http.HttpClient.DefaultProxy = RetroArr.Core.Configuration.ProxyConfigurator.Instance;
+            RetroArr.Core.Configuration.ProxyConfigurator.Instance.Update(configService.LoadProxySettings());
+
             // API key (persisted under configDir/apikey.json; generated on first boot)
             var apiKeyService = new ApiKeyService(configService);
             builder.Services.AddSingleton(apiKeyService);

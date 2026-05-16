@@ -8,12 +8,13 @@ import EmulatorJsSettings from '../components/EmulatorJsSettings';
 import ThemeEditor from '../components/ThemeEditor';
 import DatabaseSettings from '../components/DatabaseSettings';
 import CacheSettings from '../components/CacheSettings';
+import ProxySettings from '../components/ProxySettings';
 import { MediaTab, PlatformsTab, MetadataProvidersTab, AccountsTab, IndexersTab, DownloadersTab, ImportExportTab, LoggingTab, WebhooksTab, ApiAccessTab } from '../components/settings';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faFolderOpen, faLayerGroup, faTags, faUserCircle, faSearch, faDownload, faGamepad,
   faPalette, faGlobe, faFileImport, faTerminal, faDatabase,
-  faMemory, faClipboardList, faBell, faKey
+  faMemory, faClipboardList, faBell, faKey, faNetworkWired
 } from '@fortawesome/free-solid-svg-icons';
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 
@@ -53,6 +54,7 @@ const Settings: React.FC = () => {
     { id: 'platforms',    label: t('platforms') || 'Platforms',                        icon: faLayerGroup,    group: 'library' },
     { id: 'metadata',     label: t('settingsMetadataProviders') || 'Metadata Providers', icon: faTags,         group: 'connections' },
     { id: 'accounts',     label: t('settingsAccounts') || 'Accounts',                   icon: faUserCircle,    group: 'connections' },
+    { id: 'proxy',        label: t('settingsProxy') || 'Proxy',                         icon: faNetworkWired,  group: 'connections' },
     { id: 'indexers',     label: t('settingsIndexers') || 'Indexers',                   icon: faSearch,        group: 'downloads' },
     { id: 'downloaders',  label: t('settingsDownloaders') || 'Downloaders',             icon: faDownload,      group: 'downloads' },
     { id: 'emulatorjs',   label: 'EmulatorJS',                                          icon: faGamepad,       group: 'emulator' },
@@ -119,6 +121,10 @@ const Settings: React.FC = () => {
 
         {currentTab === 'accounts' && (
           <AccountsTab language={language} t={t} />
+        )}
+
+        {currentTab === 'proxy' && (
+          <ProxySettings />
         )}
 
         {currentTab === 'language' && (

@@ -499,6 +499,38 @@ namespace RetroArr.Api.V3.Settings
             return Ok(new { success = true, message = "ScreenScraper settings cleared." });
         }
 
+        // ==================== Proxy Settings ====================
+
+        [HttpGet("proxy")]
+        public ActionResult GetProxySettings()
+        {
+            var settings = _configService.LoadProxySettings();
+            return Ok(new
+            {
+                settings.Enabled,
+                settings.Type,
+                settings.Host,
+                settings.Port,
+                settings.Username,
+                Password = MaskSecret(settings.Password),
+                settings.BypassLocal,
+                settings.BypassList,
+                settings.IsConfigured
+            });
+        }
+
+        [HttpPost("proxy")]
+        public IActionResult SaveProxySettings([FromBody] RetroArr.Core.Configuration.ProxySettings request)
+        {
+            var existing = _configService.LoadProxySettings();
+            if (IsMaskedOrEmpty(request.Password)) request.Password = existing.Password;
+
+            _configService.SaveProxySettings(request);
+            RetroArr.Core.Configuration.ProxyConfigurator.Instance.Update(request);
+            _logger.Info($"[Settings] Saving Proxy Settings. Enabled = {request.Enabled}, Type = {request.Type}");
+            return Ok(new { success = true, message = "Proxy settings saved." });
+        }
+
         // ==================== TheGamesDB Settings ====================
 
         [HttpGet("thegamesdb")]

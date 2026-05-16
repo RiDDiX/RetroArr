@@ -34,6 +34,7 @@ namespace RetroArr.Core.Configuration
         private readonly string _databaseConfigFile;
         private readonly string _loggingConfigFile;
         private readonly string _cacheConfigFile;
+        private readonly string _proxyConfigFile;
         private readonly SecretProtector? _secretProtector;
 
         public ConfigurationService(string contentRoot) : this(contentRoot, (SecretProtector?)null) { }
@@ -77,8 +78,9 @@ namespace RetroArr.Core.Configuration
             _databaseConfigFile = Path.Combine(_configDirectory, "database.json");
             _loggingConfigFile = Path.Combine(_configDirectory, "logging.json");
             _cacheConfigFile = Path.Combine(_configDirectory, "cache.json");
-            
-            try 
+            _proxyConfigFile = Path.Combine(_configDirectory, "proxy.json");
+
+            try
             {
                 Directory.CreateDirectory(_configDirectory);
                 _logger.Info($"[Configuration] Service initialized. Using Config Directory: {_configDirectory}");
@@ -154,6 +156,12 @@ namespace RetroArr.Core.Configuration
         private GogOAuthSettings UnprotectGogOAuth(GogOAuthSettings s)
         {
             s.ClientSecret = Unprotect(s.ClientSecret);
+            return s;
+        }
+
+        private ProxySettings UnprotectProxy(ProxySettings s)
+        {
+            s.Password = Unprotect(s.Password);
             return s;
         }
 
@@ -654,6 +662,31 @@ namespace RetroArr.Core.Configuration
             catch (Exception ex) { _logger.Error($"Error saving cache settings: {ex.Message}"); }
         }
 
+        public ProxySettings LoadProxySettings()
+        {
+            if (File.Exists(_proxyConfigFile))
+            {
+                try
+                {
+                    var json = File.ReadAllText(_proxyConfigFile);
+                    var loaded = JsonSerializer.Deserialize<ProxySettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new ProxySettings();
+                    return UnprotectProxy(loaded);
+                }
+                catch (Exception ex) { _logger.Error($"Error loading proxy settings: {ex.Message}"); }
+            }
+            return new ProxySettings();
+        }
+
+        public void SaveProxySettings(ProxySettings settings)
+        {
+            try
+            {
+                WriteEncryptedJson(_proxyConfigFile, settings, s => s.Password = Protect(s.Password));
+                _logger.Info($"[Configuration] Proxy settings saved. Enabled: {settings.Enabled}, Type: {settings.Type}");
+            }
+            catch (Exception ex) { _logger.Error($"Error saving proxy settings: {ex.Message}"); }
+        }
+
         private static readonly List<string> DefaultRedactHeaders = new() { "Authorization", "Cookie", "X-Api-Key" };
 
         public LoggingSettings LoadLoggingSettings()
@@ -802,5 +835,18 @@ namespace RetroArr.Core.Configuration
         public int RotateSizeMb { get; set; } = 50;
         public bool RedactTokens { get; set; } = true;
         public List<string> RedactHeaders { get; set; } = new();
+    }
+
+    public class ProxySettings
+    {
+        public bool Enabled { get; set; }
+        public string Type { get; set; } = "http";
+        public string Host { get; set; } = string.Empty;
+        public int Port { get; set; } = 8080;
+        public string Username { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+        public bool BypassLocal { get; set; } = true;
+        public List<string> BypassList { get; set; } = new();
+        public bool IsConfigured => Enabled && !string.IsNullOrWhiteSpace(Host);
     }
 }
