@@ -19,6 +19,7 @@ const DEFAULT_SETTINGS: MonitorSettings = {
   revisionMatchBonus: 10,
   verifiedSourceBonus: 30,
   sizeInRangeBonus: 10,
+  preferredGroupBonus: 25,
   unknownUploaderPenalty: 20,
   hackOrPatchPenalty: 40,
   sizeOutOfRangePenalty: 50,
@@ -157,6 +158,10 @@ const MonitorSettingsTab: React.FC<Props> = ({ t }) => {
         <div className="form-group">
           <label>{t('monitorSettingsSizeInRangeBonus')}</label>
           <input type="number" value={settings.sizeInRangeBonus} onChange={num('sizeInRangeBonus')} disabled={saving} />
+        </div>
+        <div className="form-group">
+          <label>{t('monitorSettingsPreferredGroupBonus')}</label>
+          <input type="number" value={settings.preferredGroupBonus} onChange={num('preferredGroupBonus')} disabled={saving} />
         </div>
       </div>
 

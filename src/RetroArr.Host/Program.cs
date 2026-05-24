@@ -316,6 +316,10 @@ namespace RetroArr.Host
             builder.Services.AddScoped<RetroArr.Core.Search.MonitoredGameSearchService>();
             builder.Services.AddHostedService<RetroArr.Core.Search.MonitoredGameSweepService>();
 
+            // Auto-rename on import (PC platforms only by default, gated by MediaSettings.RenameOnImport)
+            builder.Services.AddSingleton<RetroArr.Core.Rename.TemplateRenderer>();
+            builder.Services.AddSingleton<RetroArr.Core.Rename.FileRenamer>();
+
 
             // Show IGDB status at startup
             var igdbSettings = configService.LoadIgdbSettings();

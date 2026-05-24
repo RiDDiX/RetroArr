@@ -9,3 +9,4 @@ export { default as LoggingTab } from './LoggingTab';
 export { default as WebhooksTab } from './WebhooksTab';
 export { default as ApiAccessTab } from './ApiAccessTab';
 export { default as MonitorSettingsTab } from './MonitorSettingsTab';
+export { default as RenameSettingsTab } from './RenameSettingsTab';

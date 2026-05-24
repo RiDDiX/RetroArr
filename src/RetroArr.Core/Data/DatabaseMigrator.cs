@@ -40,7 +40,8 @@ namespace RetroArr.Core.Data
             ("Images_VideoUrl",         "TEXT",                          "TEXT",                            "TEXT"),
             ("MetadataSource",          "TEXT",                          "TEXT",                            "VARCHAR(255)"),
             ("ProtonDbTier",            "TEXT",                          "TEXT",                            "VARCHAR(50)"),
-            ("MissingSince",            "TEXT",                          "TIMESTAMP",                       "DATETIME")
+            ("MissingSince",            "TEXT",                          "TIMESTAMP",                       "DATETIME"),
+            ("PreferredReleaseGroup",   "TEXT",                          "TEXT",                            "VARCHAR(100)")
         };
 
         private static readonly (string Name, string SqliteType, string PgType, string MariaType)[] GameFilesColumns = new[]
@@ -49,7 +50,8 @@ namespace RetroArr.Core.Data
             ("Version",     "TEXT", "TEXT", "VARCHAR(255)"),
             ("ContentName", "TEXT", "TEXT", "VARCHAR(500)"),
             ("TitleId",     "TEXT", "TEXT", "VARCHAR(255)"),
-            ("Serial",      "TEXT", "TEXT", "VARCHAR(255)")
+            ("Serial",      "TEXT", "TEXT", "VARCHAR(255)"),
+            ("LastAutoRenameAt", "TEXT", "TIMESTAMP", "DATETIME")
         };
 
         public static void ApplyMigrations(RetroArrDbContext context, DatabaseType dbType = DatabaseType.SQLite)

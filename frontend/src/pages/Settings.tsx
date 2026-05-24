@@ -9,7 +9,7 @@ import ThemeEditor from '../components/ThemeEditor';
 import DatabaseSettings from '../components/DatabaseSettings';
 import CacheSettings from '../components/CacheSettings';
 import ProxySettings from '../components/ProxySettings';
-import { MediaTab, PlatformsTab, MetadataProvidersTab, AccountsTab, IndexersTab, DownloadersTab, ImportExportTab, LoggingTab, WebhooksTab, ApiAccessTab, MonitorSettingsTab } from '../components/settings';
+import { MediaTab, PlatformsTab, MetadataProvidersTab, AccountsTab, IndexersTab, DownloadersTab, ImportExportTab, LoggingTab, WebhooksTab, ApiAccessTab, MonitorSettingsTab, RenameSettingsTab } from '../components/settings';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faFolderOpen, faLayerGroup, faTags, faUserCircle, faSearch, faDownload, faGamepad,
@@ -58,6 +58,7 @@ const Settings: React.FC = () => {
     { id: 'indexers',     label: t('settingsIndexers') || 'Indexers',                   icon: faSearch,        group: 'downloads' },
     { id: 'downloaders',  label: t('settingsDownloaders') || 'Downloaders',             icon: faDownload,      group: 'downloads' },
     { id: 'monitor',      label: t('settingsMonitor') || 'Monitor',                     icon: faRobot,         group: 'downloads' },
+    { id: 'rename',       label: t('settingsRename') || 'Rename',                       icon: faTags,          group: 'downloads' },
     { id: 'emulatorjs',   label: 'EmulatorJS',                                          icon: faGamepad,       group: 'emulator' },
     { id: 'themes',       label: t('settingsThemes') || 'Themes',                       icon: faPalette,       group: 'interface' },
     { id: 'language',     label: t('settingsLanguage') || 'Language',                   icon: faGlobe,         group: 'interface' },
@@ -170,6 +171,10 @@ const Settings: React.FC = () => {
 
         {currentTab === 'monitor' && (
           <MonitorSettingsTab language={language} t={t} />
+        )}
+
+        {currentTab === 'rename' && (
+          <RenameSettingsTab language={language} t={t} />
         )}
 
         {currentTab === 'debug' && (

@@ -6,6 +6,7 @@ import './MonitorPanel.css';
 interface Props {
   gameId: number;
   initialMonitored: boolean;
+  initialPreferredGroup?: string | null;
   onMonitoredChange?: (monitored: boolean) => void;
 }
 
@@ -18,7 +19,7 @@ const decisionLabel = (d: ScoredReleaseDto['decision'], t: ReturnType<typeof use
   }
 };
 
-const MonitorPanel: React.FC<Props> = ({ gameId, initialMonitored, onMonitoredChange }) => {
+const MonitorPanel: React.FC<Props> = ({ gameId, initialMonitored, initialPreferredGroup, onMonitoredChange }) => {
   const { t } = useTranslation();
   const [monitored, setMonitored] = useState(initialMonitored);
   const [busy, setBusy] = useState(false);
@@ -29,6 +30,23 @@ const MonitorPanel: React.FC<Props> = ({ gameId, initialMonitored, onMonitoredCh
   const [notice, setNotice] = useState<string | null>(null);
   const [autoDispatch, setAutoDispatch] = useState(true);
   const [showAll, setShowAll] = useState(false);
+  const [preferredGroup, setPreferredGroup] = useState(initialPreferredGroup ?? '');
+  const [groupSaving, setGroupSaving] = useState(false);
+
+  const savePreferredGroup = async () => {
+    setGroupSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const trimmed = preferredGroup.trim();
+      await monitorApi.setPreferredGroup(gameId, trimmed.length === 0 ? null : trimmed);
+      setNotice(trimmed.length === 0 ? t('monitorPreferredGroupCleared') : t('monitorPreferredGroupSaved'));
+    } catch (e) {
+      setError(getErrorMessage(e, t('monitorPreferredGroupFailed')));
+    } finally {
+      setGroupSaving(false);
+    }
+  };
 
   const toggleMonitored = async () => {
     setBusy(true);
@@ -105,6 +123,30 @@ const MonitorPanel: React.FC<Props> = ({ gameId, initialMonitored, onMonitoredCh
           {searching ? t('monitorSearching') : t('monitorSearchNow')}
         </button>
       </div>
+
+      <div className="monitor-panel-row">
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+          <span>{t('monitorPreferredGroupLabel')}</span>
+          <input
+            type="text"
+            value={preferredGroup}
+            onChange={(e) => setPreferredGroup(e.target.value)}
+            placeholder="FitGirl, CODEX, ElAmigos, No-Intro ..."
+            disabled={groupSaving}
+          />
+        </label>
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={savePreferredGroup}
+          disabled={groupSaving}
+        >
+          {groupSaving ? t('saving') : t('save')}
+        </button>
+      </div>
+      <small className="monitor-hint" style={{ display: 'block', marginTop: -8, marginBottom: 12 }}>
+        {t('monitorPreferredGroupHint')}
+      </small>
 
       {error && <div className="alert alert-error">{error}</div>}
       {notice && <div className="alert alert-info">{notice}</div>}

@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using RetroArr.Core.Configuration;
 using RetroArr.Core.IO;
 using RetroArr.Core.Games;
+using RetroArr.Core.Rename;
 using System.Diagnostics.CodeAnalysis;
 using SharpCompress.Archives;
 using SharpCompress.Archives.Rar;
@@ -26,6 +27,7 @@ namespace RetroArr.Core.Download
         private readonly IGameMetadataServiceFactory _metadataFactory;
         private readonly IArchiveService _archiveService;
         private readonly TitleCleanerService _titleCleaner;
+        private readonly FileRenamer? _fileRenamer;
 
         public PostDownloadProcessor(
             ConfigurationService configService,
@@ -33,7 +35,8 @@ namespace RetroArr.Core.Download
             IGameRepository gameRepository,
             IGameMetadataServiceFactory metadataFactory,
             IArchiveService archiveService,
-            TitleCleanerService titleCleaner)
+            TitleCleanerService titleCleaner,
+            FileRenamer? fileRenamer = null)
         {
             _configService = configService;
             _fileMover = fileMover;
@@ -41,6 +44,72 @@ namespace RetroArr.Core.Download
             _metadataFactory = metadataFactory;
             _archiveService = archiveService;
             _titleCleaner = titleCleaner;
+            _fileRenamer = fileRenamer;
+        }
+
+        // Maps the local DownloadContentType -> SupplementaryContentInfo so
+        // the FileRenamer can pick the right template. Optional - if the
+        // renamer or settings aren't ready, the existing BuildXFileName
+        // helpers above keep doing the work.
+        private async System.Threading.Tasks.Task<string> TryRenameAfterImportAsync(
+            string movedFilePath,
+            Game game,
+            Platform? platformDefinition,
+            DownloadContentType contentType,
+            string? detectedVersion,
+            string? detectedDlcName,
+            string originalDownloadName,
+            MediaSettings mediaSettings)
+        {
+            if (_fileRenamer == null || !mediaSettings.RenameOnImport)
+            {
+                return movedFilePath;
+            }
+
+            // FileRenamer reads Platform.Slug for the platform-scope gate.
+            // GetAllLightAsync skips navs, so wire it up locally for this call.
+            if (game.Platform == null && platformDefinition != null)
+            {
+                game.Platform = platformDefinition;
+            }
+
+            var classification = new TitleCleanerService.SupplementaryContentInfo
+            {
+                FileType = contentType switch
+                {
+                    DownloadContentType.Patch => "Patch",
+                    DownloadContentType.DLC   => "DLC",
+                    _                          => "Main"
+                },
+                Version = detectedVersion,
+                ContentName = detectedDlcName
+            };
+
+            var releaseGroup = TitleCleanerService.ExtractReleaseGroup(originalDownloadName)
+                            ?? TitleCleanerService.ExtractReleaseGroup(Path.GetFileName(movedFilePath));
+
+            try
+            {
+                var decision = await _fileRenamer.RenameAsync(movedFilePath, game, classification, releaseGroup, mediaSettings).ConfigureAwait(false);
+                if (decision.Renamed)
+                {
+                    _logger.Info($"[PostDownload] Renamer: {Path.GetFileName(decision.OriginalPath)} -> {Path.GetFileName(decision.FinalPath)}");
+                    return decision.FinalPath;
+                }
+                if (decision.SkippedDueToPlatform)
+                {
+                    _logger.Info($"[PostDownload] Renamer skipped (platform out of scope): {Path.GetFileName(movedFilePath)}");
+                }
+                else if (!string.IsNullOrEmpty(decision.Reason))
+                {
+                    _logger.Info($"[PostDownload] Renamer: {decision.Reason}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn($"[PostDownload] Renamer threw: {ex.Message}. Keeping moved path as-is.");
+            }
+            return movedFilePath;
         }
 
         public async System.Threading.Tasks.Task<PostDownloadResult> ProcessCompletedDownloadAsync(DownloadStatus download)
@@ -548,9 +617,10 @@ namespace RetroArr.Core.Download
 
                     if (_fileMover.ImportFile(file, destPath, out var reason))
                     {
+                        var finalPath = await TryRenameAfterImportAsync(destPath, game, gamePlatform, contentType, detectedVersion, detectedDlcName, download.Name, mediaSettings);
                         movedCount++;
-                        firstMovedFile ??= destPath;
-                        _logger.Info($"[PostDownload] Moved: {relativePath} -> {destPath}");
+                        firstMovedFile ??= finalPath;
+                        _logger.Info($"[PostDownload] Moved: {relativePath} -> {finalPath}");
                     }
                     else
                     {
@@ -579,9 +649,10 @@ namespace RetroArr.Core.Download
                 var destPath = Path.Combine(importFolder, destFileName);
                 if (_fileMover.ImportFile(download.DownloadPath!, destPath, out var reason))
                 {
+                    var finalPath = await TryRenameAfterImportAsync(destPath, game, gamePlatform, contentType, detectedVersion, detectedDlcName, download.Name, mediaSettings);
                     movedCount = 1;
-                    firstMovedFile = destPath;
-                    _logger.Info($"[PostDownload] Moved: {Path.GetFileName(download.DownloadPath)} -> {destPath}");
+                    firstMovedFile = finalPath;
+                    _logger.Info($"[PostDownload] Moved: {Path.GetFileName(download.DownloadPath)} -> {finalPath}");
 
                     if (!IsCriticalPath(download.DownloadPath))
                     {

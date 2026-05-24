@@ -48,6 +48,7 @@ interface Game {
   revision?: string;
   protonDbTier?: string;
   monitored?: boolean;
+  preferredReleaseGroup?: string | null;
 }
 
 interface TorrentResult {
@@ -1292,6 +1293,7 @@ const GameDetails: React.FC = () => {
             <MonitorPanel
               gameId={game.id}
               initialMonitored={!!game.monitored}
+              initialPreferredGroup={game.preferredReleaseGroup ?? null}
               onMonitoredChange={(m) => setGame((prev) => prev ? { ...prev, monitored: m } : prev)}
             />
 

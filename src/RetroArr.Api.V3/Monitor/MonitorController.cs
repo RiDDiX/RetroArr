@@ -47,6 +47,26 @@ namespace RetroArr.Api.V3.Monitor
             return Ok(new { id, monitored = game.Monitored });
         }
 
+        public sealed class PreferredGroupRequest
+        {
+            public string? Group { get; set; }
+        }
+
+        [HttpPut("games/{id:int}/preferred-group")]
+        public async Task<IActionResult> SetPreferredGroup(int id, [FromBody] PreferredGroupRequest request, CancellationToken ct)
+        {
+            if (request == null) return BadRequest(new { message = "body required" });
+
+            var game = await _db.Games.FirstOrDefaultAsync(g => g.Id == id, ct).ConfigureAwait(false);
+            if (game == null) return NotFound();
+
+            // Empty string == clear the preference.
+            var raw = (request.Group ?? string.Empty).Trim();
+            game.PreferredReleaseGroup = raw.Length == 0 ? null : raw;
+            await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+            return Ok(new { id, preferredReleaseGroup = game.PreferredReleaseGroup });
+        }
+
         [HttpPost("games/{id:int}/search-now")]
         public async Task<IActionResult> SearchNow(int id, [FromQuery] bool autoDispatch = false, CancellationToken ct = default)
         {

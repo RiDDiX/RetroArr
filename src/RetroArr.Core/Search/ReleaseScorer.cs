@@ -130,6 +130,16 @@ namespace RetroArr.Core.Search
                 scored.Signals.Add($"unknown uploader (-{settings.UnknownUploaderPenalty})");
             }
 
+            // Per-game preferred release group bonus. Strongest single
+            // signal a user can give us: "I want this game from FitGirl".
+            if (!string.IsNullOrWhiteSpace(game.PreferredReleaseGroup)
+                && release.Title.IndexOf(game.PreferredReleaseGroup, StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                score += settings.PreferredGroupBonus;
+                scored.Signals.Add($"preferred group '{game.PreferredReleaseGroup}' (+{settings.PreferredGroupBonus})");
+                trustedSource = true; // satisfy RequireTrustedSourceForAuto
+            }
+
             // 4. Release-name metadata vs game preferences
             var (releaseRegion, releaseLanguages, releaseRevision) = TitleCleanerService.ExtractFilenameMetadata(release.Title);
 

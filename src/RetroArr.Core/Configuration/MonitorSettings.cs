@@ -32,6 +32,9 @@ namespace RetroArr.Core.Configuration
         public int RevisionMatchBonus { get; set; } = 10;
         public int VerifiedSourceBonus { get; set; } = 30;
         public int SizeInRangeBonus { get; set; } = 10;
+        // Bonus when the release title matches the per-game
+        // PreferredReleaseGroup set on Game.PreferredReleaseGroup.
+        public int PreferredGroupBonus { get; set; } = 25;
 
         // Soft scoring penalties (positive numbers, subtracted).
         public int UnknownUploaderPenalty { get; set; } = 20;

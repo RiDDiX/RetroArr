@@ -36,7 +36,55 @@ namespace RetroArr.Core.Configuration
 
         public bool UseDestinationPattern { get; set; } = true;
 
+        // ---- File renaming on import ----
+        // Off by default to keep existing installs unchanged. Once enabled,
+        // newly imported files (PostDownloadProcessor path) get a canonical
+        // name driven by the templates below. Existing files stay untouched.
+        public bool RenameOnImport { get; set; }
+
+        // Templates for the canonical filename, without extension.
+        // Variables: {Title}, {Year}, {Version}, {ContentName}, {ReleaseGroup}, {Region}, {Platform}
+        // Empty variables are dropped together with their surrounding
+        // " - " separators by the renamer, so a missing ContentName leaves
+        // a clean "{Title} - DLC" instead of "{Title} - DLC - ".
+        public string MainFileTemplate { get; set; } = "{Title}";
+        public string UpdateFileTemplate { get; set; } = "{Title} - Update {Version}";
+        public string DlcFileTemplate { get; set; } = "{Title} - DLC - {ContentName}";
+
+        // When true, the configured ReleaseGroupSuffix is appended to ANY of
+        // the templates if a group was detected. Default off because most
+        // users want a clean library, not "Chrono Trigger [No-Intro].zip".
+        public bool IncludeReleaseGroupInFilename { get; set; }
+        public string ReleaseGroupSuffix { get; set; } = "[{ReleaseGroup}]";
+
+        // Auto-rename is SCOPED to desktop platforms by default. Console and
+        // handheld platforms (Switch, PS4/5, PS Vita, Wii etc.) embed
+        // load-bearing TitleID/version markers in their filenames that
+        // emulators parse - blindly renaming those breaks the games. CSV
+        // of Platform.Slug values that the renamer is allowed to touch.
+        public string ApplyRenameToPlatforms { get; set; } = "windows,pc,linux,macintosh";
+
+        // What to do when the target filename already exists on disk:
+        //   "Skip"      - leave the source alone, log it (safest default)
+        //   "Overwrite" - replace target (caller should know what they want)
+        //   "Suffix"    - append " (1)", " (2)" until unique
+        public string FileConflictBehavior { get; set; } = "Skip";
+
         public bool IsConfigured => !string.IsNullOrWhiteSpace(FolderPath);
+
+        // Splits the platform CSV into a normalized, lowercase set for
+        // membership checks. Cached for the rare case this is hot.
+        public System.Collections.Generic.HashSet<string> GetRenameTargetPlatformSlugs()
+        {
+            var set = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (string.IsNullOrWhiteSpace(ApplyRenameToPlatforms)) return set;
+            foreach (var raw in ApplyRenameToPlatforms.Split(new[] { ',', ';', '|' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                var trimmed = raw.Trim();
+                if (trimmed.Length > 0) set.Add(trimmed);
+            }
+            return set;
+        }
 
         public string ResolveDestinationPath(string baseFolder, string? platform, string? title, int? year = null)
         {

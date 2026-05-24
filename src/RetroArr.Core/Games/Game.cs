@@ -79,6 +79,11 @@ namespace RetroArr.Core.Games
         // ProtonDB compatibility tier (platinum, gold, silver, bronze, borked, native, pending)
         public string? ProtonDbTier { get; set; }
 
+        // When the auto-monitor picks releases for this game, prefer matches
+        // from this group/source. Free-form string so users can name custom
+        // groups, not limited to the global TrustedReleaseGroups list.
+        public string? PreferredReleaseGroup { get; set; }
+
         [System.ComponentModel.DataAnnotations.Schema.NotMapped]
         public bool IsOwned { get; set; }
         

@@ -20,6 +20,11 @@ namespace RetroArr.Core.Games
         public string? ContentName { get; set; }
         public string? TitleId { get; set; }
         public string? Serial { get; set; }
+
+        // Set when the auto-rename pipeline touched this file. Lets the
+        // rename pass be safely re-run without double-renaming files that
+        // already match the template output.
+        public DateTime? LastAutoRenameAt { get; set; }
         
         [SuppressMessage("Microsoft.Usage", "CA2227:CollectionPropertiesShouldBeReadOnly")]
         [SuppressMessage("Microsoft.Design", "CA1002:DoNotExposeGenericLists")]

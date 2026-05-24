@@ -375,6 +375,15 @@ export interface MediaSettings {
   gogDownloadsPath: string;
   destinationPathPattern: string;
   useDestinationPattern: boolean;
+  // Auto-rename on import
+  renameOnImport: boolean;
+  mainFileTemplate: string;
+  updateFileTemplate: string;
+  dlcFileTemplate: string;
+  includeReleaseGroupInFilename: boolean;
+  releaseGroupSuffix: string;
+  applyRenameToPlatforms: string;
+  fileConflictBehavior: string;
 }
 
 export interface ProwlarrSettings {
@@ -945,6 +954,7 @@ export interface MonitorSettings {
   revisionMatchBonus: number;
   verifiedSourceBonus: number;
   sizeInRangeBonus: number;
+  preferredGroupBonus: number;
   unknownUploaderPenalty: number;
   hackOrPatchPenalty: number;
   sizeOutOfRangePenalty: number;
@@ -994,4 +1004,6 @@ export const monitorApi = {
     apiClient.post<MonitorSearchResultDto>(`/games/${gameId}/search-now`, null, { params: { autoDispatch }, timeout: 120000 }),
   getSettings: () => apiClient.get<MonitorSettings>('/settings/monitor'),
   saveSettings: (body: MonitorSettings) => apiClient.post<MonitorSettings>('/settings/monitor', body),
+  setPreferredGroup: (gameId: number, group: string | null) =>
+    apiClient.put<{ id: number; preferredReleaseGroup: string | null }>(`/games/${gameId}/preferred-group`, { group }),
 };

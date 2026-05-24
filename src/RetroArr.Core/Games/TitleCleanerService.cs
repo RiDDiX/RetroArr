@@ -693,13 +693,55 @@ namespace RetroArr.Core.Games
 
         // Scene release group tags: trailing _NSW-GROUPNAME, _PS4-GROUPNAME, etc.
         private static readonly Regex _sceneGroupTrailingRegex = new Regex(
-            @"[_\-](NSW|PS4|PS5|XBOX|PC|3DS|WiiU)[_\-][A-Za-z0-9]+$",
+            @"[_\-](NSW|PS4|PS5|XBOX|PC|3DS|WiiU)[_\-]([A-Za-z0-9]+)$",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         // Scene release group prefix: sxs-, venom-, etc. (lowercase prefix ending with hyphen)
         private static readonly Regex _sceneGroupLeadingRegex = new Regex(
-            @"^[a-z0-9]{2,10}-",
+            @"^([a-z0-9]{2,10})-",
             RegexOptions.Compiled);
+
+        // Curated list of well-known scene/p2p/dump groups. Used by
+        // ExtractReleaseGroup so we don't accept random 4-char prefixes as
+        // 'release groups' just because they end in a hyphen.
+        private static readonly HashSet<string> _knownReleaseGroups = new(StringComparer.OrdinalIgnoreCase)
+        {
+            // PC scene / repack
+            "CODEX", "EMPRESS", "FitGirl", "DODI", "RUNE", "PLAZA", "SKIDROW",
+            "TENOKE", "RAZOR1911", "FLT", "HOODLUM", "ALI213", "RELOADED",
+            "ElAmigos", "GOG", "DARKZER0",
+            // Retro/ROM verified sources
+            "No-Intro", "Redump", "TOSEC", "GoodSet", "Trurip"
+        };
+
+        // Extracts a release group name from a filename if recognisable.
+        // Used by the auto-rename pipeline to populate GameFile.ReleaseGroup
+        // and by the scorer to award a per-game preferred-group bonus.
+        public static string? ExtractReleaseGroup(string fileName)
+        {
+            if (string.IsNullOrWhiteSpace(fileName)) return null;
+
+            // Prefer a known-group substring match anywhere in the name -
+            // covers "Game.FitGirl.Repack.zip" and "Game [No-Intro].zip"
+            // uniformly without making the regex brittle.
+            foreach (var group in _knownReleaseGroups)
+            {
+                if (fileName.IndexOf(group, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return group;
+                }
+            }
+
+            // Trailing _NSW-GROUPNAME pattern: capture group 2.
+            var trailing = _sceneGroupTrailingRegex.Match(fileName);
+            if (trailing.Success)
+            {
+                return trailing.Groups[2].Value;
+            }
+
+            // Leading group-prefix is too loose to use safely. Skip.
+            return null;
+        }
 
         // Version with spaces instead of dots: v1 0 3, v1 01 (scene release convention)
         private static readonly Regex _spaceVersionRegex = new Regex(
