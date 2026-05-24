@@ -1,3 +1,8 @@
+## v1.0.180 (2026-05-24)
+
+### Changes
+- reconnect signalr hub when api key changes (02e55ef)
+
 ## v1.0.179 (2026-05-24)
 
 ### Changes
