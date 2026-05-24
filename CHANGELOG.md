@@ -1,3 +1,8 @@
+## v1.0.181 (2026-05-24)
+
+### Changes
+- prompt for api key on first launch when bootstrap fails (3dd1eea)
+
 ## v1.0.180 (2026-05-24)
 
 ### Changes
