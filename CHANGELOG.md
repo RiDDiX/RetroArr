@@ -1,3 +1,8 @@
+## v1.0.178 (2026-05-24)
+
+### Changes
+- auto-search and download for monitored games (e9f51bd)
+
 ## v1.0.177 (2026-05-24)
 
 ### Changes
