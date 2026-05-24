@@ -1,3 +1,8 @@
+## v1.0.182 (2026-05-24)
+
+### Changes
+- auto-rename imported games and bind preferred release group (7624c7c)
+
 ## v1.0.181 (2026-05-24)
 
 ### Changes
