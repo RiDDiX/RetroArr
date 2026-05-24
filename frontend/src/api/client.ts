@@ -921,3 +921,68 @@ export const wishlistApi = {
   refresh: (countryCode = 'US') =>
     apiClient.post<WishlistRefreshResult>('/wishlist/refresh', { countryCode }, { timeout: 120000 }),
 };
+
+// -- Monitored release search (Sonarr/Radarr-style) --
+export interface MonitorSettings {
+  enabled: boolean;
+  pollIntervalHours: number;
+  autoDownloadThreshold: number;
+  reviewThreshold: number;
+  minSeedersTorrent: number;
+  minTitleSimilarityPercent: number;
+  maxReleaseAgeDays: number;
+  regionMatchBonus: number;
+  languageMatchBonus: number;
+  revisionMatchBonus: number;
+  verifiedSourceBonus: number;
+  sizeInRangeBonus: number;
+  unknownUploaderPenalty: number;
+  hackOrPatchPenalty: number;
+  sizeOutOfRangePenalty: number;
+  wrongRegionPenalty: number;
+  verifiedSources: string[];
+  trustedReleaseGroups: string[];
+  hackPatchTokens: string[];
+  preferredRegion: string;
+  requireTrustedSourceForAuto: boolean;
+}
+
+export interface ScoredReleaseDto {
+  score: number;
+  decision: 'AutoDownload' | 'Review' | 'Hide' | 'Reject';
+  reason: string;
+  signals: string[];
+  title: string;
+  provider: string;
+  indexer: string;
+  size: number;
+  formattedSize: string;
+  seeders: number;
+  leechers: number;
+  publishDate: string | null;
+  detectedPlatform: string | null;
+  platformFolder: string | null;
+  protocol: string;
+  downloadUrl: string | null;
+  magnetUrl: string | null;
+  infoUrl: string | null;
+}
+
+export interface MonitorSearchResultDto {
+  gameId: number;
+  gameTitle: string;
+  autoQueued: boolean;
+  autoQueuedRelease: string | null;
+  autoQueuedScore: number | null;
+  error: string | null;
+  scored: ScoredReleaseDto[];
+}
+
+export const monitorApi = {
+  setMonitored: (gameId: number, monitored: boolean) =>
+    apiClient.put<{ id: number; monitored: boolean }>(`/games/${gameId}/monitored`, { monitored }),
+  searchNow: (gameId: number, autoDispatch = false) =>
+    apiClient.post<MonitorSearchResultDto>(`/games/${gameId}/search-now`, null, { params: { autoDispatch }, timeout: 120000 }),
+  getSettings: () => apiClient.get<MonitorSettings>('/settings/monitor'),
+  saveSettings: (body: MonitorSettings) => apiClient.post<MonitorSettings>('/settings/monitor', body),
+};

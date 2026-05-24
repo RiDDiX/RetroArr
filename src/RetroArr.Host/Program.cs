@@ -311,6 +311,11 @@ namespace RetroArr.Host
             builder.Services.AddScoped<RetroArr.Core.Wishlist.WishlistPriceService>();
             builder.Services.AddHostedService<RetroArr.Core.Wishlist.WishlistPricePollerService>();
 
+            // Per-game monitored release search (Sonarr/Radarr-style automation)
+            builder.Services.AddSingleton<RetroArr.Core.Search.ReleaseScorer>();
+            builder.Services.AddScoped<RetroArr.Core.Search.MonitoredGameSearchService>();
+            builder.Services.AddHostedService<RetroArr.Core.Search.MonitoredGameSweepService>();
+
 
             // Show IGDB status at startup
             var igdbSettings = configService.LoadIgdbSettings();

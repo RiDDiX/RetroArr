@@ -12,6 +12,7 @@ import EmulatorPlayer from '../components/EmulatorPlayer';
 import ScoreCircle from '../components/ScoreCircle';
 import RegionFlag from '../components/RegionFlag';
 import ProtonDbBadge from '../components/ProtonDbBadge';
+import MonitorPanel from '../components/MonitorPanel';
 import './GameDetails.css';
 
 interface Game {
@@ -46,6 +47,7 @@ interface Game {
   languages?: string;
   revision?: string;
   protonDbTier?: string;
+  monitored?: boolean;
 }
 
 interface TorrentResult {
@@ -1285,6 +1287,13 @@ const GameDetails: React.FC = () => {
                 <span>{isWebPlayable ? 'Play' : t('play')}</span>
               </button>
             )}
+
+            {/* Monitor / Auto-Search */}
+            <MonitorPanel
+              gameId={game.id}
+              initialMonitored={!!game.monitored}
+              onMonitoredChange={(m) => setGame((prev) => prev ? { ...prev, monitored: m } : prev)}
+            />
 
             {/* Linux Gaming Exports */}
             {game.canPlay && (

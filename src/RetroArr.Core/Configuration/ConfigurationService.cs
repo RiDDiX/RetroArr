@@ -35,6 +35,7 @@ namespace RetroArr.Core.Configuration
         private readonly string _loggingConfigFile;
         private readonly string _cacheConfigFile;
         private readonly string _proxyConfigFile;
+        private readonly string _monitorConfigFile;
         private readonly SecretProtector? _secretProtector;
 
         public ConfigurationService(string contentRoot) : this(contentRoot, (SecretProtector?)null) { }
@@ -79,6 +80,7 @@ namespace RetroArr.Core.Configuration
             _loggingConfigFile = Path.Combine(_configDirectory, "logging.json");
             _cacheConfigFile = Path.Combine(_configDirectory, "cache.json");
             _proxyConfigFile = Path.Combine(_configDirectory, "proxy.json");
+            _monitorConfigFile = Path.Combine(_configDirectory, "monitor.json");
 
             try
             {
@@ -685,6 +687,30 @@ namespace RetroArr.Core.Configuration
                 _logger.Info($"[Configuration] Proxy settings saved. Enabled: {settings.Enabled}, Type: {settings.Type}");
             }
             catch (Exception ex) { _logger.Error($"Error saving proxy settings: {ex.Message}"); }
+        }
+
+        public MonitorSettings LoadMonitorSettings()
+        {
+            if (File.Exists(_monitorConfigFile))
+            {
+                try
+                {
+                    var json = File.ReadAllText(_monitorConfigFile);
+                    return JsonSerializer.Deserialize<MonitorSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new MonitorSettings();
+                }
+                catch (Exception ex) { _logger.Error($"Error loading monitor settings: {ex.Message}"); }
+            }
+            return new MonitorSettings();
+        }
+
+        public void SaveMonitorSettings(MonitorSettings settings)
+        {
+            try
+            {
+                File.WriteAllText(_monitorConfigFile, JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true }));
+                _logger.Info($"[Configuration] Monitor settings saved. Enabled={settings.Enabled} autoThreshold={settings.AutoDownloadThreshold}");
+            }
+            catch (Exception ex) { _logger.Error($"Error saving monitor settings: {ex.Message}"); }
         }
 
         private static readonly List<string> DefaultRedactHeaders = new() { "Authorization", "Cookie", "X-Api-Key" };

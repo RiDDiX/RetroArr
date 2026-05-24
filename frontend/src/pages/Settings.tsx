@@ -9,12 +9,12 @@ import ThemeEditor from '../components/ThemeEditor';
 import DatabaseSettings from '../components/DatabaseSettings';
 import CacheSettings from '../components/CacheSettings';
 import ProxySettings from '../components/ProxySettings';
-import { MediaTab, PlatformsTab, MetadataProvidersTab, AccountsTab, IndexersTab, DownloadersTab, ImportExportTab, LoggingTab, WebhooksTab, ApiAccessTab } from '../components/settings';
+import { MediaTab, PlatformsTab, MetadataProvidersTab, AccountsTab, IndexersTab, DownloadersTab, ImportExportTab, LoggingTab, WebhooksTab, ApiAccessTab, MonitorSettingsTab } from '../components/settings';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faFolderOpen, faLayerGroup, faTags, faUserCircle, faSearch, faDownload, faGamepad,
   faPalette, faGlobe, faFileImport, faTerminal, faDatabase,
-  faMemory, faClipboardList, faBell, faKey, faNetworkWired
+  faMemory, faClipboardList, faBell, faKey, faNetworkWired, faRobot
 } from '@fortawesome/free-solid-svg-icons';
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 
@@ -57,6 +57,7 @@ const Settings: React.FC = () => {
     { id: 'proxy',        label: t('settingsProxy') || 'Proxy',                         icon: faNetworkWired,  group: 'connections' },
     { id: 'indexers',     label: t('settingsIndexers') || 'Indexers',                   icon: faSearch,        group: 'downloads' },
     { id: 'downloaders',  label: t('settingsDownloaders') || 'Downloaders',             icon: faDownload,      group: 'downloads' },
+    { id: 'monitor',      label: t('settingsMonitor') || 'Monitor',                     icon: faRobot,         group: 'downloads' },
     { id: 'emulatorjs',   label: 'EmulatorJS',                                          icon: faGamepad,       group: 'emulator' },
     { id: 'themes',       label: t('settingsThemes') || 'Themes',                       icon: faPalette,       group: 'interface' },
     { id: 'language',     label: t('settingsLanguage') || 'Language',                   icon: faGlobe,         group: 'interface' },
@@ -165,6 +166,10 @@ const Settings: React.FC = () => {
 
         {currentTab === 'downloaders' && (
           <DownloadersTab language={language} t={t} />
+        )}
+
+        {currentTab === 'monitor' && (
+          <MonitorSettingsTab language={language} t={t} />
         )}
 
         {currentTab === 'debug' && (
