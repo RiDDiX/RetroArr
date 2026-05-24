@@ -2,8 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { settingsApi, getErrorMessage, ProxyConfig } from '../api/client';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCheckCircle, faExclamationTriangle } from '@fortawesome/free-solid-svg-icons';
+import { useTranslation } from '../i18n/translations';
 
 const ProxySettings: React.FC = () => {
+    const { t: translate } = useTranslation();
+    const t = (key: string) => translate(key as Parameters<typeof translate>[0]) || key;
+
     const [config, setConfig] = useState<ProxyConfig>({
         enabled: false,
         type: 'http',
@@ -38,25 +42,22 @@ const ProxySettings: React.FC = () => {
         setMessage(null);
         try {
             const response = await settingsApi.saveProxy(config);
-            setMessage({ type: 'success', text: response.data.message || 'Proxy settings saved.' });
+            setMessage({ type: 'success', text: response.data.message || t('proxySettingsSaved') });
         } catch (error: unknown) {
-            setMessage({ type: 'error', text: getErrorMessage(error, 'Error saving proxy settings') });
+            setMessage({ type: 'error', text: getErrorMessage(error, t('proxyErrorSaving')) });
         } finally {
             setSaving(false);
         }
     };
 
     if (loading) {
-        return <div className="settings-section">Loading...</div>;
+        return <div className="settings-section">{t('loading')}</div>;
     }
 
     return (
         <div className="settings-section" id="proxy">
-            <h3>Proxy</h3>
-            <p className="settings-description">
-                Route all outgoing connections (metadata, indexers, downloaders) through an
-                HTTP or SOCKS5 proxy. Useful for isolated hosts or a NordVPN/squid gateway.
-            </p>
+            <h3>{t('proxyTitle')}</h3>
+            <p className="settings-description">{t('proxyDesc')}</p>
 
             {message && (
                 <div className={`message ${message.type}`}>
@@ -72,12 +73,12 @@ const ProxySettings: React.FC = () => {
                         checked={config.enabled}
                         onChange={(e) => setConfig({ ...config, enabled: e.target.checked })}
                     />
-                    {' '}Enable proxy
+                    {' '}{t('proxyEnable')}
                 </label>
             </div>
 
             <div className="form-group">
-                <label>Type</label>
+                <label>{t('proxyType')}</label>
                 <select
                     value={config.type}
                     onChange={(e) => setConfig({ ...config, type: e.target.value })}
@@ -89,7 +90,7 @@ const ProxySettings: React.FC = () => {
             </div>
 
             <div className="form-group">
-                <label>Host</label>
+                <label>{t('host')}</label>
                 <input
                     type="text"
                     value={config.host}
@@ -100,7 +101,7 @@ const ProxySettings: React.FC = () => {
             </div>
 
             <div className="form-group">
-                <label>Port</label>
+                <label>{t('port')}</label>
                 <input
                     type="number"
                     value={config.port}
@@ -112,7 +113,7 @@ const ProxySettings: React.FC = () => {
             </div>
 
             <div className="form-group">
-                <label>Username (optional)</label>
+                <label>{t('proxyUsernameOptional')}</label>
                 <input
                     type="text"
                     value={config.username}
@@ -122,7 +123,7 @@ const ProxySettings: React.FC = () => {
             </div>
 
             <div className="form-group">
-                <label>Password (optional)</label>
+                <label>{t('proxyPasswordOptional')}</label>
                 <input
                     type="password"
                     value={config.password}
@@ -139,12 +140,12 @@ const ProxySettings: React.FC = () => {
                         onChange={(e) => setConfig({ ...config, bypassLocal: e.target.checked })}
                         disabled={!config.enabled}
                     />
-                    {' '}Bypass proxy for local addresses
+                    {' '}{t('proxyBypassLocal')}
                 </label>
             </div>
 
             <div className="form-group">
-                <label>Bypass list (comma separated host fragments)</label>
+                <label>{t('proxyBypassList')}</label>
                 <input
                     type="text"
                     value={config.bypassList.join(', ')}
@@ -152,13 +153,13 @@ const ProxySettings: React.FC = () => {
                         ...config,
                         bypassList: e.target.value.split(',').map(s => s.trim()).filter(s => s.length > 0),
                     })}
-                    placeholder="example.com, 10.0.0"
+                    placeholder={t('proxyBypassPlaceholder')}
                     disabled={!config.enabled}
                 />
             </div>
 
             <button type="button" className="btn-primary" onClick={handleSave} disabled={saving}>
-                {saving ? 'Saving...' : 'Save'}
+                {saving ? t('saving') : t('save')}
             </button>
         </div>
     );
