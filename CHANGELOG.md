@@ -1,3 +1,8 @@
+## v1.0.175 (2026-05-24)
+
+### Changes
+- translate proxy settings ui in all 7 languages (88fd6e3)
+
 ## v1.0.174 (2026-05-16)
 
 ### Changes
