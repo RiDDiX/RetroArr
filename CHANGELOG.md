@@ -1,3 +1,8 @@
+## v1.0.179 (2026-05-24)
+
+### Changes
+- fix monitor settings duplicating defaults on every save (6f73ef4)
+
 ## v1.0.178 (2026-05-24)
 
 ### Changes
