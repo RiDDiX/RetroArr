@@ -163,7 +163,9 @@ namespace RetroArr.Api.V3.Webhooks
                 new { Value = (int)WebhookEvents.OnDownloadFailed, Name = "OnDownloadFailed", Description = "When a download fails" },
                 new { Value = (int)WebhookEvents.OnGameInstalled, Name = "OnGameInstalled", Description = "When a game is installed" },
                 new { Value = (int)WebhookEvents.OnScanCompleted, Name = "OnScanCompleted", Description = "When a library scan completes" },
-                new { Value = (int)WebhookEvents.OnCollectionUpdated, Name = "OnCollectionUpdated", Description = "When a collection is updated" }
+                new { Value = (int)WebhookEvents.OnCollectionUpdated, Name = "OnCollectionUpdated", Description = "When a collection is updated" },
+                new { Value = (int)WebhookEvents.OnWishlistPriceDropped, Name = "OnWishlistPriceDropped", Description = "When a wishlisted game's price drops" },
+                new { Value = (int)WebhookEvents.OnWishlistTargetReached, Name = "OnWishlistTargetReached", Description = "When a wishlisted game hits the configured target price" }
             };
 
             return Ok(events);
@@ -172,7 +174,7 @@ namespace RetroArr.Api.V3.Webhooks
         private static List<string> GetEventsList(WebhookEvents events)
         {
             var list = new List<string>();
-            
+
             if ((events & WebhookEvents.OnGameAdded) != 0) list.Add("OnGameAdded");
             if ((events & WebhookEvents.OnGameRemoved) != 0) list.Add("OnGameRemoved");
             if ((events & WebhookEvents.OnDownloadStarted) != 0) list.Add("OnDownloadStarted");
@@ -181,6 +183,8 @@ namespace RetroArr.Api.V3.Webhooks
             if ((events & WebhookEvents.OnGameInstalled) != 0) list.Add("OnGameInstalled");
             if ((events & WebhookEvents.OnScanCompleted) != 0) list.Add("OnScanCompleted");
             if ((events & WebhookEvents.OnCollectionUpdated) != 0) list.Add("OnCollectionUpdated");
+            if ((events & WebhookEvents.OnWishlistPriceDropped) != 0) list.Add("OnWishlistPriceDropped");
+            if ((events & WebhookEvents.OnWishlistTargetReached) != 0) list.Add("OnWishlistTargetReached");
 
             return list;
         }

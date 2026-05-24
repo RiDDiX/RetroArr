@@ -51,8 +51,11 @@ namespace RetroArr.Core.Notifications
         OnGameInstalled = 32,
         OnScanCompleted = 64,
         OnCollectionUpdated = 128,
+        OnWishlistPriceDropped = 256,
+        OnWishlistTargetReached = 512,
         All = OnGameAdded | OnGameRemoved | OnDownloadStarted | OnDownloadCompleted |
-              OnDownloadFailed | OnGameInstalled | OnScanCompleted | OnCollectionUpdated
+              OnDownloadFailed | OnGameInstalled | OnScanCompleted | OnCollectionUpdated |
+              OnWishlistPriceDropped | OnWishlistTargetReached
     }
 
     public class WebhookPayload

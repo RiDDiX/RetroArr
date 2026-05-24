@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using RetroArr.Core.Data;
 using RetroArr.Core.Games;
+using RetroArr.Core.Notifications;
 
 namespace RetroArr.Core.Wishlist
 {
@@ -25,11 +26,13 @@ namespace RetroArr.Core.Wishlist
         private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(Logging.AppLoggerService.General);
         private readonly RetroArrDbContext _db;
         private readonly SteamPriceClient _steamPriceClient;
+        private readonly IWebhookService _webhooks;
 
-        public WishlistPriceService(RetroArrDbContext db, SteamPriceClient steamPriceClient)
+        public WishlistPriceService(RetroArrDbContext db, SteamPriceClient steamPriceClient, IWebhookService webhooks)
         {
             _db = db;
             _steamPriceClient = steamPriceClient;
+            _webhooks = webhooks;
         }
 
         public async Task<IReadOnlyList<WishlistPriceWatch>> ListAsync(CancellationToken ct = default)
@@ -97,6 +100,8 @@ namespace RetroArr.Core.Wishlist
         {
             var summary = new WishlistRefreshSummary();
             var watches = await _db.WishlistPriceWatches
+                .Include(w => w.Game)
+                    .ThenInclude(g => g!.Platform)
                 .Where(w => w.Provider == "steam")
                 .ToListAsync(ct)
                 .ConfigureAwait(false);
@@ -111,6 +116,12 @@ namespace RetroArr.Core.Wishlist
             var appIds = watches.Select(w => w.ExternalId).Where(id => !string.IsNullOrWhiteSpace(id)).ToList();
             var quotes = await _steamPriceClient.GetPricesAsync(appIds, countryCode, ct).ConfigureAwait(false);
             var now = DateTime.UtcNow;
+
+            // Collect events to fire AFTER SaveChanges, so the webhook payload
+            // reflects the persisted state and a DB failure doesn't lead to
+            // a "wishlist alert for a price that wasn't actually saved".
+            var dropped = new List<WishlistPriceWatch>();
+            var targetHit = new List<WishlistPriceWatch>();
 
             foreach (var watch in watches)
             {
@@ -155,8 +166,16 @@ namespace RetroArr.Core.Wishlist
                         watch.LastChangedAt = now;
                         summary.Updated++;
 
-                        if (previous.HasValue && quote.Final < previous.Value) summary.Dropped++;
-                        if (watch.TargetPrice.HasValue && quote.Final <= watch.TargetPrice.Value) summary.TargetReached++;
+                        if (previous.HasValue && quote.Final < previous.Value)
+                        {
+                            summary.Dropped++;
+                            if (watch.NotifyOnAnyDrop) dropped.Add(watch);
+                        }
+                        if (watch.TargetPrice.HasValue && quote.Final <= watch.TargetPrice.Value)
+                        {
+                            summary.TargetReached++;
+                            targetHit.Add(watch);
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -168,8 +187,38 @@ namespace RetroArr.Core.Wishlist
 
             await _db.SaveChangesAsync(ct).ConfigureAwait(false);
             _logger.Info($"[Wishlist] refresh complete. checked={summary.Checked} updated={summary.Updated} dropped={summary.Dropped} target_reached={summary.TargetReached} failed={summary.Failed}");
+
+            // Fire webhooks. TriggerAsync is fire-and-forget internally, so we
+            // don't await per-event - just kick them and move on.
+            foreach (var watch in dropped)
+            {
+                try { await _webhooks.TriggerAsync(WebhookEvents.OnWishlistPriceDropped, BuildPayload(watch)).ConfigureAwait(false); }
+                catch (Exception ex) { _logger.Warn($"[Wishlist] webhook trigger (drop) failed for watch {watch.Id}: {ex.Message}"); }
+            }
+            foreach (var watch in targetHit)
+            {
+                try { await _webhooks.TriggerAsync(WebhookEvents.OnWishlistTargetReached, BuildPayload(watch)).ConfigureAwait(false); }
+                catch (Exception ex) { _logger.Warn($"[Wishlist] webhook trigger (target) failed for watch {watch.Id}: {ex.Message}"); }
+            }
+
             return summary;
         }
+
+        private static object BuildPayload(WishlistPriceWatch watch) => new
+        {
+            gameId = watch.GameId,
+            gameTitle = watch.Game?.Title,
+            platform = watch.Game?.Platform?.Name,
+            provider = watch.Provider,
+            externalId = watch.ExternalId,
+            currency = watch.Currency,
+            currentPrice = watch.CurrentPrice,
+            previousPrice = watch.PreviousPrice,
+            targetPrice = watch.TargetPrice,
+            discountPercent = watch.DiscountPercent,
+            isOnSale = watch.IsOnSale,
+            lastChangedAt = watch.LastChangedAt
+        };
 
         public async Task<IReadOnlyList<Game>> ListWishlistedGamesAsync(CancellationToken ct = default)
         {

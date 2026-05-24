@@ -32,6 +32,44 @@ const emptyForm = {
   method: 'POST',
   events: 0,
   enabled: true,
+  payloadTemplate: '' as string,
+};
+
+// Drop-in payload templates for popular receivers. Each uses {event},
+// {timestamp}, and {data} which WebhookService.ProcessTemplate substitutes
+// before the HTTP send. Users can keep the defaults or tweak per service.
+const PAYLOAD_PRESETS: Record<string, { label: string; template: string }> = {
+  discord: {
+    label: 'Discord',
+    template: JSON.stringify({
+      username: 'RetroArr',
+      content: '**{event}** at {timestamp}',
+      embeds: [{ description: '```json\n{data}\n```' }],
+    }, null, 2),
+  },
+  slack: {
+    label: 'Slack',
+    template: JSON.stringify({
+      text: '*{event}* at {timestamp}\n```{data}```',
+    }, null, 2),
+  },
+  gotify: {
+    label: 'Gotify',
+    template: JSON.stringify({
+      title: 'RetroArr: {event}',
+      message: '{data}',
+      priority: 5,
+    }, null, 2),
+  },
+  ntfy: {
+    label: 'ntfy',
+    template: JSON.stringify({
+      topic: 'retroarr',
+      title: 'RetroArr: {event}',
+      message: '{data}',
+      priority: 3,
+    }, null, 2),
+  },
 };
 
 const WebhooksTab: React.FC<Props> = ({ t }) => {
@@ -81,22 +119,18 @@ const WebhooksTab: React.FC<Props> = ({ t }) => {
     setBusy(true);
     setError(null);
     try {
+      const payload = {
+        name: form.name,
+        url: form.url,
+        method: form.method,
+        events: form.events,
+        enabled: form.enabled,
+        payloadTemplate: form.payloadTemplate.trim() || null,
+      };
       if (editing && form.id) {
-        await apiClient.put(`/webhook/${form.id}`, {
-          name: form.name,
-          url: form.url,
-          method: form.method,
-          events: form.events,
-          enabled: form.enabled,
-        });
+        await apiClient.put(`/webhook/${form.id}`, payload);
       } else {
-        await apiClient.post('/webhook', {
-          name: form.name,
-          url: form.url,
-          method: form.method,
-          events: form.events,
-          enabled: form.enabled,
-        });
+        await apiClient.post('/webhook', payload);
       }
       resetForm();
       await load();
@@ -105,6 +139,12 @@ const WebhooksTab: React.FC<Props> = ({ t }) => {
     } finally {
       setBusy(false);
     }
+  };
+
+  const applyPreset = (key: string) => {
+    const preset = PAYLOAD_PRESETS[key];
+    if (!preset) return;
+    setForm(prev => ({ ...prev, payloadTemplate: preset.template }));
   };
 
   const remove = async (id: number) => {
@@ -135,15 +175,31 @@ const WebhooksTab: React.FC<Props> = ({ t }) => {
     }
   };
 
-  const editRow = (w: WebhookDto) => {
-    setForm({
-      id: w.id,
-      name: w.name,
-      url: w.url,
-      method: w.method || 'POST',
-      events: w.events,
-      enabled: w.enabled,
-    });
+  const editRow = async (w: WebhookDto) => {
+    // GET-by-id returns the full record including payloadTemplate, the list
+    // endpoint omits it to keep the table light.
+    try {
+      const resp = await apiClient.get<WebhookDto & { payloadTemplate?: string | null }>(`/webhook/${w.id}`);
+      setForm({
+        id: resp.data.id,
+        name: resp.data.name,
+        url: resp.data.url,
+        method: resp.data.method || 'POST',
+        events: resp.data.events,
+        enabled: resp.data.enabled,
+        payloadTemplate: resp.data.payloadTemplate || '',
+      });
+    } catch {
+      setForm({
+        id: w.id,
+        name: w.name,
+        url: w.url,
+        method: w.method || 'POST',
+        events: w.events,
+        enabled: w.enabled,
+        payloadTemplate: '',
+      });
+    }
     setEditing(true);
   };
 
@@ -208,6 +264,33 @@ const WebhooksTab: React.FC<Props> = ({ t }) => {
             </label>
           ))}
         </div>
+      </div>
+
+      <div className="form-group">
+        <label htmlFor="webhook-template">{t('webhooksPayloadTemplate') || 'Payload template (optional)'}</label>
+        <div className="webhook-preset-row">
+          <span className="webhook-preset-label">{t('webhooksPresets') || 'Quick fill:'}</span>
+          {Object.entries(PAYLOAD_PRESETS).map(([key, preset]) => (
+            <button
+              key={key}
+              type="button"
+              className="btn-secondary btn-sm"
+              onClick={() => applyPreset(key)}
+              disabled={busy}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+        <textarea
+          id="webhook-template"
+          rows={8}
+          value={form.payloadTemplate}
+          onChange={(e) => setForm({ ...form, payloadTemplate: e.target.value })}
+          disabled={busy}
+          placeholder={t('webhooksPayloadTemplateHint') || 'Leave empty to send the default JSON envelope. Use {event}, {timestamp}, {data} as placeholders.'}
+          style={{ fontFamily: 'monospace', fontSize: '0.85rem', width: '100%' }}
+        />
       </div>
 
       <div className="form-group">

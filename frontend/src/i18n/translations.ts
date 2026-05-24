@@ -437,6 +437,33 @@ export const translations = {
         proxySettingsSaved: 'Configuración de proxy guardada.',
         proxyErrorSaving: 'Error al guardar la configuración del proxy',
         saving: 'Guardando...',
+        // Wishlist
+        wishlistTitle: 'Lista de deseos',
+        wishlistSubtitle: 'Sigue los precios de Steam de los juegos que quieres.',
+        wishlistCountry: 'País',
+        wishlistRefresh: 'Actualizar precios',
+        wishlistRefreshing: 'Actualizando...',
+        wishlistEmpty: 'Aún no hay juegos en la lista de deseos.',
+        wishlistEmptyHint: 'Abre un juego, pulsa el icono de lista de deseos, y el rastreador lo recogerá.',
+        wishlistTrackable: 'Seguimiento en Steam',
+        wishlistUntrackable: 'Sin coincidencia en Steam',
+        wishlistUntrackableHint: 'Estos juegos necesitan un Steam ID antes de que pueda iniciarse el seguimiento de precio. Corrige los metadatos en la página del juego.',
+        wishlistCurrentPrice: 'Ahora',
+        wishlistPreviousPrice: 'Antes',
+        wishlistTargetPrice: 'Alerta por debajo',
+        wishlistTargetPlaceholder: 'ej. 9,99',
+        wishlistStartTracking: 'Seguir precio',
+        wishlistStopTracking: 'Detener seguimiento',
+        wishlistLastChecked: 'Comprobado',
+        wishlistRefreshSummary: 'Comprobados {checked}, actualizados {updated}, bajados {dropped}, objetivo alcanzado {target}, fallidos {failed}.',
+        wishlistRefreshFailed: 'No se pudieron actualizar los precios.',
+        wishlistLoadFailed: 'No se pudo cargar la lista de deseos.',
+        wishlistTrackFailed: 'No se pudo guardar el seguimiento.',
+        wishlistRemoveFailed: 'No se pudo eliminar el seguimiento.',
+        // Webhook templates
+        webhooksPayloadTemplate: 'Plantilla del payload (opcional)',
+        webhooksPayloadTemplateHint: 'Déjalo vacío para enviar el JSON estándar. Usa {event}, {timestamp}, {data} como marcadores.',
+        webhooksPresets: 'Relleno rápido:',
     },
     en: {
         // Settings
@@ -1046,6 +1073,10 @@ export const translations = {
         wishlistLoadFailed: 'Could not load the wishlist.',
         wishlistTrackFailed: 'Could not save the tracker.',
         wishlistRemoveFailed: 'Could not remove the tracker.',
+        // Webhook templates
+        webhooksPayloadTemplate: 'Payload template (optional)',
+        webhooksPayloadTemplateHint: 'Leave empty to send the default JSON envelope. Use {event}, {timestamp}, {data} as placeholders.',
+        webhooksPresets: 'Quick fill:',
     },
     fr: {
         // Post-Download Management
@@ -1483,6 +1514,10 @@ export const translations = {
         wishlistLoadFailed: 'Impossible de charger la liste de souhaits.',
         wishlistTrackFailed: "Impossible d'enregistrer le suivi.",
         wishlistRemoveFailed: 'Impossible de supprimer le suivi.',
+        // Webhook templates
+        webhooksPayloadTemplate: 'Modèle de payload (optionnel)',
+        webhooksPayloadTemplateHint: 'Laissez vide pour envoyer le JSON par défaut. Utilisez {event}, {timestamp}, {data} comme variables.',
+        webhooksPresets: 'Remplissage rapide :',
     },
     de: {
         // Post-Download Management
@@ -1980,6 +2015,10 @@ export const translations = {
         wishlistLoadFailed: 'Wunschliste konnte nicht geladen werden.',
         wishlistTrackFailed: 'Tracker konnte nicht gespeichert werden.',
         wishlistRemoveFailed: 'Tracker konnte nicht entfernt werden.',
+        // Webhook templates
+        webhooksPayloadTemplate: 'Payload-Template (optional)',
+        webhooksPayloadTemplateHint: 'Leer lassen für die Standard-JSON-Hülle. {event}, {timestamp}, {data} als Platzhalter verwenden.',
+        webhooksPresets: 'Schnellausfüllen:',
     },
     ru: {
         // Post-Download Management
@@ -2385,6 +2424,10 @@ export const translations = {
         wishlistLoadFailed: 'Не удалось загрузить список желаний.',
         wishlistTrackFailed: 'Не удалось сохранить отслеживание.',
         wishlistRemoveFailed: 'Не удалось удалить отслеживание.',
+        // Webhook templates
+        webhooksPayloadTemplate: 'Шаблон полезной нагрузки (необязательно)',
+        webhooksPayloadTemplateHint: 'Оставьте пустым для отправки стандартного JSON. Используйте {event}, {timestamp}, {data} как переменные.',
+        webhooksPresets: 'Быстрая вставка:',
     },
     zh: {
         // Post-Download Management
@@ -2783,6 +2826,10 @@ export const translations = {
         wishlistLoadFailed: '无法加载愿望单。',
         wishlistTrackFailed: '无法保存跟踪。',
         wishlistRemoveFailed: '无法删除跟踪。',
+        // Webhook templates
+        webhooksPayloadTemplate: '负载模板（可选）',
+        webhooksPayloadTemplateHint: '留空发送默认 JSON。使用 {event}、{timestamp}、{data} 作为占位符。',
+        webhooksPresets: '快速填充：',
     },
     ja: {
         // Post-Download Management
@@ -3176,6 +3223,10 @@ export const translations = {
         wishlistLoadFailed: 'ウィッシュリストを読み込めませんでした。',
         wishlistTrackFailed: 'トラッカーを保存できませんでした。',
         wishlistRemoveFailed: 'トラッカーを削除できませんでした。',
+        // Webhook templates
+        webhooksPayloadTemplate: 'ペイロードテンプレート（任意）',
+        webhooksPayloadTemplateHint: '空欄でデフォルトの JSON を送信。{event}、{timestamp}、{data} をプレースホルダーとして使用。',
+        webhooksPresets: 'クイック入力:',
     },
 } as const;
 

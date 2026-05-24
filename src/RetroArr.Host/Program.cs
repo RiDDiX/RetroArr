@@ -309,6 +309,7 @@ namespace RetroArr.Host
             // Wishlist price tracking (Steam Storefront, no-auth)
             builder.Services.AddSingleton<RetroArr.Core.Wishlist.SteamPriceClient>();
             builder.Services.AddScoped<RetroArr.Core.Wishlist.WishlistPriceService>();
+            builder.Services.AddHostedService<RetroArr.Core.Wishlist.WishlistPricePollerService>();
 
 
             // Show IGDB status at startup
