@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using RetroArr.Core.Games;
 using RetroArr.Core.Download.History;
 using RetroArr.Core.Notifications;
+using RetroArr.Core.Wishlist;
 using System.Collections.Generic;
 using System.Text.Json;
 using System.Linq;
@@ -33,6 +34,9 @@ namespace RetroArr.Core.Data
 
         // Scanner discoveries pending user import
         public DbSet<DiscoveredGame> DiscoveredGames { get; set; }
+
+        // Wishlist price tracking
+        public DbSet<WishlistPriceWatch> WishlistPriceWatches { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -238,6 +242,26 @@ namespace RetroArr.Core.Data
                     .HasDatabaseName("IX_DiscoveredGames_Path");
                 entity.HasIndex(e => e.PlatformKey)
                     .HasDatabaseName("IX_DiscoveredGames_PlatformKey");
+            });
+
+            modelBuilder.Entity<WishlistPriceWatch>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Provider).IsRequired().HasMaxLength(20);
+                entity.Property(e => e.ExternalId).IsRequired().HasMaxLength(64);
+                entity.Property(e => e.Currency).HasMaxLength(8);
+                entity.Property(e => e.CurrentPrice).HasColumnType("decimal(10,2)");
+                entity.Property(e => e.PreviousPrice).HasColumnType("decimal(10,2)");
+                entity.Property(e => e.TargetPrice).HasColumnType("decimal(10,2)");
+                entity.HasOne(e => e.Game)
+                    .WithMany()
+                    .HasForeignKey(e => e.GameId)
+                    .OnDelete(DeleteBehavior.Cascade);
+                entity.HasIndex(e => new { e.GameId, e.Provider })
+                    .IsUnique()
+                    .HasDatabaseName("IX_WishlistPriceWatches_GameId_Provider");
+                entity.HasIndex(e => e.Provider)
+                    .HasDatabaseName("IX_WishlistPriceWatches_Provider");
             });
         }
     }

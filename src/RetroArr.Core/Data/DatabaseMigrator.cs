@@ -64,6 +64,7 @@ namespace RetroArr.Core.Data
                 EnsureColumns(connection, "GameFiles", GameFilesColumns, dbType);
                 EnsureDownloadTablesSafe(connection, dbType);
                 EnsureDiscoveryTablesSafe(connection, dbType);
+                EnsureWishlistTablesSafe(connection, dbType);
                 EnsureIndexesSafe(connection, dbType);
                 EnsurePlatformsSafe(connection, dbType);
                 RescueOrphanPlatformRefs(connection, dbType);
@@ -260,6 +261,83 @@ namespace RetroArr.Core.Data
             catch (Exception ex)
             {
                 _logger.Info($"[Database] DiscoveredGames table skipped: {ex.Message}");
+            }
+        }
+
+        private static void EnsureWishlistTablesSafe(DbConnection connection, DatabaseType dbType)
+        {
+            try
+            {
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = dbType switch
+                {
+                    DatabaseType.PostgreSQL => @"
+                        CREATE TABLE IF NOT EXISTS ""WishlistPriceWatches"" (
+                            ""Id"" SERIAL PRIMARY KEY,
+                            ""GameId"" INTEGER NOT NULL,
+                            ""Provider"" VARCHAR(20) NOT NULL DEFAULT 'steam',
+                            ""ExternalId"" VARCHAR(64) NOT NULL,
+                            ""Currency"" VARCHAR(8),
+                            ""CurrentPrice"" NUMERIC(10,2),
+                            ""PreviousPrice"" NUMERIC(10,2),
+                            ""TargetPrice"" NUMERIC(10,2),
+                            ""NotifyOnAnyDrop"" BOOLEAN NOT NULL DEFAULT TRUE,
+                            ""IsOnSale"" BOOLEAN NOT NULL DEFAULT FALSE,
+                            ""DiscountPercent"" INTEGER,
+                            ""LastCheckedAt"" TIMESTAMP,
+                            ""LastChangedAt"" TIMESTAMP,
+                            ""CreatedAt"" TIMESTAMP NOT NULL DEFAULT NOW(),
+                            CONSTRAINT FK_WishlistPriceWatches_Games_GameId FOREIGN KEY (""GameId"") REFERENCES ""Games"" (""Id"") ON DELETE CASCADE
+                        );
+                        CREATE UNIQUE INDEX IF NOT EXISTS ""IX_WishlistPriceWatches_GameId_Provider"" ON ""WishlistPriceWatches"" (""GameId"", ""Provider"");
+                        CREATE INDEX IF NOT EXISTS ""IX_WishlistPriceWatches_Provider"" ON ""WishlistPriceWatches"" (""Provider"");",
+                    DatabaseType.MariaDB => @"
+                        CREATE TABLE IF NOT EXISTS WishlistPriceWatches (
+                            Id INT AUTO_INCREMENT PRIMARY KEY,
+                            GameId INT NOT NULL,
+                            Provider VARCHAR(20) NOT NULL DEFAULT 'steam',
+                            ExternalId VARCHAR(64) NOT NULL,
+                            Currency VARCHAR(8),
+                            CurrentPrice DECIMAL(10,2),
+                            PreviousPrice DECIMAL(10,2),
+                            TargetPrice DECIMAL(10,2),
+                            NotifyOnAnyDrop TINYINT(1) NOT NULL DEFAULT 1,
+                            IsOnSale TINYINT(1) NOT NULL DEFAULT 0,
+                            DiscountPercent INT,
+                            LastCheckedAt DATETIME,
+                            LastChangedAt DATETIME,
+                            CreatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                            UNIQUE KEY IX_WishlistPriceWatches_GameId_Provider (GameId, Provider),
+                            INDEX IX_WishlistPriceWatches_Provider (Provider),
+                            CONSTRAINT FK_WishlistPriceWatches_Games_GameId FOREIGN KEY (GameId) REFERENCES Games(Id) ON DELETE CASCADE
+                        );",
+                    _ => @"
+                        CREATE TABLE IF NOT EXISTS WishlistPriceWatches (
+                            Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            GameId INTEGER NOT NULL,
+                            Provider TEXT NOT NULL DEFAULT 'steam',
+                            ExternalId TEXT NOT NULL,
+                            Currency TEXT,
+                            CurrentPrice DECIMAL(10,2),
+                            PreviousPrice DECIMAL(10,2),
+                            TargetPrice DECIMAL(10,2),
+                            NotifyOnAnyDrop INTEGER NOT NULL DEFAULT 1,
+                            IsOnSale INTEGER NOT NULL DEFAULT 0,
+                            DiscountPercent INTEGER,
+                            LastCheckedAt TEXT,
+                            LastChangedAt TEXT,
+                            CreatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+                            CONSTRAINT FK_WishlistPriceWatches_Games_GameId FOREIGN KEY (GameId) REFERENCES Games (Id) ON DELETE CASCADE
+                        );
+                        CREATE UNIQUE INDEX IF NOT EXISTS IX_WishlistPriceWatches_GameId_Provider ON WishlistPriceWatches (GameId, Provider);
+                        CREATE INDEX IF NOT EXISTS IX_WishlistPriceWatches_Provider ON WishlistPriceWatches (Provider);"
+                };
+                cmd.ExecuteNonQuery();
+                _logger.Info($"[Database] WishlistPriceWatches table ensured ({dbType}).");
+            }
+            catch (Exception ex)
+            {
+                _logger.Info($"[Database] WishlistPriceWatches table skipped: {ex.Message}");
             }
         }
 

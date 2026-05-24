@@ -305,8 +305,12 @@ namespace RetroArr.Host
             
             // Register SteamClient for direct usage (e.g. Settings Test/Sync)
             builder.Services.AddTransient<SteamClient>();
-            
-            
+
+            // Wishlist price tracking (Steam Storefront, no-auth)
+            builder.Services.AddSingleton<RetroArr.Core.Wishlist.SteamPriceClient>();
+            builder.Services.AddScoped<RetroArr.Core.Wishlist.WishlistPriceService>();
+
+
             // Show IGDB status at startup
             var igdbSettings = configService.LoadIgdbSettings();
             if (!igdbSettings.IsConfigured)

@@ -51,6 +51,7 @@ export function Sidebar() {
         { to: '/library',     label: t('library')     || 'Library'   },
         { to: '/platforms',   label: t('platforms')   || 'Platforms' },
         { to: '/collections', label: t('collections') || 'Collections' },
+        { to: '/wishlist',    label: t('wishlistTitle') || 'Wishlist' },
       ],
     },
     {

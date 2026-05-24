@@ -870,3 +870,54 @@ export const metadataReviewApi = {
   dismiss: (gameId: number) =>
     apiClient.post(`/metadata/review/${gameId}/dismiss`),
 };
+
+// -- Wishlist price tracking --
+export interface WishlistPriceWatch {
+  id: number;
+  gameId: number;
+  provider: string;
+  externalId: string;
+  currency: string | null;
+  currentPrice: number | null;
+  previousPrice: number | null;
+  targetPrice: number | null;
+  notifyOnAnyDrop: boolean;
+  isOnSale: boolean;
+  discountPercent: number | null;
+  lastCheckedAt: string | null;
+  lastChangedAt: string | null;
+  createdAt: string;
+}
+
+export interface WishlistEntryGame {
+  id: number;
+  title: string;
+  year: number;
+  platform: string | null;
+  cover: string | null;
+  steamId: number | null;
+  gogId: string | null;
+}
+
+export interface WishlistEntry {
+  game: WishlistEntryGame;
+  watch: WishlistPriceWatch | null;
+}
+
+export interface WishlistRefreshResult {
+  checkedCount: number;
+  updated: number;
+  dropped: number;
+  targetReached: number;
+  failed: number;
+}
+
+export const wishlistApi = {
+  getAll: () => apiClient.get<{ entries: WishlistEntry[] }>('/wishlist'),
+  setWatch: (gameId: number, body: { provider?: string; externalId: string; targetPrice?: number | null; notifyOnAnyDrop?: boolean }) =>
+    apiClient.post<WishlistPriceWatch>(`/wishlist/${gameId}/watch`, body),
+  removeWatch: (gameId: number, provider = 'steam') =>
+    apiClient.delete(`/wishlist/${gameId}/watch`, { params: { provider } }),
+  refresh: (countryCode = 'US') =>
+    apiClient.post<WishlistRefreshResult>('/wishlist/refresh', { countryCode }, { timeout: 120000 }),
+};
