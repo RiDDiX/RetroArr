@@ -41,24 +41,19 @@ namespace RetroArr.Core.Configuration
 
         // Trusted source prefixes that earn the verified-source bonus.
         // Case-insensitive substring match against the release title.
-        public List<string> VerifiedSources { get; set; } = new()
-        {
-            "No-Intro", "Redump", "TOSEC", "GoodSet"
-        };
+        // Initializers stay empty - System.Text.Json defaults to appending
+        // to existing collections instead of replacing them, which would
+        // duplicate every preset entry on each load round-trip. Real defaults
+        // come from CreateDefault() when the config file is missing.
+        public List<string> VerifiedSources { get; set; } = new();
 
         // Trusted scene/p2p groups. Earn a smaller bonus than verified
         // dumps but better than unknown uploaders.
-        public List<string> TrustedReleaseGroups { get; set; } = new()
-        {
-            "CODEX", "EMPRESS", "FitGirl", "DODI", "RUNE", "P2P", "GOG"
-        };
+        public List<string> TrustedReleaseGroups { get; set; } = new();
 
         // Tokens that trigger the hack/patch penalty when the user has
         // not explicitly asked for a hack/patch version of the game.
-        public List<string> HackPatchTokens { get; set; } = new()
-        {
-            "[Hack]", "[Patch]", "(Hack)", "Kaizo", "Translation", "Translated", "FanTranslation"
-        };
+        public List<string> HackPatchTokens { get; set; } = new();
 
         // Default preferred region used when the Game has no Region set.
         // Empty string = no preference, any region is fine.
@@ -67,5 +62,18 @@ namespace RetroArr.Core.Configuration
         // If true, anything not from a verified source or trusted group is
         // ineligible for auto-download (still surfaces in the manual view).
         public bool RequireTrustedSourceForAuto { get; set; } = true;
+
+        // Factory used by ConfigurationService when no monitor.json exists
+        // yet. Centralises the "sensible starter values" so the on-disk
+        // schema can stay empty-by-default.
+        public static MonitorSettings CreateDefault()
+        {
+            return new MonitorSettings
+            {
+                VerifiedSources = new List<string> { "No-Intro", "Redump", "TOSEC", "GoodSet" },
+                TrustedReleaseGroups = new List<string> { "CODEX", "EMPRESS", "FitGirl", "DODI", "RUNE", "P2P", "GOG" },
+                HackPatchTokens = new List<string> { "[Hack]", "[Patch]", "(Hack)", "Kaizo", "Translation", "Translated", "FanTranslation" }
+            };
+        }
     }
 }

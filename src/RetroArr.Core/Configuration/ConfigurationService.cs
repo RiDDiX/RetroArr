@@ -696,17 +696,43 @@ namespace RetroArr.Core.Configuration
                 try
                 {
                     var json = File.ReadAllText(_monitorConfigFile);
-                    return JsonSerializer.Deserialize<MonitorSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new MonitorSettings();
+                    var loaded = JsonSerializer.Deserialize<MonitorSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? MonitorSettings.CreateDefault();
+                    // Older config files written before the append-bug fix may
+                    // hold the same preset twice. Squash duplicates on read so
+                    // affected installs heal on next boot without manual edit.
+                    loaded.VerifiedSources = DedupeCaseInsensitive(loaded.VerifiedSources);
+                    loaded.TrustedReleaseGroups = DedupeCaseInsensitive(loaded.TrustedReleaseGroups);
+                    loaded.HackPatchTokens = DedupeCaseInsensitive(loaded.HackPatchTokens);
+                    return loaded;
                 }
                 catch (Exception ex) { _logger.Error($"Error loading monitor settings: {ex.Message}"); }
             }
-            return new MonitorSettings();
+            return MonitorSettings.CreateDefault();
+        }
+
+        private static List<string> DedupeCaseInsensitive(List<string> values)
+        {
+            if (values == null || values.Count == 0) return new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var result = new List<string>(values.Count);
+            foreach (var v in values)
+            {
+                if (string.IsNullOrWhiteSpace(v)) continue;
+                var trimmed = v.Trim();
+                if (seen.Add(trimmed)) result.Add(trimmed);
+            }
+            return result;
         }
 
         public void SaveMonitorSettings(MonitorSettings settings)
         {
             try
             {
+                // Belt-and-braces: also dedupe on write so a UI that submits
+                // duplicates can't poison the file.
+                settings.VerifiedSources = DedupeCaseInsensitive(settings.VerifiedSources);
+                settings.TrustedReleaseGroups = DedupeCaseInsensitive(settings.TrustedReleaseGroups);
+                settings.HackPatchTokens = DedupeCaseInsensitive(settings.HackPatchTokens);
                 File.WriteAllText(_monitorConfigFile, JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true }));
                 _logger.Info($"[Configuration] Monitor settings saved. Enabled={settings.Enabled} autoThreshold={settings.AutoDownloadThreshold}");
             }
