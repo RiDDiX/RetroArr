@@ -1,3 +1,8 @@
+## v1.0.177 (2026-05-24)
+
+### Changes
+- wishlist auto-poller, webhook events, and payload presets (59fd480)
+
 ## v1.0.176 (2026-05-24)
 
 ### Changes
