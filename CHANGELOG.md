@@ -1,3 +1,8 @@
+## v1.0.176 (2026-05-24)
+
+### Changes
+- add steam price tracking for wishlisted games (3a30401)
+
 ## v1.0.175 (2026-05-24)
 
 ### Changes
