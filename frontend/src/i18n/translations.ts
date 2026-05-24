@@ -1132,6 +1132,9 @@ export const translations = {
         monitorSettingsHackTokens: 'Hack/patch tokens',
         monitorSettingsPreferredRegion: 'Default preferred region (empty = any)',
         monitorSettingsRequireTrusted: 'Require trusted source for auto-download (block unknown uploaders even when score is high)',
+        // API key gate
+        apiKeyVerifying: 'Verifying...',
+        apiKeyVerifyFailed: 'That key did not work. Double-check it and try again.',
     },
     fr: {
         // Post-Download Management

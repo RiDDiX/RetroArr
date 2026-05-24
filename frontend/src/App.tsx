@@ -30,6 +30,7 @@ import KofiOverlay from './components/KofiOverlay';
 import LanguageSwitcher from './components/LanguageSwitcher';
 import ProgressHubBridge from './components/ProgressHubBridge';
 import CoreMappingBootstrap from './components/CoreMappingBootstrap';
+import ApiKeyGate from './components/ApiKeyGate';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -50,6 +51,7 @@ function App() {
     <UIProvider>
       <Router>
         <BootScreen />
+        <ApiKeyGate />
         <KofiOverlay />
         <ScannerStatus />
         <LanguageSwitcher />
