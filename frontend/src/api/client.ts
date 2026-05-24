@@ -30,6 +30,7 @@ export function withApiKey(url: string): string {
 }
 
 export function setApiKey(key: string | null) {
+  const changed = _apiKey !== key;
   _apiKey = key;
   try {
     if (typeof localStorage !== 'undefined') {
@@ -37,6 +38,14 @@ export function setApiKey(key: string | null) {
       else localStorage.removeItem(API_KEY_STORAGE);
     }
   } catch { /* ignore storage errors */ }
+
+  // Notify the SignalR hub (and anyone else who cares) that auth changed
+  // so the connection can rebuild with the new credentials. Without this
+  // the sidebar status sticks on OFFLINE until the user reloads.
+  if (changed && typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    try { window.dispatchEvent(new Event('RetroArr_apiKey_changed')); }
+    catch { /* old browsers, ignore */ }
+  }
 }
 
 async function bootstrapApiKey(): Promise<string | null> {

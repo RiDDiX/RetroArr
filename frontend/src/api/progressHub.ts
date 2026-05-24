@@ -30,6 +30,18 @@ class ProgressHubClient {
   };
   private connState: ConnState = 'disconnected';
   private readonly connListeners = new Set<ConnListener>();
+  private restarting = false;
+
+  constructor() {
+    // Hot-swap the connection when the API key changes (e.g. user pastes a
+    // new key in the API access tab). Without this the hub keeps using the
+    // old token and the sidebar sticks on OFFLINE until the user hits F5.
+    if (typeof window !== 'undefined') {
+      window.addEventListener('RetroArr_apiKey_changed', () => {
+        this.restart().catch(() => { /* state listeners handle UI */ });
+      });
+    }
+  }
 
   getConnectionState(): ConnState {
     return this.connState;
@@ -90,6 +102,26 @@ class ProgressHubClient {
       // SignalR owns the reconnect loop (exponential backoff configured in
       // withAutomaticReconnect above). No manual retry needed.
       this.setConnState('disconnected');
+    }
+  }
+
+  // Tears down the current connection and brings up a fresh one with the
+  // latest API key. Called when setApiKey fires the change event so the
+  // OFFLINE -> LIVE flip happens without a full page reload.
+  async restart(): Promise<void> {
+    if (this.restarting) return;
+    this.restarting = true;
+    try {
+      this.setConnState('reconnecting');
+      if (this.connection) {
+        try { await this.connection.stop(); } catch { /* ignore - we're rebuilding */ }
+        this.connection = null;
+      }
+      // Reset listeners are NOT cleared - subscribers keep their handlers
+      // wired across the restart. ensureConnection() rebinds the .on() side.
+      await this.start();
+    } finally {
+      this.restarting = false;
     }
   }
 
