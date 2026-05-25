@@ -412,6 +412,14 @@ namespace RetroArr.Core.Test.Games
             Assert.That(info.Version, Is.EqualTo("v1.01"));
         }
 
+        [Test]
+        public void Classify_PcPatchBareVersion_Extracted()
+        {
+            var info = _sut.ClassifySupplementaryContent("iDigging Patch 1.7.0.zip");
+            Assert.That(info.FileType, Is.EqualTo("Patch"));
+            Assert.That(info.Version, Is.EqualTo("1.7.0"));
+        }
+
         // --- PS4/PS5 content type suffix ---
 
         [Test]
@@ -420,6 +428,7 @@ namespace RetroArr.Core.Test.Games
             var info = _sut.ClassifySupplementaryContent("CUSA09193-patch_v1.02.pkg");
             Assert.That(info.FileType, Is.EqualTo("Patch"));
             Assert.That(info.Serial, Is.EqualTo("CUSA09193"));
+            Assert.That(info.Version, Is.EqualTo("v1.02"));
         }
 
         [Test]

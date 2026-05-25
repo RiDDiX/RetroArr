@@ -378,7 +378,9 @@ namespace RetroArr.Core.Test.Games
             }
         }
 
-        [TestCase("Gran Turismo 7", "Patch", "3.0.1", null, ".pkg", "Gran Turismo 7-Patch-v3.0.1.pkg")]
+        [TestCase("Gran Turismo 7", "Patch", "v3.0.1", null, ".pkg", "Gran Turismo 7-Patch-v3.0.1.pkg")]
+        [TestCase("iDigging", "Patch", "1.7.0", null, ".zip", "iDigging-Patch-1.7.0.zip")]
+        [TestCase("Bayonetta 2", "Patch", "v65536", null, ".nsp", "Bayonetta 2-Patch-v65536.nsp")]
         [TestCase("Gran Turismo 7", "Patch", null, null, ".pkg", "Gran Turismo 7-Patch.pkg")]
         [TestCase("Bayonetta 2", "DLC", null, "Map Pack", ".nsp", "Bayonetta 2-DLC-Map Pack.nsp")]
         [TestCase("Bayonetta 2", "DLC", null, null, ".nsp", "Bayonetta 2-DLC.nsp")]

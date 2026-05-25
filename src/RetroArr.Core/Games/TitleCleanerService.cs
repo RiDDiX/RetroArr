@@ -157,6 +157,10 @@ namespace RetroArr.Core.Games
             @"v\d+([a-zA-Z0-9._-]+)*",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+        private static readonly Regex _bareVersionRegex = new Regex(
+            @"(?<!\d)(\d+(?:\.\d+)+)\s*$",
+            RegexOptions.Compiled);
+
         // PS4 specific codes: A0100, V0100
         private static readonly Regex _ps4CodeRegex = new Regex(
             @"\b[AV]\d{4}\b",
@@ -808,6 +812,14 @@ namespace RetroArr.Core.Games
                 if (verMatch.Success)
                 {
                     result.Version = verMatch.Value;
+                }
+                else
+                {
+                    var bareVerMatch = _bareVersionRegex.Match(baseName);
+                    if (bareVerMatch.Success)
+                    {
+                        result.Version = bareVerMatch.Groups[1].Value;
+                    }
                 }
             }
 

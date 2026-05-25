@@ -986,8 +986,7 @@ namespace RetroArr.Core.Games
                 string expectedFileName;
                 if (gf.FileType == "Patch")
                 {
-                    var ver = gf.Version?.TrimStart('v', 'V');
-                    expectedFileName = BuildSupplementaryFileName(game.Title, "Patch", ver, null, ext);
+                    expectedFileName = BuildSupplementaryFileName(game.Title, "Patch", gf.Version, null, ext);
                 }
                 else
                 {
@@ -1073,7 +1072,7 @@ namespace RetroArr.Core.Games
 
             if (type == "Patch")
             {
-                var versionPart = !string.IsNullOrEmpty(version) ? $"-v{version}" : "";
+                var versionPart = !string.IsNullOrEmpty(version) ? $"-{version}" : "";
                 raw = $"{gameTitle}-Patch{versionPart}";
             }
             else
