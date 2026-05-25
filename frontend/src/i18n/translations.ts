@@ -3365,10 +3365,11 @@ export const t = (key: TranslationKey, lang?: Language): string => {
     return translations[language][key] || translations['en'][key] || key;
 };
 
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 
 export const useTranslation = () => {
     const [language, setLangState] = useState<Language>(getLanguage());
+    const translate = useCallback((key: TranslationKey) => t(key, language), [language]);
 
     useEffect(() => {
         const handleLanguageChange = () => {
@@ -3382,7 +3383,7 @@ export const useTranslation = () => {
     }, []);
 
     return {
-        t: (key: TranslationKey) => t(key, language),
+        t: translate,
         language,
         setLanguage
     };

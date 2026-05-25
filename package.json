@@ -9,7 +9,8 @@
     "start": "webpack --watch --config ./frontend/build/webpack.config.js",
     "watch": "webpack --watch --config ./frontend/build/webpack.config.js",
     "lint": "eslint frontend/",
-    "lint-fix": "npm run lint -- --fix"
+    "lint-fix": "npm run lint -- --fix",
+    "test:frontend": "node tests/translation-hook-stability.test.cjs"
   },
   "author": "Team RetroArr",
   "license": "MIT",
