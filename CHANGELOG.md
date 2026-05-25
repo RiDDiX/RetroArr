@@ -1,3 +1,8 @@
+## v1.0.183 (2026-05-25)
+
+### Changes
+- fix wishlist reload loop (7891c6d)
+
 ## v1.0.182 (2026-05-24)
 
 ### Changes
