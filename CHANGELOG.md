@@ -1,3 +1,8 @@
+## v1.0.184 (2026-05-25)
+
+### Changes
+- fix search result age (d9bd993)
+
 ## v1.0.183 (2026-05-25)
 
 ### Changes
