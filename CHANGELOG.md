@@ -1,3 +1,8 @@
+## v1.0.185 (2026-05-25)
+
+### Changes
+- fix patch rename versions (6fddb0b)
+
 ## v1.0.184 (2026-05-25)
 
 ### Changes
