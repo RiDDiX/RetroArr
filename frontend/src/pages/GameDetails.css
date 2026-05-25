@@ -378,7 +378,7 @@
 
 .results-header-row {
   display: grid;
-  grid-template-columns: 110px 1fr 120px 100px 80px 80px 100px;
+  grid-template-columns: 110px 1fr 140px 100px 80px 80px 60px 100px;
   gap: 12px;
   padding: 12px 16px;
   background: var(--ctp-surface0);
@@ -396,7 +396,7 @@
 
 .results-row {
   display: grid;
-  grid-template-columns: 110px 1fr 120px 100px 80px 80px 100px;
+  grid-template-columns: 110px 1fr 140px 100px 80px 80px 60px 100px;
   gap: 12px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--ctp-surface0);
@@ -452,7 +452,7 @@
 .col-title .title-content {
   display: flex;
   align-items: center;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   min-width: 0;
 }
 
@@ -460,9 +460,8 @@
   color: var(--ctp-blue);
   text-decoration: none;
   font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
   display: inline-block;
   max-width: 100%;
 }
@@ -474,6 +473,8 @@
 
 .col-title .title-text {
   font-weight: 500;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .col-title .release-group {
@@ -484,6 +485,8 @@
 
 .col-indexer .indexer-name {
   font-weight: 500;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .col-indexer .indexer-flags {
@@ -729,7 +732,7 @@
 
   .results-header-row,
   .results-row {
-    grid-template-columns: 70px 1fr 100px 80px 70px 70px 80px;
+    grid-template-columns: 70px 1fr 100px 80px 70px 70px 55px 80px;
   }
 
   .col-quality .quality-info {

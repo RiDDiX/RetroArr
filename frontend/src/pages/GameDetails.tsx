@@ -66,9 +66,9 @@ interface TorrentResult {
   leechers?: number;
   totalPeers?: number;
   publishDate: string;
-  age: number;
-  ageHours: number;
-  ageMinutes: number;
+  age?: number;
+  ageHours?: number;
+  ageMinutes?: number;
   category: string;
   categoryName?: string;
   grabs?: number;
@@ -1795,6 +1795,7 @@ const GameDetails: React.FC = () => {
                     <div className="col-platform">{t('platform')}</div>
                     <div className="col-size sortable" onClick={() => handleSort('size')}>{t('size')} {getSortIcon('size')}</div>
                     <div className="col-peers sortable" onClick={() => handleSort('seeders')}>{t('peers')} {getSortIcon('seeders')}</div>
+                    <div className="col-age sortable" onClick={() => handleSort('publishDate')}>{t('age')} {getSortIcon('publishDate')}</div>
                     <div className="col-actions">{t('download')}</div>
                   </div>
 
@@ -1908,6 +1909,12 @@ const GameDetails: React.FC = () => {
                               </span>
                             </div>
                           )}
+                        </div>
+
+                        <div className="col-age">
+                          <span className="age" title={result.publishDate ? new Date(result.publishDate).toLocaleString() : ''}>
+                            {result.formattedAge || '-'}
+                          </span>
                         </div>
 
 

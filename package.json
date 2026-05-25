@@ -10,7 +10,7 @@
     "watch": "webpack --watch --config ./frontend/build/webpack.config.js",
     "lint": "eslint frontend/",
     "lint-fix": "npm run lint -- --fix",
-    "test:frontend": "node tests/translation-hook-stability.test.cjs"
+    "test:frontend": "node tests/translation-hook-stability.test.cjs && node tests/download-search-age-display.test.cjs && node tests/download-search-name-wrap.test.cjs"
   },
   "author": "Team RetroArr",
   "license": "MIT",
