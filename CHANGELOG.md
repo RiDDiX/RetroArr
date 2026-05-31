@@ -1,3 +1,8 @@
+## v1.0.186 (2026-05-31)
+
+### Changes
+- test epic account wiring (2d85788)
+
 ## v1.0.185 (2026-05-25)
 
 ### Changes
