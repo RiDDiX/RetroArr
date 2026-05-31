@@ -1,3 +1,8 @@
+## v1.0.187 (2026-05-31)
+
+### Changes
+- feat epic free games (b947ced)
+
 ## v1.0.186 (2026-05-31)
 
 ### Changes
