@@ -40,6 +40,25 @@ namespace RetroArr.Api.V3.Epic
             });
         }
 
+        [HttpGet("free-games")]
+        public async Task<ActionResult> GetFreeGames([FromQuery] string? country, [FromQuery] string? locale)
+        {
+            try
+            {
+                var metadata = _configService.LoadEpicMetadataSettings();
+                var resolvedCountry = string.IsNullOrWhiteSpace(country) ? metadata.Country : country.Trim();
+                var resolvedLocale = string.IsNullOrWhiteSpace(locale) ? metadata.Locale : locale.Trim();
+                var client = new EpicFreeGamesClient();
+                var games = await client.GetFreeGamesAsync(resolvedLocale, resolvedCountry);
+                return Ok(games);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"[Epic] Free games error: {ex.GetType().Name}: {ex.Message}");
+                return StatusCode(500, new { success = false, message = "Failed to load Epic free games." });
+            }
+        }
+
         [HttpGet("auth/url")]
         public ActionResult GetAuthUrl()
         {

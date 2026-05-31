@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import apiClient, { getErrorMessage, SteamSyncStatus, ProtonDbRefreshStatus } from '../../api/client';
+import apiClient, { EpicFreeGame, getErrorMessage, SteamSyncStatus, ProtonDbRefreshStatus } from '../../api/client';
 import steamLogo from '../../assets/steam_logo.png';
 
 interface AccountsTabProps {
@@ -7,7 +7,7 @@ interface AccountsTabProps {
   t: (key: string) => string;
 }
 
-const AccountsTab: React.FC<AccountsTabProps> = ({ t }) => {
+const AccountsTab: React.FC<AccountsTabProps> = ({ language, t }) => {
   // Steam
   const [steamApiKey, setSteamApiKey] = useState('');
   const [steamId, setSteamId] = useState('');
@@ -40,6 +40,10 @@ const AccountsTab: React.FC<AccountsTabProps> = ({ t }) => {
   const [epicSyncing, setEpicSyncing] = useState(false);
   const [epicAuthenticating, setEpicAuthenticating] = useState(false);
   const [epicSyncResult, setEpicSyncResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [epicFreeGames, setEpicFreeGames] = useState<EpicFreeGame[]>([]);
+  const [epicFreeGamesLoading, setEpicFreeGamesLoading] = useState(false);
+  const [epicFreeGamesLoaded, setEpicFreeGamesLoaded] = useState(false);
+  const [epicFreeGamesError, setEpicFreeGamesError] = useState<string | null>(null);
 
   useEffect(() => {
     loadSettings();
@@ -67,6 +71,35 @@ const AccountsTab: React.FC<AccountsTabProps> = ({ t }) => {
     }
   };
 
+
+  const epicLocaleMap: Record<string, { locale: string; country: string }> = {
+    de: { locale: 'de-DE', country: 'DE' },
+    en: { locale: 'en-US', country: 'US' },
+    es: { locale: 'es-ES', country: 'ES' },
+    fr: { locale: 'fr-FR', country: 'FR' },
+    ja: { locale: 'ja-JP', country: 'JP' },
+    ru: { locale: 'ru-RU', country: 'RU' },
+    zh: { locale: 'zh-CN', country: 'CN' },
+  };
+
+  const getEpicStoreParams = () => epicLocaleMap[language] || epicLocaleMap.en;
+
+  const formatEpicPromoDate = (value?: string | null) => {
+    if (!value) return '';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return new Intl.DateTimeFormat(language, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    }).format(parsed);
+  };
+
+  const openEpicStoreUrl = (storeUrl?: string | null) => {
+    if (!storeUrl) return;
+    window.open(storeUrl, '_blank', 'noopener,noreferrer');
+  };
+
   // Epic handlers
   const handleEpicLogin = async () => {
     try {
@@ -79,7 +112,7 @@ const AccountsTab: React.FC<AccountsTabProps> = ({ t }) => {
 
   const handleEpicAuthCode = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!epicAuthCode.trim()) { alert('Enter the authorization code or paste the JSON blob from the Epic redirect page'); return; }
+    if (!epicAuthCode.trim()) { alert(t('epicEnterCodeAlert')); return; }
     setEpicAuthenticating(true);
     setEpicSyncResult(null);
     try {
@@ -88,9 +121,9 @@ const AccountsTab: React.FC<AccountsTabProps> = ({ t }) => {
         setEpicIsAuthenticated(true);
         setEpicDisplayName(res.data.displayName || res.data.accountId || '');
         setEpicAuthCode('');
-        setEpicSyncResult({ success: true, message: res.data.message || 'Connected to Epic Games' });
+        setEpicSyncResult({ success: true, message: res.data.message || t('epicConnected') });
       } else {
-        setEpicSyncResult({ success: false, message: res.data.message || 'Authentication failed' });
+        setEpicSyncResult({ success: false, message: res.data.message || t('epicAuthFailed') });
       }
     } catch (error: unknown) {
       setEpicSyncResult({ success: false, message: getErrorMessage(error) });
@@ -107,12 +140,14 @@ const AccountsTab: React.FC<AccountsTabProps> = ({ t }) => {
       const res = await apiClient.post('/epic/sync', null, { timeout: 600000 });
       if (res.data.success) {
         const { added = 0, skipped = 0, failed = 0 } = res.data;
+        const parts = [`${added} ${t('added')}`, `${skipped} ${t('skipped')}`];
+        if (failed > 0) parts.push(`${failed} ${t('failed')}`);
         setEpicSyncResult({
           success: true,
-          message: `Epic sync done: ${added} added, ${skipped} skipped${failed > 0 ? `, ${failed} failed` : ''}`
+          message: `${t('epicSyncDone')}: ${parts.join(', ')}`
         });
       } else {
-        setEpicSyncResult({ success: false, message: res.data.message || 'Sync failed' });
+        setEpicSyncResult({ success: false, message: res.data.message || t('epicSyncFailed') });
       }
     } catch (error: unknown) {
       setEpicSyncResult({ success: false, message: `${t('error')}: ${getErrorMessage(error)}` });
@@ -131,6 +166,30 @@ const AccountsTab: React.FC<AccountsTabProps> = ({ t }) => {
     } catch (error: unknown) {
       console.error('Error disconnecting Epic:', error);
     }
+  };
+
+
+  const handleLoadEpicFreeGames = async () => {
+    setEpicFreeGamesLoading(true);
+    setEpicFreeGamesError(null);
+    try {
+      const { locale, country } = getEpicStoreParams();
+      const res = await apiClient.get<EpicFreeGame[]>('/epic/free-games', { params: { locale, country } });
+      setEpicFreeGames(res.data || []);
+      setEpicFreeGamesLoaded(true);
+    } catch (error: unknown) {
+      setEpicFreeGamesError(`${t('error')}: ${getErrorMessage(error)}`);
+      setEpicFreeGamesLoaded(true);
+    } finally {
+      setEpicFreeGamesLoading(false);
+    }
+  };
+
+  const handleEpicClaimAll = () => {
+    const claimable = epicFreeGames.filter((game) => game.isCurrentlyFree && game.storeUrl);
+    claimable.forEach((game) => {
+      openEpicStoreUrl(game.storeUrl);
+    });
   };
 
   // Steam handlers
@@ -551,9 +610,9 @@ const AccountsTab: React.FC<AccountsTabProps> = ({ t }) => {
         ) : (
           <>
             <div style={{ marginBottom: '15px' }}>
-              <p style={{ marginBottom: '10px', color: 'var(--ctp-text)' }}>1. Click "Login with Epic Games" to open the Epic login page.</p>
-              <p style={{ marginBottom: '10px', color: 'var(--ctp-text)' }}>2. Sign in with your Epic account.</p>
-              <p style={{ marginBottom: '10px', color: 'var(--ctp-text)' }}>3. After login a JSON page appears, copy the entire JSON or just the authorizationCode value and paste it below.</p>
+              <p style={{ marginBottom: '10px', color: 'var(--ctp-text)' }}>{t('epicLoginStep1')}</p>
+              <p style={{ marginBottom: '10px', color: 'var(--ctp-text)' }}>{t('epicLoginStep2')}</p>
+              <p style={{ marginBottom: '10px', color: 'var(--ctp-text)' }}>{t('epicLoginStep3')}</p>
               <div style={{ backgroundColor: 'var(--ctp-base)', padding: '8px 12px', borderRadius: '6px', fontSize: '0.75rem', fontFamily: 'monospace', color: 'var(--ctp-blue)', marginTop: '8px', wordBreak: 'break-all' }}>
                 {'{"redirectUrl":"...","authorizationCode":"'}<span style={{ color: 'var(--ctp-green)' }}>XXXXX...</span>{'"}'}
               </div>
@@ -585,6 +644,72 @@ const AccountsTab: React.FC<AccountsTabProps> = ({ t }) => {
         {epicSyncResult && (
           <div className={`test-result ${epicSyncResult.success ? 'success' : 'error'}`} style={{ marginTop: '15px' }}>{epicSyncResult.message}</div>
         )}
+
+        <div style={{ marginTop: '18px', paddingTop: '18px', borderTop: '1px solid var(--ctp-surface1)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '12px' }}>
+            <div>
+              <h4 style={{ margin: 0 }}>{t('epicFreeGames')}</h4>
+              <p style={{ margin: '6px 0 0 0', color: 'var(--ctp-subtext0)', fontSize: '0.9rem' }}>{t('epicAutoClaimHint')}</p>
+            </div>
+            <div className="button-group">
+              <button type="button" className="btn-secondary" onClick={handleLoadEpicFreeGames} disabled={epicFreeGamesLoading}>
+                {epicFreeGamesLoading ? t('syncing') : t('epicFreeLoad')}
+              </button>
+              <button type="button" className="btn-primary" onClick={handleEpicClaimAll} disabled={epicFreeGamesLoading || epicFreeGames.filter((game) => game.isCurrentlyFree && game.storeUrl).length === 0}>
+                {t('epicAutoClaim')}
+              </button>
+            </div>
+          </div>
+
+          {epicFreeGamesError && (
+            <div className="test-result error" style={{ marginBottom: '12px' }}>{epicFreeGamesError}</div>
+          )}
+
+          {epicFreeGamesLoaded && !epicFreeGamesError && epicFreeGames.length === 0 && (
+            <div style={{ color: 'var(--ctp-subtext0)' }}>{t('epicFreeNone')}</div>
+          )}
+
+          {epicFreeGames.length > 0 && (
+            <div style={{ display: 'grid', gap: '12px' }}>
+              {epicFreeGames.map((game) => (
+                <article key={`${game.storeUrl || game.title}-${game.startDate || 'unknown'}-${game.endDate || 'unknown'}`} style={{ display: 'grid', gridTemplateColumns: game.imageUrl ? '92px 1fr' : '1fr', gap: '12px', padding: '12px', borderRadius: '10px', background: 'var(--ctp-surface0)', border: '1px solid var(--ctp-surface1)' }}>
+                  {game.imageUrl && (
+                    <img
+                      src={game.imageUrl}
+                      alt={game.title}
+                      style={{ width: '92px', height: '122px', objectFit: 'cover', borderRadius: '8px' }}
+                    />
+                  )}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                      <div>
+                        <strong style={{ display: 'block', marginBottom: '4px' }}>{game.title}</strong>
+                        {game.description && <span style={{ color: 'var(--ctp-subtext0)', fontSize: '0.9rem' }}>{game.description}</span>}
+                      </div>
+                      <span style={{ fontSize: '0.75rem', padding: '4px 8px', borderRadius: '999px', background: game.isCurrentlyFree ? 'rgba(166, 227, 161, 0.18)' : 'rgba(137, 180, 250, 0.18)', color: game.isCurrentlyFree ? 'var(--ctp-green)' : 'var(--ctp-blue)', whiteSpace: 'nowrap' }}>
+                        {game.isCurrentlyFree ? t('epicFreeNow') : t('epicFreeSoon')}
+                      </span>
+                    </div>
+                    {game.isCurrentlyFree ? (
+                      <div style={{ color: 'var(--ctp-subtext0)', fontSize: '0.9rem' }}>
+                        {t('epicFreeUntil')}: {formatEpicPromoDate(game.endDate)}
+                      </div>
+                    ) : (
+                      <div style={{ color: 'var(--ctp-subtext0)', fontSize: '0.9rem' }}>
+                        {t('epicFreeWindow')}: {formatEpicPromoDate(game.startDate)} – {formatEpicPromoDate(game.endDate)}
+                      </div>
+                    )}
+                    <div>
+                      <button type="button" className="btn-primary" onClick={() => openEpicStoreUrl(game.storeUrl)} disabled={!game.storeUrl}>
+                        {t('epicFreeClaim')}
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </>
   );

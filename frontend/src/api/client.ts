@@ -251,6 +251,16 @@ export interface Platform {
   preferredMetadataSource?: string;
 }
 
+export interface EpicFreeGame {
+  title: string;
+  description?: string | null;
+  imageUrl?: string | null;
+  isCurrentlyFree: boolean;
+  startDate?: string | null;
+  endDate?: string | null;
+  storeUrl?: string | null;
+}
+
 export interface DashboardStats {
   totalGames: number;
   totalPlatforms: number;
@@ -820,6 +830,16 @@ export const gogApi = {
   submitAuthCode: (code: string) => apiClient.post('/gog/auth/code', { code }),
   sync: () => apiClient.post('/gog/sync'),
   getDownloads: (gogId: string) => apiClient.get(`/settings/gog/downloads/${gogId}`),
+};
+
+// -- Epic --
+export const epicApi = {
+  getSettings: () => apiClient.get('/epic/settings'),
+  getAuthUrl: () => apiClient.get<{ url: string }>('/epic/auth/url'),
+  submitAuthCode: (code: string) => apiClient.post('/epic/auth/code', { code }),
+  sync: () => apiClient.post('/epic/sync', null, { timeout: 600000 }),
+  disconnect: () => apiClient.delete('/epic/settings'),
+  getFreeGames: (params?: { country?: string; locale?: string }) => apiClient.get<EpicFreeGame[]>('/epic/free-games', { params }),
 };
 
 // -- Debug --
