@@ -1,3 +1,8 @@
+## v1.0.188 (2026-06-04)
+
+### Changes
+- Add explicit queue buttons to search results (57dd10f)
+
 ## v1.0.187 (2026-05-31)
 
 ### Changes
