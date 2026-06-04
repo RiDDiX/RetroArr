@@ -683,6 +683,8 @@
 .col-actions .download-buttons {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .download-btn {
@@ -707,6 +709,18 @@
 
 .download-btn.loading {
   cursor: wait;
+}
+
+.download-btn.queue {
+  background: var(--ctp-blue);
+  color: var(--accent-contrast);
+  min-width: auto;
+  padding: 4px 10px;
+  font-weight: 600;
+}
+
+.download-btn.queue:hover:not(:disabled) {
+  background: var(--ctp-blue);
 }
 
 .download-btn.magnet {

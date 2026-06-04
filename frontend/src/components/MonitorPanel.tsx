@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { monitorApi, getErrorMessage, type ScoredReleaseDto } from '../api/client';
+import apiClient, { monitorApi, getErrorMessage, type ScoredReleaseDto } from '../api/client';
 import { useTranslation } from '../i18n/translations';
 import './MonitorPanel.css';
 
@@ -32,6 +32,38 @@ const MonitorPanel: React.FC<Props> = ({ gameId, initialMonitored, initialPrefer
   const [showAll, setShowAll] = useState(false);
   const [preferredGroup, setPreferredGroup] = useState(initialPreferredGroup ?? '');
   const [groupSaving, setGroupSaving] = useState(false);
+  const [queueingUrl, setQueueingUrl] = useState<string | null>(null);
+
+  const detectImportSubfolder = (title: string): string | null => {
+    const normalized = title.toLowerCase();
+    if (/\bdlc\b/.test(normalized) || /[-.]dlc[-.]/i.test(title)) return 'DLC';
+    if (/\bupdate\b/.test(normalized) || /\bpatch\b/.test(normalized) || /\bhotfix\b/.test(normalized)) return 'Patches';
+    return null;
+  };
+
+  const queueRelease = async (release: ScoredReleaseDto) => {
+    const url = release.magnetUrl || release.downloadUrl;
+    if (!url || queueingUrl) return;
+
+    setQueueingUrl(url);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const response = await apiClient.post('/downloadclient/add', {
+        url,
+        protocol: release.protocol,
+        platformFolder: release.platformFolder || undefined,
+        gameId,
+        importSubfolder: detectImportSubfolder(release.title)
+      });
+      setNotice(response.data.message || t('downloadStarted'));
+    } catch (e) {
+      setError(getErrorMessage(e, t('failedToDownload')));
+    } finally {
+      setQueueingUrl(null);
+    }
+  };
 
   const savePreferredGroup = async () => {
     setGroupSaving(true);
@@ -200,11 +232,23 @@ const MonitorPanel: React.FC<Props> = ({ gameId, initialMonitored, initialPrefer
                     </ul>
                   </details>
                 )}
-                {r.downloadUrl && (
-                  <a href={r.downloadUrl} target="_blank" rel="noopener noreferrer" className="monitor-result-link">
-                    {t('monitorOpenIndexerLink')}
-                  </a>
-                )}
+                <div className="monitor-result-actions">
+                  {(r.magnetUrl || r.downloadUrl) && (
+                    <button
+                      type="button"
+                      className="monitor-result-queue"
+                      onClick={() => queueRelease(r)}
+                      disabled={queueingUrl === (r.magnetUrl || r.downloadUrl)}
+                    >
+                      {queueingUrl === (r.magnetUrl || r.downloadUrl) ? t('saving') : t('downloadsQueue')}
+                    </button>
+                  )}
+                  {r.downloadUrl && (
+                    <a href={r.downloadUrl} target="_blank" rel="noopener noreferrer" className="monitor-result-link">
+                      {t('monitorOpenIndexerLink')}
+                    </a>
+                  )}
+                </div>
               </li>
             ))}
           </ul>

@@ -159,6 +159,34 @@
   margin-top: 6px;
 }
 
+.monitor-result-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.monitor-result-queue {
+  border: none;
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: var(--ctp-blue, #89b4fa);
+  color: var(--ctp-base, #1e1e2e);
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.monitor-result-queue:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.monitor-result-queue:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
 .monitor-result-link:hover {
   text-decoration: underline;
 }

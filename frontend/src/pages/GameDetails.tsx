@@ -1921,6 +1921,16 @@ const GameDetails: React.FC = () => {
 
                         <div className="col-actions">
                           <div className="download-buttons">
+                            {(result.magnetUrl || result.downloadUrl) && (
+                              <button
+                                className={`download-btn queue ${(downloadingUrl === (result.magnetUrl || result.downloadUrl)) ? 'loading' : ''}`}
+                                title={`${t('downloadsQueue')} ${result.detectedPlatform || 'PC'}`}
+                                onClick={() => handleDownloadWithPlatform(result.magnetUrl || result.downloadUrl, result.protocol, result.detectedPlatform, result.platformFolder, result.title)}
+                                disabled={!!downloadingUrl}
+                              >
+                                {downloadingUrl === (result.magnetUrl || result.downloadUrl) ? <FontAwesomeIcon icon={faSpinner} spin /> : t('downloadsQueue')}
+                              </button>
+                            )}
                             {result.magnetUrl && (
                               <button
                                 className={`download-btn magnet ${downloadingUrl === result.magnetUrl ? 'loading' : ''}`}
