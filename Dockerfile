@@ -3,15 +3,17 @@ FROM alpine:3.19 AS emulatorjs
 WORKDIR /emulatorjs
 RUN apk add --no-cache curl unzip
 
-# Download EmulatorJS stable release from CDN.
-# Retry on transient CDN hiccups (connection refused / timeouts) so a single
-# blip doesn't fail the whole image build. -f makes an HTTP error fail loudly
-# instead of writing an error page; these files are mandatory (no || true).
+# Pre-warm the EmulatorJS asset cache from the CDN. This is an optimization only:
+# the runtime (EmulatorController) fetches any missing file from the same CDN on
+# first use and caches it under /app/config/emulatorjs. So a CDN outage at build
+# time must NOT fail the whole image build -- retry hard, then warn and continue
+# ( -f keeps a 404 from being saved as a bogus asset ).
 RUN mkdir -p /emulatorjs/data && \
     for f in loader.js emulator.min.js emulator.min.css version.json GameManager.js \
              gamepad.js nipplejs.js shaders.js storage.js socket.io.min.js; do \
       curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused --retry-all-errors \
-        -o "/emulatorjs/data/$f" "https://cdn.emulatorjs.org/stable/data/$f"; \
+        -o "/emulatorjs/data/$f" "https://cdn.emulatorjs.org/stable/data/$f" \
+      || echo "[emulatorjs] WARN: could not fetch $f at build time; runtime will cache it on first use"; \
     done && \
     echo "stable" > /emulatorjs/data/version.txt
 
