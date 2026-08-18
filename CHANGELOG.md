@@ -1,3 +1,8 @@
+## v1.0.195 (2026-08-18)
+
+### Changes
+- ci do not fail image build when emulatorjs cdn is unavailable (ab5cfc9)
+
 ## v1.0.194 (2026-08-18)
 
 ### Changes
