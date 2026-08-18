@@ -3,18 +3,16 @@ FROM alpine:3.19 AS emulatorjs
 WORKDIR /emulatorjs
 RUN apk add --no-cache curl unzip
 
-# Download EmulatorJS stable release from CDN
+# Download EmulatorJS stable release from CDN.
+# Retry on transient CDN hiccups (connection refused / timeouts) so a single
+# blip doesn't fail the whole image build. -f makes an HTTP error fail loudly
+# instead of writing an error page; these files are mandatory (no || true).
 RUN mkdir -p /emulatorjs/data && \
-    curl -L -o /emulatorjs/data/loader.js "https://cdn.emulatorjs.org/stable/data/loader.js" && \
-    curl -L -o /emulatorjs/data/emulator.min.js "https://cdn.emulatorjs.org/stable/data/emulator.min.js" && \
-    curl -L -o /emulatorjs/data/emulator.min.css "https://cdn.emulatorjs.org/stable/data/emulator.min.css" && \
-    curl -L -o /emulatorjs/data/version.json "https://cdn.emulatorjs.org/stable/data/version.json" && \
-    curl -L -o /emulatorjs/data/GameManager.js "https://cdn.emulatorjs.org/stable/data/GameManager.js" && \
-    curl -L -o /emulatorjs/data/gamepad.js "https://cdn.emulatorjs.org/stable/data/gamepad.js" && \
-    curl -L -o /emulatorjs/data/nipplejs.js "https://cdn.emulatorjs.org/stable/data/nipplejs.js" && \
-    curl -L -o /emulatorjs/data/shaders.js "https://cdn.emulatorjs.org/stable/data/shaders.js" && \
-    curl -L -o /emulatorjs/data/storage.js "https://cdn.emulatorjs.org/stable/data/storage.js" && \
-    curl -L -o /emulatorjs/data/socket.io.min.js "https://cdn.emulatorjs.org/stable/data/socket.io.min.js" && \
+    for f in loader.js emulator.min.js emulator.min.css version.json GameManager.js \
+             gamepad.js nipplejs.js shaders.js storage.js socket.io.min.js; do \
+      curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused \
+        -o "/emulatorjs/data/$f" "https://cdn.emulatorjs.org/stable/data/$f"; \
+    done && \
     echo "stable" > /emulatorjs/data/version.txt
 
 # Pre-download ALL supported EmulatorJS cores (matches PlatformIdToCore in EmulatorController)
@@ -25,9 +23,9 @@ RUN mkdir -p /emulatorjs/data/cores && \
                 psx psp \
                 atari2600 atari5200 atari7800 lynx jaguar \
                 arcade mame2003 3do pce; do \
-      curl -fsSL -o "/emulatorjs/data/cores/${CORE}-wasm.data" \
+      curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused -o "/emulatorjs/data/cores/${CORE}-wasm.data" \
         "https://cdn.emulatorjs.org/stable/data/cores/${CORE}-wasm.data" 2>/dev/null || true; \
-      curl -fsSL -o "/emulatorjs/data/cores/${CORE}.js" \
+      curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused -o "/emulatorjs/data/cores/${CORE}.js" \
         "https://cdn.emulatorjs.org/stable/data/cores/${CORE}.js" 2>/dev/null || true; \
     done && \
     echo "Core pre-download complete: $(ls /emulatorjs/data/cores/ | wc -l) files"
