@@ -1,3 +1,8 @@
+## v1.0.192 (2026-08-18)
+
+### Changes
+- fix game card status: show availability check/x instead of blank box (16236b5)
+
 ## v1.0.191 (2026-08-18)
 
 ### Changes
