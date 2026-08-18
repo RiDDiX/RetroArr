@@ -168,6 +168,7 @@
 .game-card-status {
   display: inline-flex;
   align-items: center;
+  gap: 0.35rem;
   padding: 0.25rem 0.5rem;
   border-radius: var(--radius-sm);
   font-size: 0.6875rem;
@@ -176,31 +177,21 @@
   letter-spacing: 0.03em;
 }
 
-.game-card-status[style*="rgb(166, 227, 161)"],
-.game-card-status[style*="var(--ctp-green)"],
-.game-card-status[style*="var(--ctp-green)"] {
-  background: var(--success-bg) !important;
-  color: var(--success) !important;
+/* Availability indicator: check = file on disk, X = not present */
+.game-card-status.is-available {
+  background: var(--success-bg, rgba(64, 160, 43, 0.18));
+  color: var(--success, #40a02b);
 }
 
-.game-card-status[style*="rgb(137, 180, 250)"],
-.game-card-status[style*="var(--ctp-blue)"],
-.game-card-status[style*="var(--ctp-blue)"] {
-  background: var(--info-bg) !important;
-  color: var(--info) !important;
-}
-
-.game-card-status[style*="rgb(243, 139, 168)"],
-.game-card-status[style*="var(--ctp-red)"],
-.game-card-status[style*="var(--ctp-red)"] {
-  background: var(--error-bg) !important;
-  color: var(--error) !important;
+.game-card-status.is-missing {
+  background: var(--error-bg, rgba(210, 15, 57, 0.18));
+  color: var(--error, #d20f39);
 }
 
 .game-card-delete-btn {
   position: absolute;
   top: 10px;
-  left: 10px;
+  right: 10px;
   width: 28px;
   height: 28px;
   background: var(--error);

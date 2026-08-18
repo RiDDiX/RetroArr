@@ -5,7 +5,7 @@ import { useCardTilt } from '../hooks/useCardTilt';
 import steamLogo from '../assets/steam_logo.png';
 import PlatformIcon from './PlatformIcon';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faStar, faBookmark } from '@fortawesome/free-solid-svg-icons';
+import { faStar, faBookmark, faCheck, faXmark } from '@fortawesome/free-solid-svg-icons';
 import RegionFlag from './RegionFlag';
 import ProtonDbBadge from './ProtonDbBadge';
 import './GameCard.css';
@@ -139,14 +139,9 @@ const GameCard: React.FC<GameCardProps> = ({ game, reviewData, onClick, onContex
     return () => clearTimeout(timeoutId);
   }, [game.id, reviewData]);
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'Downloaded': return 'var(--ctp-green)';
-      case 'Downloading': return 'var(--ctp-blue)';
-      case 'Missing': return 'var(--ctp-red)';
-      default: return 'var(--ctp-text)';
-    }
-  };
+  // Availability = the game file is actually on disk. `missingSince` is stamped by
+  // the scanner when files vanish; a game with no local path was never downloaded.
+  const isAvailable = !!game.path && !game.missingSince;
 
   const isSteamGame = !!game.steamId;
 
@@ -288,10 +283,11 @@ const GameCard: React.FC<GameCardProps> = ({ game, reviewData, onClick, onContex
           )}
         </div>
         <div
-          className="game-card-status"
-          style={{ backgroundColor: getStatusColor(game.status) }}
+          className={`game-card-status ${isAvailable ? 'is-available' : 'is-missing'}`}
+          title={isAvailable ? (t('available') || 'Available on disk') : (t('notAvailable') || 'Not on disk')}
         >
-          {game.status}
+          <FontAwesomeIcon icon={isAvailable ? faCheck : faXmark} />
+          <span>{isAvailable ? (t('available') || 'Available') : (t('notAvailable') || 'Missing')}</span>
         </div>
 
         {/* User Star Rating */}

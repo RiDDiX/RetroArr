@@ -1129,6 +1129,8 @@ export const translations = {
         monitorToggleHint: 'When on, the background sweep checks indexers and may auto-download the best match.',
         monitorMarkerOn: 'Monitored — click to stop watching',
         monitorMarkerOff: 'Not monitored — click to watch for releases',
+        available: 'Available',
+        notAvailable: 'Missing',
         platformMonitoredAll: 'Monitored',
         platformMonitorEnable: 'Monitor All',
         platformMonitorToggleHint: 'Toggle monitoring for every game on this platform (and the default for newly added games).',
