@@ -1,3 +1,8 @@
+## v1.0.198 (2026-08-18)
+
+### Changes
+- lancache integration phase 1: settings, reachability status, steam reconcile (19063e9)
+
 ## v1.0.197 (2026-08-18)
 
 ### Changes
