@@ -1,3 +1,8 @@
+## v1.0.193 (2026-08-18)
+
+### Changes
+- ci harden emulatorjs asset download against transient CDN failures (055e9cb)
+
 ## v1.0.192 (2026-08-18)
 
 ### Changes
