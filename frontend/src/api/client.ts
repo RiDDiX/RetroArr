@@ -1036,6 +1036,42 @@ export const monitorApi = {
     apiClient.get<Record<string, PlatformMonitorCount>>('/platforms/monitored-counts'),
 };
 
+export interface LanCacheSettings {
+  enabled: boolean;
+  host: string;
+  port: number;
+  prefillAllOwned: boolean;
+  prefillRecent: boolean;
+  prefillOs: string;
+  isConfigured?: boolean;
+}
+
+export interface LanCacheStatus {
+  configured: boolean;
+  reachable: boolean;
+  statusCode?: number;
+  isLanCache?: boolean;
+  processedBy?: string | null;
+  host?: string;
+  port?: number;
+  message?: string;
+  error?: string;
+}
+
+export interface LanCacheReconcile {
+  steamConfigured: boolean;
+  ownedCount: number;
+  games: { appId: number; name: string; playtimeMinutes: number }[];
+  error?: string;
+}
+
+export const lancacheApi = {
+  getSettings: () => apiClient.get<LanCacheSettings>('/lancache/settings'),
+  saveSettings: (body: LanCacheSettings) => apiClient.post<LanCacheSettings>('/lancache/settings', body),
+  getStatus: () => apiClient.get<LanCacheStatus>('/lancache/status'),
+  reconcile: () => apiClient.get<LanCacheReconcile>('/lancache/reconcile', { timeout: 30000 }),
+};
+
 export interface PlatformMonitorCount {
   total: number;
   monitored: number;

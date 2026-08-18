@@ -9,7 +9,7 @@ import ThemeEditor from '../components/ThemeEditor';
 import DatabaseSettings from '../components/DatabaseSettings';
 import CacheSettings from '../components/CacheSettings';
 import ProxySettings from '../components/ProxySettings';
-import { MediaTab, PlatformsTab, MetadataProvidersTab, AccountsTab, IndexersTab, DownloadersTab, ImportExportTab, LoggingTab, WebhooksTab, ApiAccessTab, MonitorSettingsTab, RenameSettingsTab } from '../components/settings';
+import { MediaTab, PlatformsTab, MetadataProvidersTab, AccountsTab, IndexersTab, DownloadersTab, ImportExportTab, LoggingTab, WebhooksTab, ApiAccessTab, MonitorSettingsTab, RenameSettingsTab, LanCacheTab } from '../components/settings';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faFolderOpen, faLayerGroup, faTags, faUserCircle, faSearch, faDownload, faGamepad,
@@ -57,6 +57,7 @@ const Settings: React.FC = () => {
     { id: 'proxy',        label: t('settingsProxy') || 'Proxy',                         icon: faNetworkWired,  group: 'connections' },
     { id: 'indexers',     label: t('settingsIndexers') || 'Indexers',                   icon: faSearch,        group: 'downloads' },
     { id: 'downloaders',  label: t('settingsDownloaders') || 'Downloaders',             icon: faDownload,      group: 'downloads' },
+    { id: 'lancache',     label: 'LanCache',                                            icon: faNetworkWired,  group: 'downloads' },
     { id: 'monitor',      label: t('settingsMonitor') || 'Monitor',                     icon: faRobot,         group: 'downloads' },
     { id: 'rename',       label: t('settingsRename') || 'Rename',                       icon: faTags,          group: 'downloads' },
     { id: 'emulatorjs',   label: 'EmulatorJS',                                          icon: faGamepad,       group: 'emulator' },
@@ -167,6 +168,10 @@ const Settings: React.FC = () => {
 
         {currentTab === 'downloaders' && (
           <DownloadersTab language={language} t={t} />
+        )}
+
+        {currentTab === 'lancache' && (
+          <LanCacheTab language={language} t={t} />
         )}
 
         {currentTab === 'monitor' && (

@@ -23,6 +23,7 @@ namespace RetroArr.Core.Configuration
         private readonly string _downloadClientsConfigFile;
         private readonly string _mediaConfigFile;
         private readonly string _steamConfigFile;
+        private readonly string _lancacheConfigFile;
         private readonly string _postDownloadConfigFile;
         private readonly string _hydraConfigFile;
         private readonly string _screenScraperConfigFile;
@@ -68,6 +69,7 @@ namespace RetroArr.Core.Configuration
             _downloadClientsConfigFile = Path.Combine(_configDirectory, "downloadclients.json");
             _mediaConfigFile = Path.Combine(_configDirectory, "media.json");
             _steamConfigFile = Path.Combine(_configDirectory, "steam.json");
+            _lancacheConfigFile = Path.Combine(_configDirectory, "lancache.json");
             _postDownloadConfigFile = Path.Combine(_configDirectory, "postdownload.json");
             _hydraConfigFile = Path.Combine(_configDirectory, "hydra.json");
             _screenScraperConfigFile = Path.Combine(_configDirectory, "screenscraper.json");
@@ -359,6 +361,30 @@ namespace RetroArr.Core.Configuration
         {
             try { WriteEncryptedJson(_steamConfigFile, settings, s => s.ApiKey = Protect(s.ApiKey)); }
             catch (Exception ex) { _logger.Error($"Error saving Steam settings: {ex.Message}"); }
+        }
+
+        public LanCacheSettings LoadLanCacheSettings()
+        {
+            if (File.Exists(_lancacheConfigFile))
+            {
+                try
+                {
+                    var json = File.ReadAllText(_lancacheConfigFile);
+                    return JsonSerializer.Deserialize<LanCacheSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new LanCacheSettings();
+                }
+                catch (Exception ex) { _logger.Error($"Error loading LanCache settings: {ex.Message}"); }
+            }
+            return new LanCacheSettings();
+        }
+
+        public void SaveLanCacheSettings(LanCacheSettings settings)
+        {
+            try
+            {
+                var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(_lancacheConfigFile, json);
+            }
+            catch (Exception ex) { _logger.Error($"Error saving LanCache settings: {ex.Message}"); }
         }
 
         public PostDownloadSettings LoadPostDownloadSettings()
@@ -809,6 +835,21 @@ namespace RetroArr.Core.Configuration
         public string ApiKey { get; set; } = string.Empty;
         public string SteamId { get; set; } = string.Empty;
         public bool IsConfigured => !string.IsNullOrWhiteSpace(ApiKey) && !string.IsNullOrWhiteSpace(SteamId);
+    }
+
+    // LanCache (https://lancache.net) integration. Host is the cache server's
+    // IP/DNS; the SPA lets the user point RetroArr at it so status can be checked
+    // and, in phase 2, a SteamPrefill run can warm the cache.
+    public class LanCacheSettings
+    {
+        public bool Enabled { get; set; }
+        public string Host { get; set; } = string.Empty;
+        public int Port { get; set; } = 80;
+        // Phase 2 (SteamPrefill orchestration) toggles.
+        public bool PrefillAllOwned { get; set; } = true;
+        public bool PrefillRecent { get; set; }
+        public string PrefillOs { get; set; } = "windows"; // windows/linux/macos, comma-separated
+        public bool IsConfigured => !string.IsNullOrWhiteSpace(Host);
     }
 
     public class PostDownloadSettings
