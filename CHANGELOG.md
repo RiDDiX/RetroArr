@@ -1,3 +1,8 @@
+## v1.0.190 (2026-08-18)
+
+### Changes
+- feat monitor toggle on game detail page, move card marker top-left (fd7cf54)
+
 ## v1.0.189 (2026-08-18)
 
 ### Changes
