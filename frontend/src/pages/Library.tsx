@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import apiClient, { gamesApi, reviewsApi, mediaApi, MetadataRescanStatus, GameListDto, BulkReviewData, ProtonDbRefreshStatus } from '../api/client';
+import apiClient, { gamesApi, reviewsApi, mediaApi, monitorApi, MetadataRescanStatus, GameListDto, BulkReviewData, ProtonDbRefreshStatus, PlatformMonitorCount } from '../api/client';
 import GameCard from '../components/GameCard';
 import ContextMenu from '../components/ContextMenu';
 import { EmptyState } from '../components/retro';
@@ -10,7 +10,7 @@ import PlatformIcon from '../components/PlatformIcon';
 import { t, getLanguage } from '../i18n/translations';
 import './Library.css';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faTrash, faThLarge, faBars, faGlobe, faGamepad, faSync, faSearch, faChevronDown, faChevronRight, faFolderOpen, faDatabase } from '@fortawesome/free-solid-svg-icons';
+import { faTrash, faThLarge, faBars, faGlobe, faGamepad, faSync, faSearch, faChevronDown, faChevronRight, faFolderOpen, faDatabase, faBookmark } from '@fortawesome/free-solid-svg-icons';
 
 interface Game {
   id: number;
@@ -33,6 +33,7 @@ interface Game {
   revision?: string;
   protonDbTier?: string;
   missingSince?: string | null;
+  monitored?: boolean;
 }
 
 interface SearchResult {
@@ -123,6 +124,8 @@ const Library: React.FC = () => {
 
   // Platform game counts from a lightweight total query
   const [platformGameCounts, setPlatformGameCounts] = useState<Record<string, number>>({});
+  const [platformMonitorCounts, setPlatformMonitorCounts] = useState<Record<string, PlatformMonitorCount>>({});
+  const [platformMonitorBusy, setPlatformMonitorBusy] = useState(false);
 
   // Adapter: convert GameListDto to the Game shape expected by GameCard
   const dtoToCardGame = useCallback((dto: GameListDto): Game => ({
@@ -143,6 +146,7 @@ const Library: React.FC = () => {
     igdbId: dto.igdbId,
     protonDbTier: dto.protonDbTier,
     missingSince: dto.missingSince,
+    monitored: dto.monitored,
   }), []);
 
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, visible: boolean, game: Game | null }>({
@@ -221,6 +225,42 @@ const Library: React.FC = () => {
     }
   }, []);
 
+  // Per-platform monitored/total counts for the platform monitor toggle (tri-state).
+  const loadPlatformMonitorCounts = useCallback(async () => {
+    try {
+      const response = await monitorApi.getPlatformMonitoredCounts();
+      setPlatformMonitorCounts(response.data);
+    } catch {
+      // Non-critical: the toggle just falls back to "not all monitored".
+    }
+  }, []);
+
+  // Reflect a single-game marker change in the paged list and refresh platform counts.
+  const handleCardMonitoredChange = useCallback((gameId: number, monitored: boolean) => {
+    setPagedGames(prev => prev.map(g => g.id === gameId ? { ...g, monitored } : g));
+    loadPlatformMonitorCounts();
+  }, [loadPlatformMonitorCounts]);
+
+  // Toggle monitoring for the whole selected platform: if every game is already
+  // monitored, turn all off; otherwise turn all on. Also sets the per-platform
+  // default for newly added games (server side).
+  const handlePlatformMonitorToggle = useCallback(async (platformId: number) => {
+    if (platformMonitorBusy) return;
+    const key = String(platformId);
+    const counts = platformMonitorCounts[key];
+    const allMonitored = !!counts && counts.total > 0 && counts.monitored >= counts.total;
+    const next = !allMonitored;
+    setPlatformMonitorBusy(true);
+    try {
+      await monitorApi.setPlatformMonitored(platformId, next, true);
+      await Promise.all([loadPagedGames(), loadPlatformMonitorCounts()]);
+    } catch (e) {
+      console.error('Platform monitor toggle failed:', e);
+    } finally {
+      setPlatformMonitorBusy(false);
+    }
+  }, [platformMonitorBusy, platformMonitorCounts, loadPagedGames, loadPlatformMonitorCounts]);
+
   // Keep loader refs current for the event handler
   useEffect(() => { loadPagedGamesRef.current = loadPagedGames; }, [loadPagedGames]);
   useEffect(() => { loadPlatformCountsRef.current = loadPlatformCounts; }, [loadPlatformCounts]);
@@ -229,6 +269,7 @@ const Library: React.FC = () => {
   useEffect(() => {
     loadPagedGames();
     loadPlatformCounts();
+    loadPlatformMonitorCounts();
     loadPlatforms();
     checkIgdbConfig();
 
@@ -733,6 +774,28 @@ const Library: React.FC = () => {
                 <FontAwesomeIcon icon={faFolderOpen} spin={platformScanning} />
                 {platformScanning ? (t('scanning') || 'Scanning...') : (t('scanPlatform') || 'Scan Platform')}
               </button>
+              {(() => {
+                const c = platformMonitorCounts[String(selectedPlatformData.id)];
+                const total = c?.total ?? 0;
+                const mon = c?.monitored ?? 0;
+                const state = total > 0 && mon >= total ? 'all' : mon > 0 ? 'partial' : 'none';
+                const label = state === 'all'
+                  ? (t('platformMonitoredAll') || 'Monitored')
+                  : state === 'partial'
+                    ? `${mon}/${total}`
+                    : (t('platformMonitorEnable') || 'Monitor All');
+                return (
+                  <button
+                    className={`platform-action-btn monitor-btn is-${state}`}
+                    onClick={() => handlePlatformMonitorToggle(selectedPlatformData.id)}
+                    disabled={platformMonitorBusy}
+                    title={t('platformMonitorToggleHint') || 'Toggle monitoring for every game on this platform (and the default for new games)'}
+                  >
+                    <FontAwesomeIcon icon={faBookmark} spin={platformMonitorBusy} />
+                    {label}
+                  </button>
+                );
+              })()}
               <button
                 className="platform-action-btn rescan-btn"
                 onClick={() => openScraperChoice(selectedPlatformData.id, true)}
@@ -1040,6 +1103,7 @@ const Library: React.FC = () => {
                   }}
                   onContextMenu={(e) => handleContextMenu(e, game)}
                   onDelete={() => handleDeleteGame(dto)}
+                  onMonitoredChange={handleCardMonitoredChange}
                 />
               );
             })}

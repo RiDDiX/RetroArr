@@ -2160,6 +2160,11 @@ namespace RetroArr.Core.Games
                     finalGame.MetadataReviewReason = "Platform unresolved: no folder match.";
             }
 
+            // Newly scanned games inherit the platform's "monitor new items" default.
+            // Fallback false keeps the historic behavior (scanned games start unmonitored)
+            // for any platform the user has not explicitly opted into.
+            finalGame.Monitored = PlatformService.GetMonitorNewItemsDefault(finalGame.PlatformId, false);
+
             if (isInstaller) finalGame.Status = GameStatus.InstallerDetected;
 
             // Final dedup guard: IGDB metadata may have changed the title from the cleaned

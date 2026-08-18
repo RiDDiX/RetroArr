@@ -11,6 +11,7 @@ namespace RetroArr.Core.Games
         private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(Logging.AppLoggerService.General);
         private static readonly string _settingsPath = ResolveSettingsPath("platform_settings.json");
         private static readonly string _metadataSourcePath = ResolveSettingsPath("platform_metadata_source.json");
+        private static readonly string _monitoringPath = ResolveSettingsPath("platform_monitoring.json");
 
         private static string ResolveSettingsPath(string fileName)
         {
@@ -29,6 +30,11 @@ namespace RetroArr.Core.Games
 
         private static Dictionary<int, bool> _enabledOverrides = new();
         private static Dictionary<int, string> _metadataSourceOverrides = new();
+        // Per-platform "monitor newly added games by default" flag. Absent key = fall back
+        // to the caller-supplied default (false), which preserves the pre-feature behavior
+        // where scanned games start unmonitored. This is only the DEFAULT for new items;
+        // the authoritative per-game Game.Monitored flag still drives the search sweep.
+        private static Dictionary<int, bool> _monitorNewItemsDefaults = new();
         private static readonly object _lock = new();
 
         public const string MetadataSourceIgdb = "igdb";
@@ -50,6 +56,7 @@ namespace RetroArr.Core.Games
         {
             LoadSettings();
             LoadMetadataSourceSettings();
+            LoadMonitoringSettings();
         }
 
         private static void LoadSettings()
@@ -88,6 +95,48 @@ namespace RetroArr.Core.Games
                 {
                     _logger.Error($"[PlatformService] Error loading metadata source settings: {ex.Message}");
                     _metadataSourceOverrides = new();
+                }
+            }
+        }
+
+        private static void LoadMonitoringSettings()
+        {
+            lock (_lock)
+            {
+                try
+                {
+                    if (File.Exists(_monitoringPath))
+                    {
+                        var json = File.ReadAllText(_monitoringPath);
+                        _monitorNewItemsDefaults = JsonSerializer.Deserialize<Dictionary<int, bool>>(json) ?? new();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error($"[PlatformService] Error loading monitoring settings: {ex.Message}");
+                    _monitorNewItemsDefaults = new();
+                }
+            }
+        }
+
+        private static void SaveMonitoringSettings()
+        {
+            lock (_lock)
+            {
+                try
+                {
+                    var dir = Path.GetDirectoryName(_monitoringPath);
+                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    {
+                        Directory.CreateDirectory(dir);
+                    }
+
+                    var json = JsonSerializer.Serialize(_monitorNewItemsDefaults, new JsonSerializerOptions { WriteIndented = true });
+                    File.WriteAllText(_monitoringPath, json);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error($"[PlatformService] Error saving monitoring settings: {ex.Message}");
                 }
             }
         }
@@ -203,6 +252,36 @@ namespace RetroArr.Core.Games
                     _metadataSourceOverrides[platformId] = normalized;
                 }
                 SaveMetadataSourceSettings();
+            }
+        }
+
+        // Whether games newly added to this platform should start monitored.
+        // Absent key -> caller-supplied fallback (callers pass false to keep the
+        // historic "scanned games start unmonitored" behavior).
+        public static bool GetMonitorNewItemsDefault(int platformId, bool fallback)
+        {
+            lock (_lock)
+            {
+                return _monitorNewItemsDefaults.TryGetValue(platformId, out var monitored) ? monitored : fallback;
+            }
+        }
+
+        public static void SetMonitorNewItemsDefault(int platformId, bool monitored)
+        {
+            lock (_lock)
+            {
+                _monitorNewItemsDefaults[platformId] = monitored;
+                SaveMonitoringSettings();
+            }
+        }
+
+        // Snapshot of the stored per-platform defaults (platformId -> monitored).
+        // Only platforms the user has explicitly toggled appear here.
+        public static Dictionary<int, bool> GetAllMonitorNewItemsDefaults()
+        {
+            lock (_lock)
+            {
+                return new Dictionary<int, bool>(_monitorNewItemsDefaults);
             }
         }
     }

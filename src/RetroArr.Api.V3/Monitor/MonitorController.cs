@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading;
@@ -45,6 +46,93 @@ namespace RetroArr.Api.V3.Monitor
             game.Monitored = request.Monitored;
             await _db.SaveChangesAsync(ct).ConfigureAwait(false);
             return Ok(new { id, monitored = game.Monitored });
+        }
+
+        public sealed class PlatformMonitoredRequest
+        {
+            public bool Monitored { get; set; }
+            // Apply the flag to every game already on the platform (bulk). Defaults true so
+            // the platform toggle behaves like Sonarr/Radarr "monitor all".
+            public bool ApplyToExisting { get; set; } = true;
+        }
+
+        // Toggle monitoring for a whole platform: persists the per-platform default for
+        // newly added games AND (by default) bulk-applies it to existing games. The
+        // per-game Game.Monitored flag stays authoritative for the sweep, so a single game
+        // can still be monitored even when its platform default is off.
+        [HttpPut("platforms/{platformId:int}/monitored")]
+        public async Task<IActionResult> SetPlatformMonitored(int platformId, [FromBody] PlatformMonitoredRequest request, CancellationToken ct)
+        {
+            if (request == null) return BadRequest(new { message = "body required" });
+
+            RetroArr.Core.Games.PlatformService.SetMonitorNewItemsDefault(platformId, request.Monitored);
+
+            int updated = 0;
+            int total;
+            if (request.ApplyToExisting)
+            {
+                var games = await _db.Games
+                    .Where(g => g.PlatformId == platformId)
+                    .ToListAsync(ct)
+                    .ConfigureAwait(false);
+                total = games.Count;
+                foreach (var g in games)
+                {
+                    if (g.Monitored != request.Monitored)
+                    {
+                        g.Monitored = request.Monitored;
+                        updated++;
+                    }
+                }
+                if (updated > 0) await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+            }
+            else
+            {
+                total = await _db.Games.CountAsync(g => g.PlatformId == platformId, ct).ConfigureAwait(false);
+            }
+
+            return Ok(new { platformId, monitored = request.Monitored, updated, total });
+        }
+
+        // Per-platform monitored/total counts for tri-state UI, plus the stored default.
+        [HttpGet("platforms/monitored-counts")]
+        public async Task<IActionResult> GetPlatformMonitoredCounts(CancellationToken ct)
+        {
+            var grouped = await _db.Games
+                .GroupBy(g => g.PlatformId)
+                .Select(grp => new
+                {
+                    PlatformId = grp.Key,
+                    Total = grp.Count(),
+                    Monitored = grp.Sum(x => x.Monitored ? 1 : 0)
+                })
+                .ToListAsync(ct)
+                .ConfigureAwait(false);
+
+            var defaults = RetroArr.Core.Games.PlatformService.GetAllMonitorNewItemsDefaults();
+
+            var map = new Dictionary<string, object>();
+            foreach (var row in grouped)
+            {
+                var key = row.PlatformId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                map[key] = new
+                {
+                    total = row.Total,
+                    monitored = row.Monitored,
+                    monitorDefault = defaults.TryGetValue(row.PlatformId, out var d) ? (bool?)d : null
+                };
+            }
+            // Platforms with a stored default but no games yet.
+            foreach (var kv in defaults)
+            {
+                var key = kv.Key.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                if (!map.ContainsKey(key))
+                {
+                    map[key] = new { total = 0, monitored = 0, monitorDefault = (bool?)kv.Value };
+                }
+            }
+
+            return Ok(map);
         }
 
         public sealed class PreferredGroupRequest

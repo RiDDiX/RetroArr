@@ -586,6 +586,7 @@ export interface GameListDto {
   igdbId?: number;
   protonDbTier?: string;
   missingSince?: string | null;
+  monitored: boolean;
 }
 
 export interface ProtonDbRefreshStatus {
@@ -1026,4 +1027,17 @@ export const monitorApi = {
   saveSettings: (body: MonitorSettings) => apiClient.post<MonitorSettings>('/settings/monitor', body),
   setPreferredGroup: (gameId: number, group: string | null) =>
     apiClient.put<{ id: number; preferredReleaseGroup: string | null }>(`/games/${gameId}/preferred-group`, { group }),
+  // Platform-wide monitoring: sets the per-platform default for new games and (by default)
+  // bulk-applies it to every game already on the platform.
+  setPlatformMonitored: (platformId: number, monitored: boolean, applyToExisting = true) =>
+    apiClient.put<{ platformId: number; monitored: boolean; updated: number; total: number }>(
+      `/platforms/${platformId}/monitored`, { monitored, applyToExisting }),
+  getPlatformMonitoredCounts: () =>
+    apiClient.get<Record<string, PlatformMonitorCount>>('/platforms/monitored-counts'),
 };
+
+export interface PlatformMonitorCount {
+  total: number;
+  monitored: number;
+  monitorDefault: boolean | null;
+}

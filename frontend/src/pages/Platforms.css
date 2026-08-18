@@ -93,3 +93,33 @@
 @media (max-width: 640px) {
   .shelf__row { grid-auto-columns: minmax(140px, 150px); }
 }
+
+/* Per-platform monitor toggle in the shelf header (Sonarr/Radarr-style) */
+.shelf__monitor {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--ctp-surface2, #585b70);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ctp-subtext0, #a6adc8);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.shelf__monitor:hover:not(:disabled) {
+  border-color: var(--ctp-yellow, #f9e2af);
+  color: var(--ctp-yellow, #f9e2af);
+}
+.shelf__monitor:disabled { cursor: default; opacity: 0.6; }
+.shelf__monitor.is-all {
+  background: var(--ctp-yellow, #f9e2af);
+  border-color: var(--ctp-yellow, #f9e2af);
+  color: #1e1e2e;
+}
+.shelf__monitor.is-partial {
+  border-color: var(--ctp-yellow, #f9e2af);
+  color: var(--ctp-yellow, #f9e2af);
+}

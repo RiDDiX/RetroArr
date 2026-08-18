@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { gamesApi, platformsApi, type GameListDto, type Platform } from '../api/client';
+import { gamesApi, platformsApi, monitorApi, type GameListDto, type Platform, type PlatformMonitorCount } from '../api/client';
 import GameCard from '../components/GameCard';
 import { Skeleton } from '../components/retro';
 import { useRetroNavigate } from '../hooks/useRetroNavigate';
 import { t } from '../i18n/translations';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faBookmark } from '@fortawesome/free-solid-svg-icons';
 import './Platforms.css';
 
 type Shelf = {
@@ -39,6 +41,7 @@ function dtoToGame(dto: GameListDto) {
     languages: dto.languages,
     revision: dto.revision,
     protonDbTier: dto.protonDbTier,
+    monitored: dto.monitored,
   };
 }
 
@@ -48,6 +51,8 @@ export default function Platforms() {
   const [shelves, setShelves] = useState<Shelf[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [monitorCounts, setMonitorCounts] = useState<Record<string, PlatformMonitorCount>>({});
+  const [monitorBusyId, setMonitorBusyId] = useState<number | null>(null);
 
   const loadShelves = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -89,17 +94,52 @@ export default function Platforms() {
     }
   }, []);
 
+  const loadMonitorCounts = useCallback(async () => {
+    try {
+      const r = await monitorApi.getPlatformMonitoredCounts();
+      setMonitorCounts(r.data);
+    } catch {
+      // Non-critical: toggle falls back to "not all monitored".
+    }
+  }, []);
+
+  // Toggle monitoring for a whole platform shelf (bulk + per-platform default).
+  const handlePlatformMonitorToggle = useCallback(async (platformId: number) => {
+    if (monitorBusyId !== null) return;
+    const c = monitorCounts[String(platformId)];
+    const allMonitored = !!c && c.total > 0 && c.monitored >= c.total;
+    setMonitorBusyId(platformId);
+    try {
+      await monitorApi.setPlatformMonitored(platformId, !allMonitored, true);
+      await Promise.all([loadShelves(), loadMonitorCounts()]);
+    } catch (e) {
+      console.error('Platform monitor toggle failed:', e);
+    } finally {
+      setMonitorBusyId(null);
+    }
+  }, [monitorBusyId, monitorCounts, loadShelves, loadMonitorCounts]);
+
+  // Reflect a single-game marker change in the shelf and refresh platform counts.
+  const handleCardMonitoredChange = useCallback((gameId: number, monitored: boolean) => {
+    setShelves(prev => prev.map(s => ({
+      ...s,
+      games: s.games.map(g => g.id === gameId ? { ...g, monitored } : g),
+    })));
+    loadMonitorCounts();
+  }, [loadMonitorCounts]);
+
   useEffect(() => {
     const controller = new AbortController();
     loadShelves(controller.signal);
+    loadMonitorCounts();
 
-    const handleLibraryUpdate = () => { loadShelves(); };
+    const handleLibraryUpdate = () => { loadShelves(); loadMonitorCounts(); };
     window.addEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
     return () => {
       controller.abort();
       window.removeEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
     };
-  }, [loadShelves]);
+  }, [loadShelves, loadMonitorCounts]);
 
   const totalGames = useMemo(
     () => shelves.reduce((acc, s) => acc + s.total, 0),
@@ -155,6 +195,31 @@ export default function Platforms() {
                 <span className="retro-led" aria-hidden="true" />
                 <h2 className="shelf__title">{shelf.platform.name}</h2>
                 <span className="pixel shelf__count">{shelf.total}</span>
+                {(() => {
+                  const c = monitorCounts[String(shelf.platform.id)];
+                  const total = c?.total ?? shelf.total;
+                  const mon = c?.monitored ?? 0;
+                  const state = total > 0 && mon >= total ? 'all' : mon > 0 ? 'partial' : 'none';
+                  return (
+                    <button
+                      type="button"
+                      className={`shelf__monitor is-${state}`}
+                      onClick={() => handlePlatformMonitorToggle(shelf.platform.id)}
+                      disabled={monitorBusyId === shelf.platform.id}
+                      aria-pressed={state === 'all'}
+                      title={t('platformMonitorToggleHint') || 'Toggle monitoring for every game on this platform (and the default for new games)'}
+                    >
+                      <FontAwesomeIcon icon={faBookmark} spin={monitorBusyId === shelf.platform.id} />
+                      <span className="shelf__monitor-label">
+                        {state === 'all'
+                          ? (t('platformMonitoredAll') || 'Monitored')
+                          : state === 'partial'
+                            ? `${mon}/${total}`
+                            : (t('platformMonitorEnable') || 'Monitor All')}
+                      </span>
+                    </button>
+                  );
+                })()}
                 <Link
                   to={`/library?platform=${shelf.platform.id}`}
                   className="shelf__all"
@@ -174,6 +239,7 @@ export default function Platforms() {
                     <div key={dto.id} className="shelf__slot" role="listitem">
                       <GameCard
                         game={game}
+                        onMonitoredChange={handleCardMonitoredChange}
                         onClick={() => navigate(`/game/${dto.id}`, {
                           state: {
                             fromPlatformId: String(shelf.platform.id),

@@ -1153,3 +1153,12 @@
     flex-wrap: wrap;
   }
 }
+/* Platform-wide monitor toggle in the action bar */
+.platform-action-btn.monitor-btn.is-all {
+  background: var(--ctp-yellow, #f9e2af);
+  color: #1e1e2e;
+}
+.platform-action-btn.monitor-btn.is-partial {
+  background: var(--ctp-surface1, #45475a);
+  color: var(--ctp-yellow, #f9e2af);
+}

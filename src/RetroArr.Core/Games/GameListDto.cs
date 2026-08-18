@@ -23,6 +23,7 @@ namespace RetroArr.Core.Games
         public int? IgdbId { get; set; }
         public string? ProtonDbTier { get; set; }
         public DateTime? MissingSince { get; set; }
+        public bool Monitored { get; set; }
     }
 
     public class PagedResult<T>

@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { reviewsApi } from '../api/client';
+import { reviewsApi, monitorApi } from '../api/client';
 import { useTranslation } from '../i18n/translations';
 import { useCardTilt } from '../hooks/useCardTilt';
 import steamLogo from '../assets/steam_logo.png';
 import PlatformIcon from './PlatformIcon';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faStar } from '@fortawesome/free-solid-svg-icons';
+import { faStar, faBookmark } from '@fortawesome/free-solid-svg-icons';
 import RegionFlag from './RegionFlag';
 import ProtonDbBadge from './ProtonDbBadge';
 import './GameCard.css';
@@ -43,6 +43,7 @@ interface Game {
   revision?: string;
   protonDbTier?: string;
   missingSince?: string | null;
+  monitored?: boolean;
 }
 
 interface ReviewData {
@@ -57,16 +58,39 @@ interface GameCardProps {
   onClick?: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
   onDelete?: () => void;
+  onMonitoredChange?: (gameId: number, monitored: boolean) => void;
 }
 
 // Simple cache to prevent duplicate API calls across re-renders
 const reviewCache = new Map<number, ReviewData | null>();
 const pendingRequests = new Map<number, Promise<ReviewData | null>>();
 
-const GameCard: React.FC<GameCardProps> = ({ game, reviewData, onClick, onContextMenu, onDelete }) => {
+const GameCard: React.FC<GameCardProps> = ({ game, reviewData, onClick, onContextMenu, onDelete, onMonitoredChange }) => {
   const { t } = useTranslation();
   const tiltRef = useCardTilt<HTMLDivElement>(4);
   const [review, setReview] = useState<ReviewData | null>(reviewData ?? reviewCache.get(game.id) ?? null);
+  const [monitored, setMonitored] = useState(!!game.monitored);
+  const [monitorBusy, setMonitorBusy] = useState(false);
+
+  // Keep the marker in sync when the parent re-supplies the game (e.g. after a
+  // platform-wide bulk toggle or a page reload).
+  useEffect(() => { setMonitored(!!game.monitored); }, [game.monitored]);
+
+  const toggleMonitored = async (e: React.MouseEvent) => {
+    e.stopPropagation(); // don't trigger card navigation
+    if (monitorBusy) return;
+    const next = !monitored;
+    setMonitored(next); // optimistic
+    setMonitorBusy(true);
+    try {
+      await monitorApi.setMonitored(game.id, next);
+      onMonitoredChange?.(game.id, next);
+    } catch {
+      setMonitored(!next); // revert on failure
+    } finally {
+      setMonitorBusy(false);
+    }
+  };
 
   // Sync from parent-provided reviewData prop
   useEffect(() => {
@@ -175,6 +199,20 @@ const GameCard: React.FC<GameCardProps> = ({ game, reviewData, onClick, onContex
             />
           )}
         </div>
+
+        {/* Monitor marker (Sonarr/Radarr-style, click to toggle) */}
+        <button
+          type="button"
+          className={`game-card-monitor-btn${monitored ? ' is-monitored' : ''}`}
+          onClick={toggleMonitored}
+          disabled={monitorBusy}
+          aria-pressed={monitored}
+          title={monitored
+            ? (t('monitorMarkerOn') || 'Monitored — click to stop watching')
+            : (t('monitorMarkerOff') || 'Not monitored — click to watch for releases')}
+        >
+          <FontAwesomeIcon icon={faBookmark} />
+        </button>
 
         {/* MetaScore Badge */}
         {review?.metacriticScore && (

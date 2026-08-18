@@ -109,7 +109,8 @@ namespace RetroArr.Core.Games
                     Revision = g.Revision,
                     IgdbId = g.IgdbId,
                     ProtonDbTier = g.ProtonDbTier,
-                    MissingSince = g.MissingSince
+                    MissingSince = g.MissingSince,
+                    Monitored = g.Monitored
                 })
                 .ToListAsync();
 
