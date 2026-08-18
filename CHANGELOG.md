@@ -1,3 +1,9 @@
+## v1.0.191 (2026-08-18)
+
+### Changes
+- fix SharpCompress 0.48 API: Open renamed to OpenArchive (c3687ab)
+- chore fix dependabot vulnerabilities (d4f0e6b)
+
 ## v1.0.190 (2026-08-18)
 
 ### Changes
