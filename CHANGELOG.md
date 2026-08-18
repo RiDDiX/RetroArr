@@ -1,3 +1,8 @@
+## v1.0.196 (2026-08-18)
+
+### Changes
+- map & import game search for main games; fix stale-chunk hard-refresh (890ab9a)
+
 ## v1.0.195 (2026-08-18)
 
 ### Changes
