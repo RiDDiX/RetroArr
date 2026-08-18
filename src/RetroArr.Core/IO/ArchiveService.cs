@@ -48,7 +48,7 @@ namespace RetroArr.Core.IO
                 }
                 else if (ext == ".rar" || ext == ".7z")
                 {
-                    using (var archive = ArchiveFactory.Open(sourceFile))
+                    using (var archive = ArchiveFactory.OpenArchive(sourceFile))
                     {
                         foreach (var entry in archive.Entries.Where(entry => !entry.IsDirectory))
                         {
