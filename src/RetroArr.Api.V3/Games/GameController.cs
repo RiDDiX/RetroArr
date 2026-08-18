@@ -205,31 +205,19 @@ namespace RetroArr.Api.V3.Games
                     .FirstOrDefault(p => p.Id == game.PlatformId);
             }
 
-            // If a language is requested and the game has an IgdbId, fetch localized metadata
-            if (!string.IsNullOrEmpty(lang) && game.IgdbId.HasValue)
+            // NOTE: localized game text is served straight from the stored metadata
+            // (populated at scan/match time). We deliberately do NOT re-fetch IGDB
+            // here: that live external call ran on every detail-page open and blocked
+            // the response for several seconds ("Spiel wird geladen..." hanging).
+            // Cheap, local platform-name localization is still applied.
+            if (!string.IsNullOrEmpty(lang) && lang != "en" && game.Platform != null)
             {
                 try
                 {
-                    var metadataService = _metadataServiceFactory.CreateService();
-                    var localizedGame = await metadataService.GetGameMetadataAsync(game.IgdbId.Value, lang);
-                    
-                    if (localizedGame != null)
-                    {
-                        // Override localized fields for the display
-                        game.Title = localizedGame.Title;
-                        game.Overview = localizedGame.Overview;
-                        game.Storyline = localizedGame.Storyline;
-                        game.Genres = localizedGame.Genres;
-                        if (game.Platform != null)
-                        {
-                            game.Platform.Name = metadataService.LocalizePlatform(game.Platform.Name, lang);
-                        }
-                    }
+                    game.Platform.Name = _metadataServiceFactory.CreateService()
+                        .LocalizePlatform(game.Platform.Name, lang);
                 }
-                catch
-                {
-                    // Fallback to stored metadata if IGDB fetch fails
-                }
+                catch { /* keep stored platform name */ }
             }
 
             game.IsInstallable = IsPathInstallable(game.Path);

@@ -64,4 +64,11 @@ assert(
   'The index.html fallback must be served with no-cache to avoid stale chunk references'
 );
 
+// ---- GameDetails fast load: GetById must not block on a live IGDB fetch ----
+const gameController = read('src', 'RetroArr.Api.V3', 'Games', 'GameController.cs');
+assert(
+  !gameController.includes('GetGameMetadataAsync(game.IgdbId.Value, lang)'),
+  'GetById must not re-fetch IGDB metadata synchronously (it blocked the detail page for seconds)'
+);
+
 console.log('map-import-and-chunk-boundary: all contract checks passed');
