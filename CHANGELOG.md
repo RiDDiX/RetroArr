@@ -1,3 +1,8 @@
+## v1.0.189 (2026-08-18)
+
+### Changes
+- feat per-game and per-platform monitoring toggle (7e0f70d)
+
 ## v1.0.188 (2026-06-04)
 
 ### Changes
