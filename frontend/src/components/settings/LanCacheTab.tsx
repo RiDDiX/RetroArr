@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { lancacheApi, getErrorMessage, type LanCacheSettings, type LanCacheStatus, type LanCacheReconcile } from '../../api/client';
+import React, { useEffect, useRef, useState } from 'react';
+import { lancacheApi, getErrorMessage, type LanCacheSettings, type LanCacheStatus, type LanCacheReconcile, type PrefillStatus } from '../../api/client';
 
 interface Props {
   language: string;
@@ -25,13 +25,45 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
   const [checking, setChecking] = useState(false);
   const [reconcile, setReconcile] = useState<LanCacheReconcile | null>(null);
   const [reconciling, setReconciling] = useState(false);
+  const [prefill, setPrefill] = useState<PrefillStatus | null>(null);
+  const [starting, setStarting] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     lancacheApi.getSettings()
       .then(res => setSettings({ ...DEFAULTS, ...res.data }))
       .catch(e => setError(getErrorMessage(e, 'Failed to load LanCache settings')))
       .finally(() => setLoading(false));
+    lancacheApi.getPrefillStatus().then(res => setPrefill(res.data)).catch(() => {});
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
+
+  // Poll prefill status while a run is in progress.
+  useEffect(() => {
+    if (prefill?.running && !pollRef.current) {
+      pollRef.current = setInterval(async () => {
+        try {
+          const res = await lancacheApi.getPrefillStatus();
+          setPrefill(res.data);
+          if (!res.data.running && pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+        } catch { /* keep polling */ }
+      }, 3000);
+    }
+  }, [prefill?.running]);
+
+  const runPrefill = async () => {
+    setStarting(true); setError(null); setNotice(null);
+    try {
+      const res = await lancacheApi.runPrefill();
+      setNotice(res.data.message);
+      const st = await lancacheApi.getPrefillStatus();
+      setPrefill(st.data);
+    } catch (e) {
+      setError(getErrorMessage(e, 'Failed to start prefill'));
+    } finally {
+      setStarting(false);
+    }
+  };
 
   const save = async () => {
     setSaving(true); setError(null); setNotice(null);
@@ -120,10 +152,12 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
         </div>
       </div>
 
-      <h3>Steam prefill (coming next)</h3>
+      <h3>Steam prefill</h3>
       <p className="settings-hint">
-        These control the upcoming SteamPrefill run. Prefill itself (login + warming the cache) lands in the next step;
-        the options are saved now so they are ready.
+        RetroArr orchestrates the bundled <a href="https://github.com/tpill90/steam-lancache-prefill" target="_blank" rel="noopener noreferrer">SteamPrefill</a> tool
+        to warm your LanCache. A one-time interactive Steam login is required (it is separate from the Steam Web API key):
+        run <code>docker exec -it retroarr /opt/steamprefill/SteamPrefill select-apps</code> once, then use the button below.
+        Prefill only fills the cache if your network routes Steam CDN traffic through the LanCache.
       </p>
       <div className="form-group">
         <label className="checkbox-row">
@@ -174,6 +208,39 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
         </button>
       </div>
 
+      {prefill && (
+        <div className="settings-section" style={{ marginTop: 16, padding: 0 }}>
+          <div className="settings-hint" style={{ marginBottom: 8 }}>
+            SteamPrefill: {prefill.available ? 'bundled' : 'not bundled'} ·{' '}
+            {prefill.loggedIn ? 'logged in' : 'not logged in'} ·{' '}
+            {prefill.prefilledCount} prefilled
+            {prefill.lastRunUtc ? ` · last run ${new Date(prefill.lastRunUtc).toLocaleString()}${prefill.lastExitCode != null ? ` (exit ${prefill.lastExitCode})` : ''}` : ''}
+          </div>
+          <button
+            className="btn-primary"
+            onClick={runPrefill}
+            disabled={starting || prefill.running || !prefill.available || !prefill.loggedIn}
+          >
+            {prefill.running ? 'Prefilling...' : starting ? 'Starting...' : 'Run prefill now'}
+          </button>
+          {!prefill.available && (
+            <div className="alert alert-error" style={{ marginTop: 8 }}>
+              SteamPrefill is not bundled in this image. Rebuild or pull the latest image.
+            </div>
+          )}
+          {prefill.available && !prefill.loggedIn && (
+            <div className="alert alert-info" style={{ marginTop: 8 }}>
+              One-time login required: <code>docker exec -it retroarr /opt/steamprefill/SteamPrefill select-apps</code>
+            </div>
+          )}
+          {prefill.recentLog.length > 0 && (
+            <pre style={{ marginTop: 8, maxHeight: 220, overflow: 'auto', background: 'var(--ctp-mantle, #181825)', padding: 8, borderRadius: 6, fontSize: '0.78em' }}>
+              {prefill.recentLog.slice(-60).join('\n')}
+            </pre>
+          )}
+        </div>
+      )}
+
       {status && (
         <div className={`alert ${status.reachable ? 'alert-info' : 'alert-error'}`} style={{ marginTop: 12 }}>
           {!status.configured && 'No LanCache host configured.'}
@@ -196,11 +263,12 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
           {!reconcile.steamConfigured && 'Steam is not connected. Add your Steam API key + ID under Accounts first.'}
           {reconcile.steamConfigured && (
             <>
-              {reconcile.ownedCount} owned Steam game{reconcile.ownedCount === 1 ? '' : 's'} found.
+              {reconcile.ownedCount} owned Steam game{reconcile.ownedCount === 1 ? '' : 's'} found
+              {typeof reconcile.prefilledCount === 'number' ? `, ${reconcile.prefilledCount} already prefilled` : ''}.
               {reconcile.games.length > 0 && (
                 <ul style={{ margin: '8px 0 0', paddingLeft: 18, maxHeight: 220, overflow: 'auto' }}>
                   {reconcile.games.slice(0, 50).map(g => (
-                    <li key={g.appId}>{g.name}</li>
+                    <li key={g.appId}>{g.prefilled ? '✓ ' : ''}{g.name}</li>
                   ))}
                 </ul>
               )}

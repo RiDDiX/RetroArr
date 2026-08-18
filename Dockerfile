@@ -32,6 +32,27 @@ RUN mkdir -p /emulatorjs/data/cores && \
     done && \
     echo "Core pre-download complete: $(ls /emulatorjs/data/cores/ | wc -l) files"
 
+# Stage: Download SteamPrefill (LanCache prefill tool, orchestrated at runtime).
+# Non-fatal: a GitHub-release outage must not break the image build; the LanCache
+# prefill feature simply reports "unavailable" until the binary is present.
+FROM alpine:3.19 AS steamprefill
+ARG TARGETARCH
+ARG STEAMPREFILL_VERSION=3.7.1
+WORKDIR /steamprefill
+RUN apk add --no-cache curl unzip
+RUN case "$TARGETARCH" in \
+        amd64) SP_ARCH=linux-x64 ;; \
+        arm64) SP_ARCH=linux-arm64 ;; \
+        *)     SP_ARCH=linux-x64 ;; \
+    esac && \
+    ( curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused --retry-all-errors \
+        -o /tmp/sp.zip "https://github.com/tpill90/steam-lancache-prefill/releases/download/v${STEAMPREFILL_VERSION}/SteamPrefill-${STEAMPREFILL_VERSION}-${SP_ARCH}.zip" \
+      && unzip -oq /tmp/sp.zip -d /steamprefill \
+      && rm -f /tmp/sp.zip \
+      && ( [ -f /steamprefill/SteamPrefill ] || find /steamprefill -maxdepth 2 -type f -name 'SteamPrefill' -exec cp {} /steamprefill/SteamPrefill \; ) \
+      && chmod +x /steamprefill/SteamPrefill \
+    ) || echo "[steamprefill] WARN: download failed at build time; LanCache prefill will be unavailable until the image is rebuilt"
+
 # Stage 1: Build the Frontend (React)
 FROM node:22 AS frontend
 WORKDIR /src
@@ -115,6 +136,10 @@ COPY CHANGELOG.md /app/CHANGELOG.md
 # Copy EmulatorJS assets (pre-downloaded during build)
 COPY --from=emulatorjs /emulatorjs/data /app/config/emulatorjs
 
+# Bundle SteamPrefill (LanCache prefill). Its session/state live in ./Config next
+# to the binary; the entrypoint symlinks that to the persistent config volume.
+COPY --from=steamprefill /steamprefill /opt/steamprefill
+
 # Entrypoint script handles self-signed cert generation + dual-listener config
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
@@ -123,7 +148,8 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 RUN mkdir -p /app/config /app/savestates /media && \
     groupadd -g 1000 retroarr && \
     useradd -u 1000 -g retroarr -s /usr/sbin/nologin -M retroarr && \
-    chown -R retroarr:retroarr /app /media
+    chown -R retroarr:retroarr /app /media && \
+    (chown -R retroarr:retroarr /opt/steamprefill 2>/dev/null || true)
 
 USER retroarr
 

@@ -56,4 +56,14 @@ fi
 export ASPNETCORE_URLS="$URLS"
 echo "[entrypoint] listening on $URLS"
 
+# SteamPrefill stores its Steam session + prefill state in <binaryDir>/Config.
+# Redirect that to the persistent config volume so a one-time login survives
+# container restarts. Best-effort: never block startup on it.
+if [ -x /opt/steamprefill/SteamPrefill ]; then
+    mkdir -p /app/config/steamprefill 2>/dev/null || true
+    ln -sfn /app/config/steamprefill /opt/steamprefill/Config 2>/dev/null \
+        && echo "[entrypoint] SteamPrefill bundled; session dir -> /app/config/steamprefill" \
+        || echo "[entrypoint] warning: could not link SteamPrefill Config dir"
+fi
+
 exec dotnet RetroArr.Host.dll "$@"

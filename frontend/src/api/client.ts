@@ -1061,8 +1061,19 @@ export interface LanCacheStatus {
 export interface LanCacheReconcile {
   steamConfigured: boolean;
   ownedCount: number;
-  games: { appId: number; name: string; playtimeMinutes: number }[];
+  prefilledCount?: number;
+  games: { appId: number; name: string; playtimeMinutes: number; prefilled?: boolean }[];
   error?: string;
+}
+
+export interface PrefillStatus {
+  available: boolean;
+  loggedIn: boolean;
+  running: boolean;
+  prefilledCount: number;
+  lastRunUtc?: string | null;
+  lastExitCode?: number | null;
+  recentLog: string[];
 }
 
 export const lancacheApi = {
@@ -1070,6 +1081,8 @@ export const lancacheApi = {
   saveSettings: (body: LanCacheSettings) => apiClient.post<LanCacheSettings>('/lancache/settings', body),
   getStatus: () => apiClient.get<LanCacheStatus>('/lancache/status'),
   reconcile: () => apiClient.get<LanCacheReconcile>('/lancache/reconcile', { timeout: 30000 }),
+  getPrefillStatus: () => apiClient.get<PrefillStatus>('/lancache/prefill/status'),
+  runPrefill: () => apiClient.post<{ started: boolean; message: string }>('/lancache/prefill/run'),
 };
 
 export interface PlatformMonitorCount {

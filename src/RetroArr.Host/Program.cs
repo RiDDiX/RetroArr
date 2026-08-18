@@ -283,6 +283,9 @@ namespace RetroArr.Host
             // Switch USB
             builder.Services.AddSingleton<RetroArr.Core.Switch.ISwitchUsbService, RetroArr.Core.Switch.SwitchUsbService>();
 
+            // LanCache / SteamPrefill orchestration
+            builder.Services.AddSingleton<RetroArr.Core.LanCache.SteamPrefillService>();
+
             // Webhook Notifications
             builder.Services.AddScoped<RetroArr.Core.Notifications.IWebhookService, RetroArr.Core.Notifications.WebhookService>();
 
