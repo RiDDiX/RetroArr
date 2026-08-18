@@ -1,3 +1,8 @@
+## v1.0.199 (2026-08-18)
+
+### Changes
+- lancache phase 2: orchestrate bundled steamprefill to warm the cache (636b943)
+
 ## v1.0.198 (2026-08-18)
 
 ### Changes
