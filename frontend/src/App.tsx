@@ -31,6 +31,7 @@ import LanguageSwitcher from './components/LanguageSwitcher';
 import ProgressHubBridge from './components/ProgressHubBridge';
 import CoreMappingBootstrap from './components/CoreMappingBootstrap';
 import ApiKeyGate from './components/ApiKeyGate';
+import ChunkErrorBoundary from './components/ChunkErrorBoundary';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -56,6 +57,7 @@ function App() {
         <ScannerStatus />
         <LanguageSwitcher />
         <AppShell>
+          <ChunkErrorBoundary>
           <Suspense fallback={<div className="page-loading"><div className="loading-spinner" /></div>}>
             <Routes>
               <Route path="/" element={<Dashboard />} />
@@ -80,6 +82,7 @@ function App() {
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>
+          </ChunkErrorBoundary>
         </AppShell>
       </Router>
     </UIProvider>

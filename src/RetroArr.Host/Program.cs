@@ -593,6 +593,13 @@ namespace RetroArr.Host
                     var indexPath = Path.Combine(uiPath, "index.html");
                     var html = File.ReadAllText(indexPath);
                     context.Response.ContentType = "text/html; charset=utf-8";
+                    // Never cache the SPA shell: it references content-hashed JS chunks, so a
+                    // stale index.html points the browser at old chunk names that 404 after a
+                    // deploy (the "have to hard-refresh" symptom). The hashed assets themselves
+                    // stay cacheable via the static-file middleware.
+                    context.Response.Headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
+                    context.Response.Headers["Pragma"] = "no-cache";
+                    context.Response.Headers["Expires"] = "0";
                     context.Response.Headers["Cross-Origin-Opener-Policy"] = "same-origin";
                     context.Response.Headers["Cross-Origin-Embedder-Policy"] = "credentialless";
                     return context.Response.Body.WriteAsync(System.Text.Encoding.UTF8.GetBytes(html)).AsTask();

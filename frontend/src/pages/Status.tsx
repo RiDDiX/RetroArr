@@ -1014,36 +1014,50 @@ const Status: React.FC = () => {
                 </div>
               )}
             </div>
-            {mapPlatform && (mapFileType === 'Patches' || mapFileType === 'DLC') && (
-              <div className="modal-field">
-                <label>Link to Game</label>
-                <input
-                  type="text"
-                  className="filter-input"
-                  placeholder="Search games..."
-                  value={mapGameSearch}
-                  onChange={e => { setMapGameSearch(e.target.value); setMapGameId(''); }}
-                  style={{ marginBottom: '6px' }}
-                />
-                <select
-                  className="filter-select"
-                  value={mapGameId}
-                  onChange={e => setMapGameId(e.target.value ? Number(e.target.value) : '')}
-                >
-                  <option value="">- Select Game (optional) -</option>
-                  {gamesList
-                    .filter(g => {
-                      const platDef = platforms.find(p => p.folderName === mapPlatform);
-                      const matchesPlatform = !platDef || g.platformId === platDef.id;
-                      const matchesSearch = !mapGameSearch || g.title.toLowerCase().includes(mapGameSearch.toLowerCase());
-                      return matchesPlatform && matchesSearch;
-                    })
-                    .map(g => (
+            {mapPlatform && (() => {
+              const platDef = platforms.find(p => p.folderName === mapPlatform);
+              const matches = gamesList.filter(g => {
+                const matchesPlatform = !platDef || g.platformId === platDef.id;
+                const matchesSearch = !mapGameSearch || g.title.toLowerCase().includes(mapGameSearch.toLowerCase());
+                return matchesPlatform && matchesSearch;
+              });
+              return (
+                <div className="modal-field">
+                  <label>
+                    {mapFileType === 'Main'
+                      ? 'Map to existing game (search by name)'
+                      : 'Link to game'}
+                  </label>
+                  <input
+                    type="text"
+                    className="filter-input"
+                    placeholder="Search games by name..."
+                    value={mapGameSearch}
+                    onChange={e => { setMapGameSearch(e.target.value); setMapGameId(''); }}
+                    style={{ marginBottom: '6px' }}
+                  />
+                  <select
+                    className="filter-select"
+                    size={Math.min(8, Math.max(2, matches.length + 1))}
+                    value={mapGameId}
+                    onChange={e => setMapGameId(e.target.value ? Number(e.target.value) : '')}
+                  >
+                    <option value="">
+                      {mapFileType === 'Main'
+                        ? '- New game from download title -'
+                        : '- Select game (optional) -'}
+                    </option>
+                    {matches.map(g => (
                       <option key={g.id} value={g.id}>{g.title}</option>
                     ))}
-                </select>
-              </div>
-            )}
+                  </select>
+                  <div style={{ fontSize: '0.8em', color: 'var(--ctp-subtext0)', marginTop: '4px' }}>
+                    {matches.length} game{matches.length === 1 ? '' : 's'} on this platform
+                    {mapGameSearch ? ` matching "${mapGameSearch}"` : ''}
+                  </div>
+                </div>
+              );
+            })()}
             {mapPlatform && (
               <div className="modal-field">
                 <label>Target Folder Preview</label>
