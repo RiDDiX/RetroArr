@@ -10,7 +10,7 @@ RUN apk add --no-cache curl unzip
 RUN mkdir -p /emulatorjs/data && \
     for f in loader.js emulator.min.js emulator.min.css version.json GameManager.js \
              gamepad.js nipplejs.js shaders.js storage.js socket.io.min.js; do \
-      curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused \
+      curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused --retry-all-errors \
         -o "/emulatorjs/data/$f" "https://cdn.emulatorjs.org/stable/data/$f"; \
     done && \
     echo "stable" > /emulatorjs/data/version.txt
@@ -23,9 +23,9 @@ RUN mkdir -p /emulatorjs/data/cores && \
                 psx psp \
                 atari2600 atari5200 atari7800 lynx jaguar \
                 arcade mame2003 3do pce; do \
-      curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused -o "/emulatorjs/data/cores/${CORE}-wasm.data" \
+      curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused --retry-all-errors -o "/emulatorjs/data/cores/${CORE}-wasm.data" \
         "https://cdn.emulatorjs.org/stable/data/cores/${CORE}-wasm.data" 2>/dev/null || true; \
-      curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused -o "/emulatorjs/data/cores/${CORE}.js" \
+      curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused --retry-all-errors -o "/emulatorjs/data/cores/${CORE}.js" \
         "https://cdn.emulatorjs.org/stable/data/cores/${CORE}.js" 2>/dev/null || true; \
     done && \
     echo "Core pre-download complete: $(ls /emulatorjs/data/cores/ | wc -l) files"
