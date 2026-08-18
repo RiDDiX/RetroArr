@@ -219,9 +219,9 @@ const GameCard: React.FC<GameCardProps> = ({ game, reviewData, onClick, onContex
           <div 
             className="game-card-metascore" 
             style={{ 
-              position: 'absolute', 
-              top: '8px', 
-              left: '8px', 
+              position: 'absolute',
+              top: '8px',
+              left: '44px',
               backgroundColor: review.metacriticScore >= 75 ? 'var(--ctp-green)' : review.metacriticScore >= 50 ? 'var(--ctp-yellow)' : 'var(--ctp-red)',
               color: review.metacriticScore >= 75 ? '#000' : review.metacriticScore >= 50 ? '#000' : '#fff',
               padding: '4px 8px',

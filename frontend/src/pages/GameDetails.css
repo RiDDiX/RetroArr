@@ -1756,3 +1756,8 @@
     width: 100%;
   }
 }
+/* Monitor toggle in the action-button row (bookmark) */
+.action-btn.monitor-toggle-btn.is-monitored {
+  background: var(--ctp-yellow, #f9e2af);
+  color: #1e1e2e;
+}

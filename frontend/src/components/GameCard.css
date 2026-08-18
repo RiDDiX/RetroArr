@@ -271,9 +271,9 @@
 /* Monitor marker (Sonarr/Radarr-style) — click to toggle per-game monitoring */
 .game-card-monitor-btn {
   position: absolute;
-  bottom: 8px;
-  right: 8px;
-  z-index: 11;
+  top: 8px;
+  left: 8px;
+  z-index: 12;
   display: flex;
   align-items: center;
   justify-content: center;

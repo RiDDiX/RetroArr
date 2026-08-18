@@ -71,6 +71,36 @@ assert(
   'Platforms dtoToGame must pass monitored through so the card marker shows state'
 );
 
+// ---- Per-game monitor button on the game detail page ----
+const details = read('frontend', 'src', 'pages', 'GameDetails.tsx');
+assert(
+  details.includes('monitor-toggle-btn'),
+  'GameDetails must render a prominent monitor toggle button'
+);
+assert(
+  details.includes('await monitorApi.setMonitored(game.id, next)'),
+  'GameDetails monitor button must toggle via monitorApi.setMonitored'
+);
+assert(
+  details.includes('const toggleGameMonitored'),
+  'GameDetails must define the toggleGameMonitored handler'
+);
+
+// The MonitorPanel checkbox must follow the prop so the header button and the
+// panel stay consistent.
+const panel = read('frontend', 'src', 'components', 'MonitorPanel.tsx');
+assert(
+  /useEffect\(\(\) => \{ setMonitored\(initialMonitored\); \}, \[initialMonitored\]\);/.test(panel),
+  'MonitorPanel must sync internal monitored state from initialMonitored'
+);
+
+// ---- Card marker sits top-left (per user preference) ----
+const cardCss = read('frontend', 'src', 'components', 'GameCard.css');
+assert(
+  /\.game-card-monitor-btn\s*\{[^}]*top:\s*8px;[^}]*left:\s*8px;/.test(cardCss),
+  'Card monitor marker must be anchored top-left'
+);
+
 // ---- Backend route + field contract (static string pins; runs without dotnet) ----
 const controller = read('src', 'RetroArr.Api.V3', 'Monitor', 'MonitorController.cs');
 

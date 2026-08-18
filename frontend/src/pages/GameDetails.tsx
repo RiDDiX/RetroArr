@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
-import apiClient, { getErrorMessage, isTimeoutError, isAxiosError, withApiKey } from '../api/client';
+import apiClient, { getErrorMessage, isTimeoutError, isAxiosError, withApiKey, monitorApi } from '../api/client';
 import { t, getLanguage, useTranslation } from '../i18n/translations';
 import GameCorrectionModal from '../components/GameCorrectionModal';
 import UninstallModal from '../components/UninstallModal';
 import SwitchInstallerModal from '../components/SwitchInstallerModal';
 import { Modal } from '../components/ui';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSearch, faPen, faDownload, faGamepad, faMagnet, faSpinner, faSort, faSortUp, faSortDown, faArrowUp, faArrowDown, faTrash, faMicrochip, faPlay, faStar, faHeart, faTag, faStickyNote, faTrophy, faPlus, faTimes, faFile, faFolder, faFolderOpen, faCloudDownloadAlt, faCheck } from '@fortawesome/free-solid-svg-icons';
+import { faSearch, faPen, faDownload, faGamepad, faMagnet, faSpinner, faSort, faSortUp, faSortDown, faArrowUp, faArrowDown, faTrash, faMicrochip, faPlay, faStar, faHeart, faTag, faStickyNote, faTrophy, faPlus, faTimes, faFile, faFolder, faFolderOpen, faCloudDownloadAlt, faCheck, faBookmark } from '@fortawesome/free-solid-svg-icons';
 import EmulatorPlayer from '../components/EmulatorPlayer';
 import ScoreCircle from '../components/ScoreCircle';
 import RegionFlag from '../components/RegionFlag';
@@ -145,6 +145,7 @@ const GameDetails: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [monitorBusy, setMonitorBusy] = useState(false);
   const [results, setResults] = useState<TorrentResult[]>([]);
   const [searchDiagnostics, setSearchDiagnostics] = useState<{ providers: Array<{ name: string; status: string; count?: number; error?: string }>; diagnostics: { configured: boolean; message?: string } } | null>(null);
   const [customSearchQuery, setCustomSearchQuery] = useState<string>('');
@@ -1043,6 +1044,21 @@ const GameDetails: React.FC = () => {
       setConflictBusy(false);
     }
   };
+  const toggleGameMonitored = async () => {
+    if (!game || monitorBusy) return;
+    const next = !game.monitored;
+    setMonitorBusy(true);
+    setGame(prev => prev ? { ...prev, monitored: next } : prev); // optimistic
+    try {
+      await monitorApi.setMonitored(game.id, next);
+    } catch (err) {
+      setGame(prev => prev ? { ...prev, monitored: !next } : prev); // revert
+      setNotification({ message: getErrorMessage(err, t('monitorToggleFailed')), type: 'error' });
+    } finally {
+      setMonitorBusy(false);
+    }
+  };
+
   const handleInstallClick = () => {
     setShowInstallWarning(true);
   };
@@ -1288,6 +1304,19 @@ const GameDetails: React.FC = () => {
                 <span>{isWebPlayable ? 'Play' : t('play')}</span>
               </button>
             )}
+
+            <button
+              className={`action-btn monitor-toggle-btn${game.monitored ? ' is-monitored' : ''}`}
+              onClick={toggleGameMonitored}
+              disabled={monitorBusy}
+              aria-pressed={!!game.monitored}
+              title={game.monitored
+                ? (t('monitorMarkerOn') || 'Monitored — click to stop watching')
+                : (t('monitorMarkerOff') || 'Not monitored — click to watch for releases')}
+            >
+              <FontAwesomeIcon icon={faBookmark} />
+              <span>{game.monitored ? (t('platformMonitoredAll') || 'Monitored') : (t('monitorToggleLabel') || 'Monitor')}</span>
+            </button>
 
             {/* Monitor / Auto-Search */}
             <MonitorPanel

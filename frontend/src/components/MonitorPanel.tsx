@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import apiClient, { monitorApi, getErrorMessage, type ScoredReleaseDto } from '../api/client';
 import { useTranslation } from '../i18n/translations';
 import './MonitorPanel.css';
@@ -22,6 +22,8 @@ const decisionLabel = (d: ScoredReleaseDto['decision'], t: ReturnType<typeof use
 const MonitorPanel: React.FC<Props> = ({ gameId, initialMonitored, initialPreferredGroup, onMonitoredChange }) => {
   const { t } = useTranslation();
   const [monitored, setMonitored] = useState(initialMonitored);
+  // Stay in sync when the parent toggles monitoring elsewhere (e.g. the header button).
+  useEffect(() => { setMonitored(initialMonitored); }, [initialMonitored]);
   const [busy, setBusy] = useState(false);
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<ScoredReleaseDto[] | null>(null);
