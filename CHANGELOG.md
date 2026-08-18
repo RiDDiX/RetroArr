@@ -1,3 +1,8 @@
+## v1.0.197 (2026-08-18)
+
+### Changes
+- fix slow game detail load: stop blocking GetById on a live igdb fetch (6142241)
+
 ## v1.0.196 (2026-08-18)
 
 ### Changes
