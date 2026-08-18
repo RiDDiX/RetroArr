@@ -1,3 +1,8 @@
+## v1.0.194 (2026-08-18)
+
+### Changes
+- ci retry emulatorjs downloads on transient http errors too (7fc41ac)
+
 ## v1.0.193 (2026-08-18)
 
 ### Changes
