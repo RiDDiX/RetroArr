@@ -263,9 +263,10 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
         <h3>Choose Steam games to prefill</h3>
         <p className="settings-hint">
           Pick which Steam games to warm. Saved to the same list SteamPrefill&apos;s
-          <code>select-apps</code> uses, so both stay in sync. Games shared with you via
-          Steam <strong>Family</strong> also appear (tagged) once you have logged SteamPrefill
-          in — they load by reusing that session.
+          <code>select-apps</code> uses, so both stay in sync. Titles you selected via
+          <code>select-apps</code> that are not in your owned library (e.g. Steam
+          <strong>Family</strong> shares) also appear here, tagged, so you can see and untick
+          them. Adding new Family titles is done in <code>select-apps</code>.
         </p>
         <div className="form-row" style={{ gap: 8 }}>
           <button className="btn-secondary" onClick={loadSteamApps} disabled={steamLoading}>

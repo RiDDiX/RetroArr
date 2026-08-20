@@ -154,13 +154,24 @@ namespace RetroArr.Api.V3.LanCache
                 var client = new SteamClient(steam.ApiKey);
                 var owned = await client.GetOwnedGamesAsync(steam.SteamId).ConfigureAwait(false);
                 var selected = new HashSet<uint>(_prefill.GetSelectedAppIds("steam"));
-
-                // Family-shared games via SteamPrefill's saved session (best-effort).
-                var family = await GetFamilyAppsAsync(steam.SteamId, ct).ConfigureAwait(false);
+                var ownedIds = new HashSet<uint>(owned.Select(g => (uint)g.AppId));
 
                 var map = new Dictionary<uint, (string name, int playtime, bool shared)>();
                 foreach (var g in owned) map[(uint)g.AppId] = (g.Name, g.PlaytimeForever, false);
-                foreach (var f in family) if (!map.ContainsKey(f.appId)) map[f.appId] = (f.name, 0, true);
+
+                // Selected apps that are NOT in the owned library are family-shared /
+                // CLI-selected titles. Show them so they can be seen and unticked here.
+                // Names come from the public store appdetails endpoint (read-only, no
+                // Steam session — we must NEVER touch SteamPrefill's login token, as
+                // minting an access token from it invalidates that session).
+                var extra = selected.Where(id => !ownedIds.Contains(id)).ToList();
+                if (extra.Count > 0)
+                {
+                    var names = await ResolveAppNamesAsync(extra, ct).ConfigureAwait(false);
+                    foreach (var id in extra)
+                        if (!map.ContainsKey(id))
+                            map[id] = (names.TryGetValue(id, out var nm) ? nm : $"App {id}", 0, true);
+                }
 
                 var games = map
                     .OrderByDescending(kv => selected.Contains(kv.Key))
@@ -174,7 +185,6 @@ namespace RetroArr.Api.V3.LanCache
                     ownedCount = owned.Count,
                     familyCount = games.Count(g => g.shared),
                     selectedCount = games.Count(g => g.selected),
-                    familyAvailable = family.Count > 0,
                     games
                 });
             }
@@ -185,79 +195,42 @@ namespace RetroArr.Api.V3.LanCache
             }
         }
 
-        // Family-shared apps by reusing SteamPrefill's saved refresh token. Returns
-        // empty on ANY failure (not logged in, token expired, API change), so the
-        // picker degrades to owned-only rather than erroring.
-        private async Task<List<(uint appId, string name)>> GetFamilyAppsAsync(string steamId, CancellationToken ct)
+        // Resolve appId -> name via the public store appdetails endpoint. Best-effort
+        // and capped so we never hammer the rate-limited endpoint; unresolved ids fall
+        // back to "App {id}". No auth, no Steam session — purely read-only.
+        private async Task<Dictionary<uint, string>> ResolveAppNamesAsync(List<uint> appIds, CancellationToken ct)
         {
-            var result = new List<(uint, string)>();
+            var names = new Dictionary<uint, string>();
             try
             {
-                var refresh = _prefill.GetSteamRefreshToken();
-                if (string.IsNullOrEmpty(refresh)) return result;
-
                 var http = _httpClientFactory.CreateClient();
-                http.Timeout = TimeSpan.FromSeconds(15);
-
-                var accessToken = await GenerateAccessTokenAsync(http, refresh!, steamId, ct).ConfigureAwait(false);
-                if (string.IsNullOrEmpty(accessToken)) return result;
-
-                var familyGroupId = await GetFamilyGroupIdAsync(http, accessToken!, steamId, ct).ConfigureAwait(false);
-                if (string.IsNullOrEmpty(familyGroupId)) return result;
-
-                var url = $"https://api.steampowered.com/IFamilyGroupsService/GetSharedLibraryApps/v1/?access_token={Uri.EscapeDataString(accessToken!)}&family_groupid={Uri.EscapeDataString(familyGroupId!)}&steamid={Uri.EscapeDataString(steamId)}&include_own=false&include_free=false&include_non_games=false&max_apps=5000";
-                using var resp = await http.GetAsync(url, ct).ConfigureAwait(false);
-                if (!resp.IsSuccessStatusCode) return result;
-
-                using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
-                if (doc.RootElement.TryGetProperty("response", out var r)
-                    && r.TryGetProperty("apps", out var apps) && apps.ValueKind == JsonValueKind.Array)
+                http.Timeout = TimeSpan.FromSeconds(8);
+                foreach (var id in appIds.Take(60))
                 {
-                    foreach (var a in apps.EnumerateArray())
+                    if (ct.IsCancellationRequested) break;
+                    try
                     {
-                        if (!a.TryGetProperty("appid", out var idEl)) continue;
-                        uint id = idEl.ValueKind == JsonValueKind.Number
-                            ? (uint)idEl.GetInt64()
-                            : (uint.TryParse(idEl.GetString(), out var pid) ? pid : 0);
-                        if (id == 0) continue;
-                        var name = a.TryGetProperty("name", out var n) ? (n.GetString() ?? $"App {id}") : $"App {id}";
-                        result.Add((id, name));
+                        var url = $"https://store.steampowered.com/api/appdetails?appids={id}&filters=basic";
+                        using var resp = await http.GetAsync(url, ct).ConfigureAwait(false);
+                        if (!resp.IsSuccessStatusCode) continue;
+                        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+                        if (doc.RootElement.TryGetProperty(id.ToString(System.Globalization.CultureInfo.InvariantCulture), out var entry)
+                            && entry.TryGetProperty("success", out var ok) && ok.ValueKind == JsonValueKind.True
+                            && entry.TryGetProperty("data", out var data)
+                            && data.TryGetProperty("name", out var n))
+                        {
+                            var nm = n.GetString();
+                            if (!string.IsNullOrEmpty(nm)) names[id] = nm!;
+                        }
                     }
+                    catch { /* skip this id */ }
                 }
             }
             catch (Exception ex)
             {
-                _logger.Warn($"[LanCache] family library fetch failed: {ex.Message}");
+                _logger.Warn($"[LanCache] app name resolve failed: {ex.Message}");
             }
-            return result;
-        }
-
-        private static async Task<string?> GenerateAccessTokenAsync(HttpClient http, string refreshToken, string steamId, CancellationToken ct)
-        {
-            var body = new FormUrlEncodedContent(new[]
-            {
-                new KeyValuePair<string, string>("refresh_token", refreshToken),
-                new KeyValuePair<string, string>("steamid", steamId)
-            });
-            using var resp = await http.PostAsync("https://api.steampowered.com/IAuthenticationService/GenerateAccessTokenForApp/v1/", body, ct).ConfigureAwait(false);
-            if (!resp.IsSuccessStatusCode) return null;
-            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
-            return doc.RootElement.TryGetProperty("response", out var r) && r.TryGetProperty("access_token", out var at)
-                ? at.GetString() : null;
-        }
-
-        private static async Task<string?> GetFamilyGroupIdAsync(HttpClient http, string accessToken, string steamId, CancellationToken ct)
-        {
-            var url = $"https://api.steampowered.com/IFamilyGroupsService/GetFamilyGroupForUser/v1/?access_token={Uri.EscapeDataString(accessToken)}&steamid={Uri.EscapeDataString(steamId)}";
-            using var resp = await http.GetAsync(url, ct).ConfigureAwait(false);
-            if (!resp.IsSuccessStatusCode) return null;
-            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
-            if (!doc.RootElement.TryGetProperty("response", out var r)) return null;
-            if (r.TryGetProperty("family_groupid", out var g))
-                return g.ValueKind == JsonValueKind.Number
-                    ? g.GetInt64().ToString(System.Globalization.CultureInfo.InvariantCulture)
-                    : g.GetString();
-            return null;
+            return names;
         }
 
         public sealed class SteamAppsSelectionRequest

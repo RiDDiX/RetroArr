@@ -29,13 +29,16 @@ assert(tab.includes('prefillAllOwned: false'), 'UI default must be selected-only
 assert(tab.includes('Choose Steam games to prefill'), 'UI must expose the game picker');
 assert(tab.includes('Save selection'), 'UI must let the user save the selection');
 
-// Family library: reuse SteamPrefill's session token (no new login).
+// Family: show selected-but-not-owned titles WITHOUT touching SteamPrefill's
+// session (reusing its token invalidates the login). Names via public appdetails.
+assert(!ctrl.includes('GenerateAccessTokenForApp') && !ctrl.includes('IFamilyGroupsService'),
+  'controller must NOT reuse SteamPrefill\'s session token (it invalidates the login)');
+assert(!svc.includes('GetSteamRefreshToken') && !svc.includes('ProtoBuf.Serializer'),
+  'service must not read/exchange the SteamPrefill session token');
 const csproj = read('src', 'RetroArr.Core', 'RetroArr.Core.csproj');
-assert(csproj.includes('protobuf-net'), 'protobuf-net needed to read SteamPrefill account.config');
-assert(svc.includes('GetSteamRefreshToken') && svc.includes('account.config') && svc.includes('ProtoMember(5)'),
-  'service must read SteamPrefill refresh token from account.config field 5');
-assert(ctrl.includes('IFamilyGroupsService/GetSharedLibraryApps') && ctrl.includes('GenerateAccessTokenForApp'),
-  'controller must fetch the family library via the Steam auth token chain');
-assert(tab.includes('Family'), 'UI must tag family-shared games');
+assert(!csproj.includes('protobuf-net'), 'protobuf-net no longer needed');
+assert(ctrl.includes('store.steampowered.com/api/appdetails'), 'names resolved via the public appdetails endpoint');
+assert(ctrl.includes('!ownedIds.Contains'), 'selected-but-not-owned titles surface as family/shared');
+assert(tab.includes('Family'), 'UI must tag family/shared titles');
 
 console.log('lancache-steam-select: all contract checks passed');
