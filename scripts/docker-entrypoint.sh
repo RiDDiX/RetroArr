@@ -56,14 +56,19 @@ fi
 export ASPNETCORE_URLS="$URLS"
 echo "[entrypoint] listening on $URLS"
 
-# SteamPrefill stores its Steam session + prefill state in <binaryDir>/Config.
-# Redirect that to the persistent config volume so a one-time login survives
-# container restarts. Best-effort: never block startup on it.
-if [ -x /opt/steamprefill/SteamPrefill ]; then
-    mkdir -p /app/config/steamprefill 2>/dev/null || true
-    ln -sfn /app/config/steamprefill /opt/steamprefill/Config 2>/dev/null \
-        && echo "[entrypoint] SteamPrefill bundled; session dir -> /app/config/steamprefill" \
-        || echo "[entrypoint] warning: could not link SteamPrefill Config dir"
-fi
+# The LanCache prefill tools keep their session + prefill state in <binaryDir>/Config.
+# Redirect each to the persistent config volume so a one-time login survives restarts.
+# Best-effort: never block startup on it.
+for tool in steamprefill:SteamPrefill battlenetprefill:BattleNetPrefill epicprefill:EpicPrefill; do
+    dir="/opt/${tool%%:*}"
+    bin="$dir/${tool##*:}"
+    [ -x "$bin" ] || continue
+    mkdir -p "/app/config/${tool%%:*}" 2>/dev/null || true
+    # If a real Config dir shipped in the zip, drop it so the symlink takes effect.
+    [ -d "$dir/Config" ] && [ ! -L "$dir/Config" ] && rm -rf "$dir/Config" 2>/dev/null || true
+    ln -sfn "/app/config/${tool%%:*}" "$dir/Config" 2>/dev/null \
+        && echo "[entrypoint] ${tool##*:} bundled; session dir -> /app/config/${tool%%:*}" \
+        || echo "[entrypoint] warning: could not link ${tool##*:} Config dir"
+done
 
 exec dotnet RetroArr.Host.dll "$@"

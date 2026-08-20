@@ -3,43 +3,49 @@ const path = require('path');
 const read = (...p) => fs.readFileSync(path.join(__dirname, '..', ...p), 'utf8');
 const assert = (cond, msg) => { if (!cond) throw new Error(msg); };
 
-// Core service
-const svc = read('src', 'RetroArr.Core', 'LanCache', 'SteamPrefillService.cs');
-assert(svc.includes('class SteamPrefillService'), 'SteamPrefillService required');
-assert(svc.includes('"prefill"') && svc.includes('--no-ansi'), 'must invoke SteamPrefill prefill --no-ansi');
-assert(svc.includes('successfullyDownloadedDepots.json'), 'must read SteamPrefill prefill state');
-assert(svc.includes('account.config'), 'must detect the Steam login session');
-assert(svc.includes('IsAvailable') && svc.includes('IsLoggedIn'), 'defensive availability/login checks');
+// Generic multi-provider prefill service (Steam / Battle.net / Epic)
+const svc = read('src', 'RetroArr.Core', 'LanCache', 'LanCachePrefillService.cs');
+assert(svc.includes('class LanCachePrefillService'), 'LanCachePrefillService required');
+for (const id of ['steam', 'battlenet', 'epic']) {
+  assert(svc.includes(`"${id}"`), `provider ${id} must be registered`);
+}
+assert(svc.includes('"prefill"') && svc.includes('--no-ansi'), 'prefill --no-ansi invocation');
+assert(svc.includes('successfullyDownloadedDepots.json') && svc.includes('successfullyDownloadedApps.json'), 'reads per-tool prefill state files');
+assert(svc.includes('account.config') && svc.includes('userAccount.json'), 'detects Steam + Epic login sessions');
 
-// DI registration
+// DI + controller
 const program = read('src', 'RetroArr.Host', 'Program.cs');
-assert(program.includes('AddSingleton<RetroArr.Core.LanCache.SteamPrefillService>'), 'SteamPrefillService must be registered');
-
-// Controller endpoints
+assert(program.includes('AddSingleton<RetroArr.Core.LanCache.LanCachePrefillService>'), 'service registered');
 const ctrl = read('src', 'RetroArr.Api.V3', 'LanCache', 'LanCacheController.cs');
 assert(ctrl.includes('[HttpGet("prefill/status")]'), 'prefill status endpoint');
-assert(ctrl.includes('[HttpPost("prefill/run")]'), 'prefill run endpoint');
-assert(ctrl.includes('GetPrefilledAppIds'), 'reconcile must mark prefilled games');
+assert(ctrl.includes('[HttpPost("prefill/{provider}/run")]'), 'per-provider prefill run endpoint');
+assert(ctrl.includes('GetPrefilledAppIds("steam")'), 'reconcile marks steam-prefilled games');
 
-// Dockerfile bundles SteamPrefill (multiarch, non-fatal)
+// Dockerfile bundles all three tools (multiarch, non-fatal)
 const dockerfile = read('Dockerfile');
-assert(dockerfile.includes('AS steamprefill'), 'SteamPrefill download stage required');
-assert(/TARGETARCH/.test(dockerfile) && dockerfile.includes('linux-arm64') && dockerfile.includes('linux-x64'), 'multiarch SteamPrefill download');
-assert(dockerfile.includes('COPY --from=steamprefill /steamprefill /opt/steamprefill'), 'SteamPrefill copied into runtime image');
-assert(dockerfile.includes('--retry-all-errors'), 'SteamPrefill download must be resilient');
+for (const s of ['AS steamprefill', 'AS battlenetprefill', 'AS epicprefill']) {
+  assert(dockerfile.includes(s), `Dockerfile stage ${s} required`);
+}
+for (const tool of ['steamprefill', 'battlenetprefill', 'epicprefill']) {
+  assert(dockerfile.includes(`COPY --from=${tool} /${tool} /opt/${tool}`), `copy ${tool} into runtime`);
+}
+assert(dockerfile.includes('linux-arm64') && dockerfile.includes('linux-x64') && /TARGETARCH/.test(dockerfile), 'multiarch downloads');
+assert((dockerfile.match(/--retry-all-errors/g) || []).length >= 3, 'all prefill downloads resilient');
 
-// Entrypoint persists the session dir
+// Entrypoint symlinks every tool's Config dir
 const entry = read('scripts', 'docker-entrypoint.sh');
-assert(entry.includes('/opt/steamprefill/Config') && entry.includes('/app/config/steamprefill'), 'entrypoint must symlink the SteamPrefill Config dir to the config volume');
+for (const t of ['steamprefill', 'battlenetprefill', 'epicprefill']) {
+  assert(entry.includes(t), `entrypoint must handle ${t}`);
+}
+assert(entry.includes('/opt/') && entry.includes('/Config'), 'entrypoint symlinks Config dirs');
 
-// Frontend api
+// Frontend
 const client = read('frontend', 'src', 'api', 'client.ts');
-assert(client.includes("apiClient.get<PrefillStatus>('/lancache/prefill/status')"), 'getPrefillStatus wrapper');
-assert(client.includes("apiClient.post<{ started: boolean; message: string }>('/lancache/prefill/run')"), 'runPrefill wrapper');
-
-// Frontend UI
+assert(client.includes("apiClient.get<PrefillProviderStatus[]>('/lancache/prefill/status')"), 'getPrefillStatus wrapper (array)');
+assert(client.includes('`/lancache/prefill/${provider}/run`'), 'runPrefill(provider) wrapper');
 const tab = read('frontend', 'src', 'components', 'settings', 'LanCacheTab.tsx');
-assert(tab.includes('Run prefill now'), 'prefill run button');
-assert(tab.includes('SteamPrefill/select-apps') || tab.includes('/opt/steamprefill/SteamPrefill select-apps'), 'one-time login guidance shown');
+assert(tab.includes('providers.map'), 'tab renders each provider');
+assert(tab.includes('Battle.net') || tab.includes('battlenet'), 'battle.net surfaced');
+assert(tab.includes('Epic') || tab.includes('epic'), 'epic surfaced');
 
 console.log('lancache-phase2: all contract checks passed');

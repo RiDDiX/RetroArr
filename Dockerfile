@@ -53,6 +53,38 @@ RUN case "$TARGETARCH" in \
       && chmod +x /steamprefill/SteamPrefill \
     ) || echo "[steamprefill] WARN: download failed at build time; LanCache prefill will be unavailable until the image is rebuilt"
 
+# Stage: Download BattleNetPrefill (same author/shape as SteamPrefill, non-fatal).
+FROM alpine:3.19 AS battlenetprefill
+ARG TARGETARCH
+ARG BATTLENETPREFILL_VERSION=2.3.0
+WORKDIR /battlenetprefill
+RUN apk add --no-cache curl unzip
+RUN case "$TARGETARCH" in \
+        amd64) A=linux-x64 ;; arm64) A=linux-arm64 ;; *) A=linux-x64 ;; \
+    esac && \
+    ( curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused --retry-all-errors \
+        -o /tmp/bn.zip "https://github.com/tpill90/battlenet-lancache-prefill/releases/download/v${BATTLENETPREFILL_VERSION}/BattleNetPrefill-${BATTLENETPREFILL_VERSION}-${A}.zip" \
+      && unzip -oq /tmp/bn.zip -d /battlenetprefill && rm -f /tmp/bn.zip \
+      && ( [ -f /battlenetprefill/BattleNetPrefill ] || find /battlenetprefill -maxdepth 2 -type f -name 'BattleNetPrefill' -exec cp {} /battlenetprefill/BattleNetPrefill \; ) \
+      && chmod +x /battlenetprefill/BattleNetPrefill \
+    ) || echo "[battlenetprefill] WARN: download failed at build time; Battle.net prefill will be unavailable"
+
+# Stage: Download EpicPrefill (same author/shape, non-fatal).
+FROM alpine:3.19 AS epicprefill
+ARG TARGETARCH
+ARG EPICPREFILL_VERSION=2.1.0
+WORKDIR /epicprefill
+RUN apk add --no-cache curl unzip
+RUN case "$TARGETARCH" in \
+        amd64) A=linux-x64 ;; arm64) A=linux-arm64 ;; *) A=linux-x64 ;; \
+    esac && \
+    ( curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused --retry-all-errors \
+        -o /tmp/ep.zip "https://github.com/tpill90/epic-lancache-prefill/releases/download/v${EPICPREFILL_VERSION}/EpicPrefill-${EPICPREFILL_VERSION}-${A}.zip" \
+      && unzip -oq /tmp/ep.zip -d /epicprefill && rm -f /tmp/ep.zip \
+      && ( [ -f /epicprefill/EpicPrefill ] || find /epicprefill -maxdepth 2 -type f -name 'EpicPrefill' -exec cp {} /epicprefill/EpicPrefill \; ) \
+      && chmod +x /epicprefill/EpicPrefill \
+    ) || echo "[epicprefill] WARN: download failed at build time; Epic prefill will be unavailable"
+
 # Stage 1: Build the Frontend (React)
 FROM node:22 AS frontend
 WORKDIR /src
@@ -136,9 +168,12 @@ COPY CHANGELOG.md /app/CHANGELOG.md
 # Copy EmulatorJS assets (pre-downloaded during build)
 COPY --from=emulatorjs /emulatorjs/data /app/config/emulatorjs
 
-# Bundle SteamPrefill (LanCache prefill). Its session/state live in ./Config next
-# to the binary; the entrypoint symlinks that to the persistent config volume.
+# Bundle the LanCache prefill tools (Steam / Battle.net / Epic). Each keeps its
+# session/state in ./Config next to the binary; the entrypoint symlinks those to
+# the persistent config volume.
 COPY --from=steamprefill /steamprefill /opt/steamprefill
+COPY --from=battlenetprefill /battlenetprefill /opt/battlenetprefill
+COPY --from=epicprefill /epicprefill /opt/epicprefill
 
 # Entrypoint script handles self-signed cert generation + dual-listener config
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
@@ -149,7 +184,7 @@ RUN mkdir -p /app/config /app/savestates /media && \
     groupadd -g 1000 retroarr && \
     useradd -u 1000 -g retroarr -s /usr/sbin/nologin -M retroarr && \
     chown -R retroarr:retroarr /app /media && \
-    (chown -R retroarr:retroarr /opt/steamprefill 2>/dev/null || true)
+    (chown -R retroarr:retroarr /opt/steamprefill /opt/battlenetprefill /opt/epicprefill 2>/dev/null || true)
 
 USER retroarr
 

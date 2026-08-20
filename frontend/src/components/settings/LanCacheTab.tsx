@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { lancacheApi, getErrorMessage, type LanCacheSettings, type LanCacheStatus, type LanCacheReconcile, type PrefillStatus } from '../../api/client';
+import { lancacheApi, getErrorMessage, type LanCacheSettings, type LanCacheStatus, type LanCacheReconcile, type PrefillProviderStatus } from '../../api/client';
 
 interface Props {
   language: string;
@@ -25,43 +25,45 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
   const [checking, setChecking] = useState(false);
   const [reconcile, setReconcile] = useState<LanCacheReconcile | null>(null);
   const [reconciling, setReconciling] = useState(false);
-  const [prefill, setPrefill] = useState<PrefillStatus | null>(null);
-  const [starting, setStarting] = useState(false);
+  const [providers, setProviders] = useState<PrefillProviderStatus[]>([]);
+  const [startingId, setStartingId] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const anyRunning = providers.some(p => p.running);
 
   useEffect(() => {
     lancacheApi.getSettings()
       .then(res => setSettings({ ...DEFAULTS, ...res.data }))
       .catch(e => setError(getErrorMessage(e, 'Failed to load LanCache settings')))
       .finally(() => setLoading(false));
-    lancacheApi.getPrefillStatus().then(res => setPrefill(res.data)).catch(() => {});
+    lancacheApi.getPrefillStatus().then(res => setProviders(res.data)).catch(() => {});
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
 
-  // Poll prefill status while a run is in progress.
+  // Poll prefill status while any provider run is in progress.
   useEffect(() => {
-    if (prefill?.running && !pollRef.current) {
+    if (anyRunning && !pollRef.current) {
       pollRef.current = setInterval(async () => {
         try {
           const res = await lancacheApi.getPrefillStatus();
-          setPrefill(res.data);
-          if (!res.data.running && pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+          setProviders(res.data);
+          if (!res.data.some(p => p.running) && pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
         } catch { /* keep polling */ }
       }, 3000);
     }
-  }, [prefill?.running]);
+  }, [anyRunning]);
 
-  const runPrefill = async () => {
-    setStarting(true); setError(null); setNotice(null);
+  const runPrefill = async (providerId: string) => {
+    setStartingId(providerId); setError(null); setNotice(null);
     try {
-      const res = await lancacheApi.runPrefill();
+      const res = await lancacheApi.runPrefill(providerId);
       setNotice(res.data.message);
       const st = await lancacheApi.getPrefillStatus();
-      setPrefill(st.data);
+      setProviders(st.data);
     } catch (e) {
       setError(getErrorMessage(e, 'Failed to start prefill'));
     } finally {
-      setStarting(false);
+      setStartingId(null);
     }
   };
 
@@ -152,12 +154,14 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
         </div>
       </div>
 
-      <h3>Steam prefill</h3>
+      <h3>Prefill</h3>
       <p className="settings-hint">
-        RetroArr orchestrates the bundled <a href="https://github.com/tpill90/steam-lancache-prefill" target="_blank" rel="noopener noreferrer">SteamPrefill</a> tool
-        to warm your LanCache. A one-time interactive Steam login is required (it is separate from the Steam Web API key):
-        run <code>docker exec -it retroarr /opt/steamprefill/SteamPrefill select-apps</code> once, then use the button below.
-        Prefill only fills the cache if your network routes Steam CDN traffic through the LanCache.
+        RetroArr orchestrates tpill90's bundled prefill tools to warm your LanCache:{' '}
+        <a href="https://github.com/tpill90/steam-lancache-prefill" target="_blank" rel="noopener noreferrer">Steam</a>,{' '}
+        <a href="https://github.com/tpill90/battlenet-lancache-prefill" target="_blank" rel="noopener noreferrer">Battle.net</a> and{' '}
+        <a href="https://github.com/tpill90/epic-lancache-prefill" target="_blank" rel="noopener noreferrer">Epic</a>.
+        Where a login is required it is a one-time interactive step (separate from any Web API key); the exact command is shown per provider.
+        Prefill only fills the cache if your network routes that store's CDN traffic through the LanCache.
       </p>
       <div className="form-group">
         <label className="checkbox-row">
@@ -208,38 +212,38 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
         </button>
       </div>
 
-      {prefill && (
-        <div className="settings-section" style={{ marginTop: 16, padding: 0 }}>
+      {providers.map(p => (
+        <div key={p.id} className="settings-section" style={{ marginTop: 16, padding: 0 }}>
           <div className="settings-hint" style={{ marginBottom: 8 }}>
-            SteamPrefill: {prefill.available ? 'bundled' : 'not bundled'} ·{' '}
-            {prefill.loggedIn ? 'logged in' : 'not logged in'} ·{' '}
-            {prefill.prefilledCount} prefilled
-            {prefill.lastRunUtc ? ` · last run ${new Date(prefill.lastRunUtc).toLocaleString()}${prefill.lastExitCode != null ? ` (exit ${prefill.lastExitCode})` : ''}` : ''}
+            <strong>{p.name}</strong> — {p.available ? 'bundled' : 'not bundled'}
+            {p.requiresLogin ? ` · ${p.loggedIn ? 'logged in' : 'not logged in'}` : ' · no login needed'}
+            {` · ${p.prefilledCount} prefilled`}
+            {p.lastRunUtc ? ` · last run ${new Date(p.lastRunUtc).toLocaleString()}${p.lastExitCode != null ? ` (exit ${p.lastExitCode})` : ''}` : ''}
           </div>
           <button
             className="btn-primary"
-            onClick={runPrefill}
-            disabled={starting || prefill.running || !prefill.available || !prefill.loggedIn}
+            onClick={() => runPrefill(p.id)}
+            disabled={startingId === p.id || p.running || !p.available || !p.loggedIn}
           >
-            {prefill.running ? 'Prefilling...' : starting ? 'Starting...' : 'Run prefill now'}
+            {p.running ? 'Prefilling...' : startingId === p.id ? 'Starting...' : `Run ${p.name} prefill`}
           </button>
-          {!prefill.available && (
+          {!p.available && (
             <div className="alert alert-error" style={{ marginTop: 8 }}>
-              SteamPrefill is not bundled in this image. Rebuild or pull the latest image.
+              {p.name}Prefill is not bundled in this image. Rebuild or pull the latest image.
             </div>
           )}
-          {prefill.available && !prefill.loggedIn && (
+          {p.available && p.requiresLogin && !p.loggedIn && p.loginCommand && (
             <div className="alert alert-info" style={{ marginTop: 8 }}>
-              One-time login required: <code>docker exec -it retroarr /opt/steamprefill/SteamPrefill select-apps</code>
+              One-time login required: <code>{p.loginCommand}</code>
             </div>
           )}
-          {prefill.recentLog.length > 0 && (
+          {p.recentLog.length > 0 && (
             <pre style={{ marginTop: 8, maxHeight: 220, overflow: 'auto', background: 'var(--ctp-mantle, #181825)', padding: 8, borderRadius: 6, fontSize: '0.78em' }}>
-              {prefill.recentLog.slice(-60).join('\n')}
+              {p.recentLog.slice(-60).join('\n')}
             </pre>
           )}
         </div>
-      )}
+      ))}
 
       {status && (
         <div className={`alert ${status.reachable ? 'alert-info' : 'alert-error'}`} style={{ marginTop: 12 }}>

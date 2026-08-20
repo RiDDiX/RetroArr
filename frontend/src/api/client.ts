@@ -1066,13 +1066,18 @@ export interface LanCacheReconcile {
   error?: string;
 }
 
-export interface PrefillStatus {
+export interface PrefillProviderStatus {
+  id: string;
+  name: string;
+  requiresLogin: boolean;
+  supportsOs: boolean;
   available: boolean;
   loggedIn: boolean;
   running: boolean;
   prefilledCount: number;
   lastRunUtc?: string | null;
   lastExitCode?: number | null;
+  loginCommand?: string | null;
   recentLog: string[];
 }
 
@@ -1081,8 +1086,8 @@ export const lancacheApi = {
   saveSettings: (body: LanCacheSettings) => apiClient.post<LanCacheSettings>('/lancache/settings', body),
   getStatus: () => apiClient.get<LanCacheStatus>('/lancache/status'),
   reconcile: () => apiClient.get<LanCacheReconcile>('/lancache/reconcile', { timeout: 30000 }),
-  getPrefillStatus: () => apiClient.get<PrefillStatus>('/lancache/prefill/status'),
-  runPrefill: () => apiClient.post<{ started: boolean; message: string }>('/lancache/prefill/run'),
+  getPrefillStatus: () => apiClient.get<PrefillProviderStatus[]>('/lancache/prefill/status'),
+  runPrefill: (provider: string) => apiClient.post<{ started: boolean; message: string }>(`/lancache/prefill/${provider}/run`),
 };
 
 export interface PlatformMonitorCount {

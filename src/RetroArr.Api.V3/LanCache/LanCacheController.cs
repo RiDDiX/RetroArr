@@ -21,9 +21,9 @@ namespace RetroArr.Api.V3.LanCache
         private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(RetroArr.Core.Logging.AppLoggerService.General);
         private readonly ConfigurationService _configService;
         private readonly IHttpClientFactory _httpClientFactory;
-        private readonly SteamPrefillService _prefill;
+        private readonly LanCachePrefillService _prefill;
 
-        public LanCacheController(ConfigurationService configService, IHttpClientFactory httpClientFactory, SteamPrefillService prefill)
+        public LanCacheController(ConfigurationService configService, IHttpClientFactory httpClientFactory, LanCachePrefillService prefill)
         {
             _configService = configService;
             _httpClientFactory = httpClientFactory;
@@ -118,7 +118,7 @@ namespace RetroArr.Api.V3.LanCache
             {
                 var client = new SteamClient(steam.ApiKey);
                 var owned = await client.GetOwnedGamesAsync(steam.SteamId).ConfigureAwait(false);
-                var prefilled = _prefill.GetPrefilledAppIds();
+                var prefilled = _prefill.GetPrefilledAppIds("steam");
                 var games = owned
                     .OrderByDescending(g => g.PlaytimeForever)
                     .Select(g => new { appId = g.AppId, name = g.Name, playtimeMinutes = g.PlaytimeForever, prefilled = prefilled.Contains(g.AppId) })
@@ -138,34 +138,34 @@ namespace RetroArr.Api.V3.LanCache
             }
         }
 
-        // ---- SteamPrefill orchestration (phase 2) ----
+        // ---- Prefill orchestration: Steam / Battle.net / Epic ----
 
         [HttpGet("prefill/status")]
         public IActionResult PrefillStatus()
         {
-            return Ok(_prefill.GetStatus());
+            return Ok(_prefill.GetAllStatus());
         }
 
-        // Kick off a prefill in the background. Requires the bundled SteamPrefill
-        // binary and a one-time interactive Steam login (see the returned message).
-        // Progress is polled via prefill/status.
-        [HttpPost("prefill/run")]
-        public IActionResult PrefillRun()
+        // Kick off a prefill for one provider in the background. Requires the bundled
+        // binary and (where applicable) a one-time interactive login. Progress is
+        // polled via prefill/status.
+        [HttpPost("prefill/{provider}/run")]
+        public IActionResult PrefillRun(string provider)
         {
-            if (!_prefill.IsAvailable())
-                return StatusCode(503, new { started = false, message = "SteamPrefill is not bundled in this image." });
-            if (!_prefill.IsLoggedIn())
-                return StatusCode(409, new { started = false, message = "Not logged in to Steam. One-time login: docker exec -it retroarr /opt/steamprefill/SteamPrefill select-apps" });
-            if (_prefill.GetStatus().Running)
-                return Ok(new { started = false, message = "A prefill run is already in progress." });
+            if (!_prefill.IsAvailable(provider))
+                return StatusCode(503, new { started = false, message = $"{provider} prefill is not bundled in this image." });
+            if (!_prefill.IsLoggedIn(provider))
+                return StatusCode(409, new { started = false, message = $"Not logged in for {provider}. Run the one-time login first (see the tab)." });
+            if (_prefill.IsRunning(provider))
+                return Ok(new { started = false, message = "A prefill run is already in progress for this provider." });
 
             var settings = _configService.LoadLanCacheSettings();
             _ = Task.Run(async () =>
             {
-                try { await _prefill.RunPrefillAsync(settings).ConfigureAwait(false); }
-                catch (Exception ex) { _logger.Error($"[LanCache] background prefill failed: {ex.Message}"); }
+                try { await _prefill.RunPrefillAsync(provider, settings).ConfigureAwait(false); }
+                catch (Exception ex) { _logger.Error($"[LanCache] background prefill ({provider}) failed: {ex.Message}"); }
             });
-            return Ok(new { started = true, message = "Prefill started. Watch progress in the LanCache tab." });
+            return Ok(new { started = true, message = $"{provider} prefill started. Watch progress in the LanCache tab." });
         }
     }
 }
