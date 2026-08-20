@@ -1859,10 +1859,9 @@ namespace RetroArr.Api.V3.Games
 
         private static string SanitizeForPath(string input)
         {
-            if (string.IsNullOrEmpty(input)) return "unknown";
-            foreach (var c in Path.GetInvalidFileNameChars())
-                input = input.Replace(c.ToString(), "");
-            return input.Trim();
+            // Windows-reserved superset so folder names are valid on SMB/NTFS shares,
+            // not just on the Linux container FS.
+            return RetroArr.Core.IO.FileNameSanitizer.Sanitize(input, "unknown");
         }
 
         // Scans {LibraryRoot}/{platformFolder}/ and diffs against known game paths

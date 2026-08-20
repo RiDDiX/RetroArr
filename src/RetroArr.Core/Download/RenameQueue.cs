@@ -199,9 +199,8 @@ namespace RetroArr.Core.Download
 
         private static string GenerateCleanFileName(string gameTitle, string extension, string? platform)
         {
-            // Sanitize title
-            var invalidChars = Path.GetInvalidFileNameChars();
-            var cleanTitle = new string(gameTitle.Where(c => !invalidChars.Contains(c)).ToArray());
+            // Sanitize title against the Windows-reserved set (portable to SMB/NTFS).
+            var cleanTitle = RetroArr.Core.IO.FileNameSanitizer.Sanitize(gameTitle, "unknown");
             
             // Add platform suffix if provided
             if (!string.IsNullOrEmpty(platform))

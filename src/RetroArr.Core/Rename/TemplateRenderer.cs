@@ -100,18 +100,9 @@ namespace RetroArr.Core.Rename
         private static string SanitizeStem(string input)
         {
             if (string.IsNullOrEmpty(input)) return string.Empty;
-            // Replace any path separators - they'd turn a stem into a path.
-            input = input.Replace('/', '-').Replace('\\', '-');
-            // Strip filename-illegal chars. Path.GetInvalidFileNameChars covers
-            // : * ? " < > | etc. plus controls.
-            var bad = Path.GetInvalidFileNameChars();
-            var clean = new System.Text.StringBuilder(input.Length);
-            foreach (var ch in input)
-            {
-                if (Array.IndexOf(bad, ch) < 0) clean.Append(ch);
-            }
-            // Trailing dots/spaces are illegal on Windows.
-            return clean.ToString().Trim().TrimEnd('.', ' ');
+            // Cross-platform-safe: always strips the Windows-reserved set (: * ? " < > |
+            // etc.), which Path.GetInvalidFileNameChars() does NOT cover on Linux.
+            return RetroArr.Core.IO.FileNameSanitizer.Sanitize(input, string.Empty);
         }
     }
 }

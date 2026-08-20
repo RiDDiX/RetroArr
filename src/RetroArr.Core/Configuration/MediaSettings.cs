@@ -125,15 +125,9 @@ namespace RetroArr.Core.Configuration
 
         private static string SanitizePath(string input)
         {
-            if (string.IsNullOrEmpty(input)) return "unknown";
-            
-            // Remove invalid path characters
-            var invalid = System.IO.Path.GetInvalidFileNameChars();
-            foreach (var c in invalid)
-            {
-                input = input.Replace(c.ToString(), "");
-            }
-            return input.Trim();
+            // Always strip the Windows-reserved set (not just the runtime's, which on
+            // Linux is only '/'), so folder names stay valid on SMB/NTFS shares.
+            return RetroArr.Core.IO.FileNameSanitizer.Sanitize(input, "unknown");
         }
     }
 }

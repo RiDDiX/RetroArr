@@ -1067,7 +1067,6 @@ namespace RetroArr.Core.Games
 
         internal static string BuildSupplementaryFileName(string gameTitle, string type, string? version, string? contentName, string extension)
         {
-            var invalidChars = Path.GetInvalidFileNameChars();
             string raw;
 
             if (type == "Patch")
@@ -1087,8 +1086,7 @@ namespace RetroArr.Core.Games
                 raw = $"{gameTitle}-DLC{namePart}";
             }
 
-            var sanitized = string.Join("_", raw.Split(invalidChars, StringSplitOptions.RemoveEmptyEntries)).Trim();
-            return sanitized + extension;
+            return RetroArr.Core.IO.FileNameSanitizer.Sanitize(raw, "unknown") + extension;
         }
 
         // ── Platform comparison ─────────────────────────────────────────

@@ -818,8 +818,9 @@ namespace RetroArr.Core.Download
 
         private string SanitizeFileName(string name)
         {
-             var invalidChars = Path.GetInvalidFileNameChars();
-             return string.Join("_", name.Split(invalidChars, StringSplitOptions.RemoveEmptyEntries)).Trim();
+            // Cross-platform-safe: strips the Windows-reserved set even on Linux so the
+            // on-disk folder/file name survives on SMB/NTFS (no "DTWOE3~0" mangling).
+            return RetroArr.Core.IO.FileNameSanitizer.Sanitize(name, "unknown");
         }
 
         // Map a download's platform hint (free-form string from indexer/queue) to
@@ -895,17 +896,13 @@ namespace RetroArr.Core.Download
         internal static string BuildPatchFileName(string gameTitle, string? version, string extension)
         {
             var versionPart = !string.IsNullOrEmpty(version) ? $"-v{version}" : "";
-            var invalidChars = Path.GetInvalidFileNameChars();
-            var sanitized = string.Join("_", $"{gameTitle}-Patch{versionPart}".Split(invalidChars, StringSplitOptions.RemoveEmptyEntries)).Trim();
-            return sanitized + extension;
+            return RetroArr.Core.IO.FileNameSanitizer.Sanitize($"{gameTitle}-Patch{versionPart}", "unknown") + extension;
         }
 
         internal static string BuildDlcFileName(string gameTitle, string? dlcName, string extension)
         {
             var namePart = !string.IsNullOrEmpty(dlcName) ? $"-{dlcName}" : "";
-            var invalidChars = Path.GetInvalidFileNameChars();
-            var sanitized = string.Join("_", $"{gameTitle}-DLC{namePart}".Split(invalidChars, StringSplitOptions.RemoveEmptyEntries)).Trim();
-            return sanitized + extension;
+            return RetroArr.Core.IO.FileNameSanitizer.Sanitize($"{gameTitle}-DLC{namePart}", "unknown") + extension;
         }
 
         private static bool IsCriticalPath(string? path)

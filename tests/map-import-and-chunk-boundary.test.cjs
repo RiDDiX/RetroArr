@@ -78,4 +78,17 @@ assert(emu.includes('emulatorjs.org/latest/data'), 'EmulatorJS CDN base must poi
 const df = read('Dockerfile');
 assert(!df.includes('emulatorjs.org/stable'), 'Dockerfile must not pull EmulatorJS from stable');
 
+// ---- Cross-platform filename sanitizer used at every name-building site ----
+const sanitizer = read('src', 'RetroArr.Core', 'IO', 'FileNameSanitizer.cs');
+assert(sanitizer.includes('class FileNameSanitizer') && sanitizer.includes('<>:\\"/\\\\|?*'),
+  'FileNameSanitizer must strip the Windows-reserved set');
+for (const f of [
+  ['src', 'RetroArr.Core', 'Configuration', 'MediaSettings.cs'],
+  ['src', 'RetroArr.Core', 'Download', 'PostDownloadProcessor.cs'],
+  ['src', 'RetroArr.Core', 'Rename', 'TemplateRenderer.cs'],
+]) {
+  assert(read(...f).includes('FileNameSanitizer.Sanitize'),
+    `${f[f.length - 1]} must route names through FileNameSanitizer`);
+}
+
 console.log('map-import-and-chunk-boundary: all contract checks passed');
