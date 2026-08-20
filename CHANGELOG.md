@@ -1,3 +1,8 @@
+## v1.0.203 (2026-08-20)
+
+### Changes
+- sanitize file/folder names against the windows-reserved set on linux (20246da)
+
 ## v1.0.202 (2026-08-20)
 
 ### Changes
