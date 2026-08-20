@@ -29,4 +29,13 @@ assert(tab.includes('prefillAllOwned: false'), 'UI default must be selected-only
 assert(tab.includes('Choose Steam games to prefill'), 'UI must expose the game picker');
 assert(tab.includes('Save selection'), 'UI must let the user save the selection');
 
+// Family library: reuse SteamPrefill's session token (no new login).
+const csproj = read('src', 'RetroArr.Core', 'RetroArr.Core.csproj');
+assert(csproj.includes('protobuf-net'), 'protobuf-net needed to read SteamPrefill account.config');
+assert(svc.includes('GetSteamRefreshToken') && svc.includes('account.config') && svc.includes('ProtoMember(5)'),
+  'service must read SteamPrefill refresh token from account.config field 5');
+assert(ctrl.includes('IFamilyGroupsService/GetSharedLibraryApps') && ctrl.includes('GenerateAccessTokenForApp'),
+  'controller must fetch the family library via the Steam auth token chain');
+assert(tab.includes('Family'), 'UI must tag family-shared games');
+
 console.log('lancache-steam-select: all contract checks passed');

@@ -137,6 +137,34 @@ namespace RetroArr.Core.LanCache
             }
         }
 
+        // Minimal mirror of SteamPrefill's UserAccountStore (protobuf-net). Field 5
+        // holds the long-lived refresh token; other fields are ignored on read.
+        [ProtoBuf.ProtoContract(SkipConstructor = true)]
+        private sealed class SteamAccountStore
+        {
+            [ProtoBuf.ProtoMember(5)] public string? AccessToken { get; set; }
+        }
+
+        // Reuse SteamPrefill's already-authenticated session: read the refresh token
+        // it persisted to account.config. Returns null if the user hasn't logged in.
+        public string? GetSteamRefreshToken()
+        {
+            try
+            {
+                if (!_providers.TryGetValue("steam", out var p)) return null;
+                var path = Path.Combine(p.ConfigDir, "account.config");
+                if (!File.Exists(path)) return null;
+                using var fs = File.OpenRead(path);
+                var store = ProtoBuf.Serializer.Deserialize<SteamAccountStore>(fs);
+                return string.IsNullOrWhiteSpace(store?.AccessToken) ? null : store!.AccessToken;
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn($"[Prefill:steam] could not read session token: {ex.Message}");
+                return null;
+            }
+        }
+
         public List<PrefillProviderStatus> GetAllStatus()
         {
             var list = new List<PrefillProviderStatus>();

@@ -262,8 +262,10 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
       <div className="settings-section" style={{ marginTop: 16, padding: 0 }}>
         <h3>Choose Steam games to prefill</h3>
         <p className="settings-hint">
-          Pick which owned Steam games to warm. This is saved to the same list
-          SteamPrefill&apos;s <code>select-apps</code> uses, so both stay in sync.
+          Pick which Steam games to warm. Saved to the same list SteamPrefill&apos;s
+          <code>select-apps</code> uses, so both stay in sync. Games shared with you via
+          Steam <strong>Family</strong> also appear (tagged) once you have logged SteamPrefill
+          in — they load by reusing that session.
         </p>
         <div className="form-row" style={{ gap: 8 }}>
           <button className="btn-secondary" onClick={loadSteamApps} disabled={steamLoading}>
@@ -292,9 +294,14 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
             />
             <div style={{ maxHeight: 300, overflow: 'auto', marginTop: 8, border: '1px solid var(--ctp-surface1, #45475a)', borderRadius: 6, padding: 8 }}>
               {filteredApps.map(g => (
-                <label key={g.appId} className="checkbox-row" style={{ display: 'flex', gap: 8, padding: '2px 0' }}>
+                <label key={g.appId} className="checkbox-row" style={{ display: 'flex', gap: 8, padding: '2px 0', alignItems: 'center' }}>
                   <input type="checkbox" checked={selectedIds.has(g.appId)} onChange={() => toggleApp(g.appId)} />
                   <span>{g.name}</span>
+                  {g.shared && (
+                    <span style={{ fontSize: '0.7em', fontWeight: 600, color: '#1e1e2e', background: 'var(--ctp-mauve, #cba6f7)', padding: '1px 6px', borderRadius: 4 }}>
+                      Family
+                    </span>
+                  )}
                 </label>
               ))}
               {filteredApps.length === 0 && <div className="settings-hint">No games match.</div>}

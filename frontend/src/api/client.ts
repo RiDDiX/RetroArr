@@ -1097,12 +1097,15 @@ export interface SteamAppEntry {
   name: string;
   playtimeMinutes: number;
   selected: boolean;
+  shared?: boolean;
 }
 
 export interface SteamAppsResponse {
   steamConfigured: boolean;
   ownedCount: number;
   selectedCount: number;
+  familyCount?: number;
+  familyAvailable?: boolean;
   games: SteamAppEntry[];
   error?: string;
 }
