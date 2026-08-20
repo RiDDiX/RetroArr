@@ -1,3 +1,8 @@
+## v1.0.206 (2026-08-20)
+
+### Changes
+- prefill: saved selection always wins over --all, and gui save keeps family picks (51580e4)
+
 ## v1.0.205 (2026-08-20)
 
 ### Changes
