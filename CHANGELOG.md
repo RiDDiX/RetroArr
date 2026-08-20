@@ -1,3 +1,8 @@
+## v1.0.201 (2026-08-20)
+
+### Changes
+- fix emulatorjs cdn path (stable->latest) and document monitoring + lancache (b0873a7)
+
 ## v1.0.200 (2026-08-20)
 
 ### Changes
