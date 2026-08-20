@@ -80,8 +80,8 @@ assert(!df.includes('emulatorjs.org/stable'), 'Dockerfile must not pull Emulator
 
 // ---- Cross-platform filename sanitizer used at every name-building site ----
 const sanitizer = read('src', 'RetroArr.Core', 'IO', 'FileNameSanitizer.cs');
-assert(sanitizer.includes('class FileNameSanitizer') && sanitizer.includes('<>:\\"/\\\\|?*'),
-  'FileNameSanitizer must strip the Windows-reserved set');
+assert(sanitizer.includes('class FileNameSanitizer') && sanitizer.includes('?*') && sanitizer.includes('\\x00-\\x1F'),
+  'FileNameSanitizer must strip the Windows-reserved set plus control chars');
 for (const f of [
   ['src', 'RetroArr.Core', 'Configuration', 'MediaSettings.cs'],
   ['src', 'RetroArr.Core', 'Download', 'PostDownloadProcessor.cs'],
@@ -90,5 +90,12 @@ for (const f of [
   assert(read(...f).includes('FileNameSanitizer.Sanitize'),
     `${f[f.length - 1]} must route names through FileNameSanitizer`);
 }
+
+// ---- Sanitizer uses a readable dash separator; rename can fix mangled folders ----
+assert(sanitizer.includes('" - "'), 'FileNameSanitizer must replace illegal chars with a " - " separator');
+const resort = read('src', 'RetroArr.Api.V3', 'Games', 'ResortController.cs');
+assert(!/RenameGameFolder &&\s*\n\s*i\.ProposedAction != OperationType\.MoveGameFolder/.test(resort),
+  'per-game rename must no longer exclude RenameGameFolder (so it can fix mangled folder names)');
+assert(resort.includes('OperationType.MoveGameFolder'), 'per-game rename still excludes platform relocations');
 
 console.log('map-import-and-chunk-boundary: all contract checks passed');

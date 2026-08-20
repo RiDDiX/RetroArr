@@ -1,5 +1,4 @@
 using System;
-using System.Text;
 using System.Text.RegularExpressions;
 
 namespace RetroArr.Core.IO
@@ -15,8 +14,12 @@ namespace RetroArr.Core.IO
     // names portable regardless of where the library is mounted.
     public static class FileNameSanitizer
     {
-        // < > : " / \ | ? *  (plus control chars 0-31 handled below)
-        private const string WindowsReserved = "<>:\"/\\|?*";
+        // A maximal run of Windows-reserved chars (< > : " / \ | ? *) or control
+        // chars, together with any surrounding spaces, becomes a " - " separator.
+        // Doing it as one run keeps "A:B" -> "A - B" and "a<>b" -> "a - b" (not a
+        // double dash), and — because we only eat spaces *adjacent to an illegal
+        // char* — a legitimate hyphen like "Spider-Man" is left untouched.
+        private static readonly Regex IllegalRun = new(@"\s*[<>:""/\\|?*\x00-\x1F]+\s*", RegexOptions.Compiled);
         private static readonly Regex MultiSpace = new(@"\s{2,}", RegexOptions.Compiled);
 
         private static readonly System.Collections.Generic.HashSet<string> ReservedNames =
@@ -28,24 +31,18 @@ namespace RetroArr.Core.IO
             };
 
         // Sanitize a single path segment (file or folder name, no separators).
-        // Illegal characters are replaced with a space and collapsed, so
-        // "Diablo II: Resurrected" -> "Diablo II Resurrected".
+        // Illegal characters become a " - " separator, so
+        // "Diablo II: Resurrected" -> "Diablo II - Resurrected".
         public static string Sanitize(string? input, string fallback = "unknown")
         {
             if (string.IsNullOrWhiteSpace(input)) return fallback;
 
-            var sb = new StringBuilder(input.Length);
-            foreach (var ch in input)
-            {
-                if (ch < 32 || WindowsReserved.IndexOf(ch) >= 0)
-                    sb.Append(' ');
-                else
-                    sb.Append(ch);
-            }
-
-            var result = MultiSpace.Replace(sb.ToString(), " ").Trim();
-            // Windows forbids trailing dots and spaces on a name.
-            result = result.TrimEnd('.', ' ').Trim();
+            // Replace every run of illegal characters with a readable " - " separator
+            // ("Diablo II: Resurrected" -> "Diablo II - Resurrected").
+            var result = IllegalRun.Replace(input, " - ");
+            result = MultiSpace.Replace(result, " ").Trim();
+            // Strip separators/space/dots that ended up leading or trailing.
+            result = result.Trim('-', ' ', '.').Trim();
 
             if (result.Length == 0) return fallback;
 
