@@ -1,3 +1,8 @@
+## v1.0.204 (2026-08-20)
+
+### Changes
+- sanitize illegal name chars to a dash and let per-game rename fix mangled folders (5cea12b)
+
 ## v1.0.203 (2026-08-20)
 
 ### Changes
