@@ -1088,7 +1088,24 @@ export const lancacheApi = {
   reconcile: () => apiClient.get<LanCacheReconcile>('/lancache/reconcile', { timeout: 30000 }),
   getPrefillStatus: () => apiClient.get<PrefillProviderStatus[]>('/lancache/prefill/status'),
   runPrefill: (provider: string) => apiClient.post<{ started: boolean; message: string }>(`/lancache/prefill/${provider}/run`),
+  getSteamApps: () => apiClient.get<SteamAppsResponse>('/lancache/prefill/steam/apps', { timeout: 30000 }),
+  setSteamApps: (appIds: number[]) => apiClient.post<{ saved: boolean; selectedCount: number }>('/lancache/prefill/steam/apps', { appIds }),
 };
+
+export interface SteamAppEntry {
+  appId: number;
+  name: string;
+  playtimeMinutes: number;
+  selected: boolean;
+}
+
+export interface SteamAppsResponse {
+  steamConfigured: boolean;
+  ownedCount: number;
+  selectedCount: number;
+  games: SteamAppEntry[];
+  error?: string;
+}
 
 export interface PlatformMonitorCount {
   total: number;

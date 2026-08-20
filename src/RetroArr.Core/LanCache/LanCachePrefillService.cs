@@ -91,6 +91,52 @@ namespace RetroArr.Core.LanCache
             return result;
         }
 
+        // The app-selection file SteamPrefill's `select-apps` writes: a bare JSON
+        // array of uint appIds. RetroArr reads/writes the SAME file so the Web-GUI
+        // picker and the CLI stay interchangeable. Only Steam uses this exact
+        // format, so selection I/O is Steam-only for now.
+        private const string SelectedAppsFileName = "selectedAppsToPrefill.json";
+
+        public List<uint> GetSelectedAppIds(string providerId)
+        {
+            var result = new List<uint>();
+            if (!string.Equals(providerId, "steam", StringComparison.OrdinalIgnoreCase)) return result;
+            if (!_providers.TryGetValue(providerId, out var p)) return result;
+            try
+            {
+                var path = Path.Combine(p.ConfigDir, SelectedAppsFileName);
+                if (!File.Exists(path)) return result;
+                var parsed = JsonSerializer.Deserialize<List<uint>>(File.ReadAllText(path));
+                if (parsed != null) result = parsed;
+            }
+            catch (Exception ex) { _logger.Warn($"[Prefill:{providerId}] selection read failed: {ex.Message}"); }
+            return result;
+        }
+
+        public bool SetSelectedAppIds(string providerId, IEnumerable<uint> appIds)
+        {
+            if (!string.Equals(providerId, "steam", StringComparison.OrdinalIgnoreCase)) return false;
+            if (!_providers.TryGetValue(providerId, out var p)) return false;
+            try
+            {
+                var list = new List<uint>();
+                var seen = new HashSet<uint>();
+                foreach (var id in appIds)
+                    if (id != 0 && seen.Add(id)) list.Add(id);
+
+                Directory.CreateDirectory(p.ConfigDir);
+                var path = Path.Combine(p.ConfigDir, SelectedAppsFileName);
+                File.WriteAllText(path, JsonSerializer.Serialize(list));
+                _logger.Info($"[Prefill:{providerId}] saved {list.Count} selected app(s) to {path}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"[Prefill:{providerId}] selection write failed: {ex.Message}");
+                return false;
+            }
+        }
+
         public List<PrefillProviderStatus> GetAllStatus()
         {
             var list = new List<PrefillProviderStatus>();

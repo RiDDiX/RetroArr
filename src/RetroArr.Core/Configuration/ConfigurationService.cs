@@ -846,7 +846,10 @@ namespace RetroArr.Core.Configuration
         public string Host { get; set; } = string.Empty;
         public int Port { get; set; } = 80;
         // Phase 2 (SteamPrefill orchestration) toggles.
-        public bool PrefillAllOwned { get; set; } = true;
+        // Default OFF: prefill only the apps the user selected (via the Web-GUI
+        // picker or `select-apps`). Turning this on passes --all and prefills the
+        // entire owned library, ignoring that selection.
+        public bool PrefillAllOwned { get; set; }
         public bool PrefillRecent { get; set; }
         public string PrefillOs { get; set; } = "windows"; // windows/linux/macos, comma-separated
         public bool IsConfigured => !string.IsNullOrWhiteSpace(Host);

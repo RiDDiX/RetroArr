@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { lancacheApi, getErrorMessage, type LanCacheSettings, type LanCacheStatus, type LanCacheReconcile, type PrefillProviderStatus } from '../../api/client';
+import { lancacheApi, getErrorMessage, type LanCacheSettings, type LanCacheStatus, type LanCacheReconcile, type PrefillProviderStatus, type SteamAppEntry } from '../../api/client';
 
 interface Props {
   language: string;
@@ -10,7 +10,7 @@ const DEFAULTS: LanCacheSettings = {
   enabled: false,
   host: '',
   port: 80,
-  prefillAllOwned: true,
+  prefillAllOwned: false,
   prefillRecent: false,
   prefillOs: 'windows',
 };
@@ -27,6 +27,49 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
   const [reconciling, setReconciling] = useState(false);
   const [providers, setProviders] = useState<PrefillProviderStatus[]>([]);
   const [startingId, setStartingId] = useState<string | null>(null);
+  const [steamApps, setSteamAppsList] = useState<SteamAppEntry[] | null>(null);
+  const [steamLoading, setSteamLoading] = useState(false);
+  const [steamSaving, setSteamSaving] = useState(false);
+  const [appSearch, setAppSearch] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+  const loadSteamApps = async () => {
+    setSteamLoading(true); setError(null); setNotice(null);
+    try {
+      const res = await lancacheApi.getSteamApps();
+      if (!res.data.steamConfigured) {
+        setError('Steam is not connected. Add your Steam API key + ID under Accounts first.');
+        return;
+      }
+      setSteamAppsList(res.data.games);
+      setSelectedIds(new Set(res.data.games.filter(g => g.selected).map(g => g.appId)));
+    } catch (e) {
+      setError(getErrorMessage(e, 'Failed to load Steam games'));
+    } finally {
+      setSteamLoading(false);
+    }
+  };
+
+  const toggleApp = (id: number) => setSelectedIds(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  const saveSelection = async () => {
+    setSteamSaving(true); setError(null); setNotice(null);
+    try {
+      const res = await lancacheApi.setSteamApps([...selectedIds]);
+      setNotice(`Saved ${res.data.selectedCount} selected game(s). Run the Steam prefill (with "Prefill ALL owned" off) to warm just these.`);
+    } catch (e) {
+      setError(getErrorMessage(e, 'Failed to save selection'));
+    } finally {
+      setSteamSaving(false);
+    }
+  };
+
+  const filteredApps = (steamApps ?? []).filter(g =>
+    !appSearch || g.name.toLowerCase().includes(appSearch.toLowerCase()));
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const anyRunning = providers.some(p => p.running);
@@ -171,8 +214,12 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
             onChange={e => setSettings(s => ({ ...s, prefillAllOwned: e.target.checked }))}
             disabled={saving}
           />
-          <span>Prefill all owned games</span>
+          <span>Prefill ALL owned games (ignores the selection below)</span>
         </label>
+        <small className="settings-hint">
+          Leave this off to prefill only the games you pick below (or via <code>select-apps</code>).
+          Turn it on to warm your entire owned library.
+        </small>
       </div>
       <div className="form-group">
         <label className="checkbox-row">
@@ -210,6 +257,50 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
         <button className="btn-secondary" onClick={loadLibrary} disabled={reconciling}>
           {reconciling ? 'Loading...' : 'Load Steam library'}
         </button>
+      </div>
+
+      <div className="settings-section" style={{ marginTop: 16, padding: 0 }}>
+        <h3>Choose Steam games to prefill</h3>
+        <p className="settings-hint">
+          Pick which owned Steam games to warm. This is saved to the same list
+          SteamPrefill&apos;s <code>select-apps</code> uses, so both stay in sync.
+        </p>
+        <div className="form-row" style={{ gap: 8 }}>
+          <button className="btn-secondary" onClick={loadSteamApps} disabled={steamLoading}>
+            {steamLoading ? 'Loading...' : 'Load Steam games'}
+          </button>
+          {steamApps && (
+            <>
+              <button className="btn-secondary" onClick={() => setSelectedIds(new Set(filteredApps.map(g => g.appId)))}>
+                Select all{appSearch ? ' (filtered)' : ''}
+              </button>
+              <button className="btn-secondary" onClick={() => setSelectedIds(new Set())}>Select none</button>
+              <button className="btn-primary" onClick={saveSelection} disabled={steamSaving}>
+                {steamSaving ? 'Saving...' : `Save selection (${selectedIds.size})`}
+              </button>
+            </>
+          )}
+        </div>
+        {steamApps && (
+          <>
+            <input
+              type="text"
+              placeholder="Search games..."
+              value={appSearch}
+              onChange={e => setAppSearch(e.target.value)}
+              style={{ marginTop: 8 }}
+            />
+            <div style={{ maxHeight: 300, overflow: 'auto', marginTop: 8, border: '1px solid var(--ctp-surface1, #45475a)', borderRadius: 6, padding: 8 }}>
+              {filteredApps.map(g => (
+                <label key={g.appId} className="checkbox-row" style={{ display: 'flex', gap: 8, padding: '2px 0' }}>
+                  <input type="checkbox" checked={selectedIds.has(g.appId)} onChange={() => toggleApp(g.appId)} />
+                  <span>{g.name}</span>
+                </label>
+              ))}
+              {filteredApps.length === 0 && <div className="settings-hint">No games match.</div>}
+            </div>
+          </>
+        )}
       </div>
 
       {providers.map(p => (

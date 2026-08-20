@@ -138,6 +138,57 @@ namespace RetroArr.Api.V3.LanCache
             }
         }
 
+        // ---- Steam app picker (Web-GUI selection written to selectedAppsToPrefill.json) ----
+
+        // Owned Steam games plus which ones are currently selected for prefill.
+        [HttpGet("prefill/steam/apps")]
+        public async Task<IActionResult> GetSteamApps(CancellationToken ct)
+        {
+            var steam = _configService.LoadSteamSettings();
+            if (!steam.IsConfigured)
+                return Ok(new { steamConfigured = false, ownedCount = 0, selectedCount = 0, games = Array.Empty<object>() });
+
+            try
+            {
+                var client = new SteamClient(steam.ApiKey);
+                var owned = await client.GetOwnedGamesAsync(steam.SteamId).ConfigureAwait(false);
+                var selected = new HashSet<uint>(_prefill.GetSelectedAppIds("steam"));
+                var games = owned
+                    .OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => new { appId = g.AppId, name = g.Name, playtimeMinutes = g.PlaytimeForever, selected = selected.Contains((uint)g.AppId) })
+                    .ToList();
+                return Ok(new
+                {
+                    steamConfigured = true,
+                    ownedCount = games.Count,
+                    selectedCount = games.Count(g => g.selected),
+                    games
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn($"[LanCache] steam apps load failed: {ex.Message}");
+                return StatusCode(502, new { steamConfigured = true, error = "Failed to load Steam library." });
+            }
+        }
+
+        public sealed class SteamAppsSelectionRequest
+        {
+            [SuppressMessage("Microsoft.Design", "CA2227:CollectionPropertiesShouldBeReadOnly")]
+            [SuppressMessage("Microsoft.Design", "CA1002:DoNotExposeGenericLists")]
+            public List<uint> AppIds { get; set; } = new();
+        }
+
+        // Persist the Web-GUI selection to the same file `select-apps` uses.
+        [HttpPost("prefill/steam/apps")]
+        public IActionResult SetSteamApps([FromBody] SteamAppsSelectionRequest request)
+        {
+            if (request == null) return BadRequest(new { message = "body required" });
+            var ok = _prefill.SetSelectedAppIds("steam", request.AppIds ?? new List<uint>());
+            if (!ok) return StatusCode(500, new { saved = false, message = "Could not write the selection." });
+            return Ok(new { saved = true, selectedCount = (request.AppIds ?? new List<uint>()).Distinct().Count() });
+        }
+
         // ---- Prefill orchestration: Steam / Battle.net / Epic ----
 
         [HttpGet("prefill/status")]
