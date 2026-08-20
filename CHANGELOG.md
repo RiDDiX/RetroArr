@@ -1,3 +1,8 @@
+## v1.0.205 (2026-08-20)
+
+### Changes
+- prefill only selected games by default and add a steam game picker in the gui (a57d936)
+
 ## v1.0.204 (2026-08-20)
 
 ### Changes
