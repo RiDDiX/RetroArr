@@ -69,6 +69,11 @@ If you only plan to proxy through SWAG with a real cert, drop the `2728` line fr
 - Indexer backends: **Prowlarr**, **Jackett**, **Hydra Launcher**, plus raw **Newznab**/**Torznab**
 - Download clients: **qBittorrent**, **Transmission**, **Deluge**, **SABnzbd**, **NZBGet**
 - Post-download handler picks the right platform folder, renames, attaches patches/DLC to the right game
+- Monitoring (Sonarr/Radarr-style): flag a game — or a whole platform — as monitored, and a background sweep searches your indexers on a schedule and can auto-grab the best-scoring release. Clickable monitor markers sit on the library cards and the game detail page; the platform toggle bulk-applies to every game and sets the default for newly scanned ones
+
+**LanCache**
+- Point RetroArr at your [LanCache](https://lancache.net/) under Settings → LanCache; it checks reachability via the cache heartbeat and reconciles your Steam library against it
+- Warm the cache with the bundled prefill tools for **Steam**, **Battle.net** and **Epic** ([tpill90](https://github.com/tpill90)'s `*-lancache-prefill`), driven from the UI with a live log. See [LanCache & Prefill](docs/LANCACHE_PREFILL.md)
 
 **Launching**
 - Steam and GOG launch directly through their clients when the game is installed there
@@ -100,7 +105,7 @@ If you only plan to proxy through SWAG with a real cert, drop the `2728` line fr
 - API key gate: loopback requests are unauthenticated (for the Docker healthcheck), LAN and remote clients need `X-Api-Key`. Key is shown and rotatable in Settings → API access
 - EmulatorJS static assets and the `/emulator/player` page are exempt from auth, since browsers can't attach API keys to `<script src>` or iframe loads
 
-Deeper reads: [Linux Gaming](docs/LINUX_GAMING.md) · [Plugins](docs/PLUGIN_GUIDE.md) · [Scanner Logic](docs/SCANNING_LOGIC.md) · [Updates & DLC](docs/UPDATES_DLC_GUIDE.md) · [Launcher Specs](docs/LAUNCHER_SPECS.md) · [Installer Logic](docs/INSTALLER_LOGIC.md)
+Deeper reads: [Linux Gaming](docs/LINUX_GAMING.md) · [Plugins](docs/PLUGIN_GUIDE.md) · [Scanner Logic](docs/SCANNING_LOGIC.md) · [Updates & DLC](docs/UPDATES_DLC_GUIDE.md) · [Launcher Specs](docs/LAUNCHER_SPECS.md) · [Installer Logic](docs/INSTALLER_LOGIC.md) · [LanCache & Prefill](docs/LANCACHE_PREFILL.md)
 
 ## Installation
 
@@ -212,6 +217,8 @@ Everything lives under `config/` (Docker: `/app/config`) as JSON files. Nothing 
 | Database | Settings → Database | Pick SQLite, PostgreSQL or MariaDB, run the migration |
 | Cache | Settings → Cache | Redis URL and TTL |
 | Logging | Settings → Logging | Levels, rotation, redaction rules |
+| LanCache | Settings → LanCache | Cache host/port, reachability check, Steam reconcile, and Steam/Battle.net/Epic prefill ([guide](docs/LANCACHE_PREFILL.md)) |
+| Monitoring | Settings → Monitor | Poll interval, score thresholds, and auto-download behavior for monitored games |
 
 **Environment variables**
 
@@ -223,12 +230,14 @@ Everything lives under `config/` (Docker: `/app/config`) as JSON files. Nothing 
 | `RETROARR_CERT_SAN` | unset | Extra SAN entries (comma-separated) for the auto-generated HTTPS cert, e.g. `IP:192.168.1.10,DNS:retroarr.lan` |
 | `RETROARR_TRUSTED_PROXIES` | RFC1918 + loopback | Comma-separated CIDR ranges of reverse proxies whose `X-Forwarded-*` headers should be trusted |
 | `ASPNETCORE_ENVIRONMENT` | `Production` | Standard .NET environment flag |
+| `RETROARR_EMULATORJS_CDN` | `https://cdn.emulatorjs.org/latest/data` | Base URL EmulatorJS assets/cores are pulled from on cache-miss. Override to pin a version or use a mirror |
+| `RETROARR_STEAMPREFILL_BIN` / `RETROARR_BATTLENETPREFILL_BIN` / `RETROARR_EPICPREFILL_BIN` | bundled `/opt/*prefill/*` | Override the path to a prefill binary (advanced; the image bundles them by default) |
 
 **Docker volumes**
 
 | Path | Description |
 |------|-------------|
-| `/app/config` | All config, database, logs, EmulatorJS assets, certs |
+| `/app/config` | All config, database, logs, EmulatorJS assets, certs, and prefill-tool sessions/state |
 | `/media` | Your game library root |
 | `/app/savestates` | EmulatorJS save states (optional, separate volume keeps them out of backups) |
 | `/downloads` | Where download clients drop files (optional) |

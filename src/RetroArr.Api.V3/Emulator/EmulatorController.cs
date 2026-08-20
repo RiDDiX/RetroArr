@@ -328,6 +328,14 @@ namespace RetroArr.Api.V3.Emulator
             ?? Path.Combine("/app/config", "emulatorjs");
 
         private static readonly HttpClient _httpClient = new HttpClient();
+
+        // EmulatorJS CDN base for the on-demand asset proxy and the install endpoint.
+        // Overridable via env for pinning; defaults to the "latest" channel (the
+        // "stable" channel is deprecated). Cores are named by their libretro core
+        // (e.g. cores/fceumm-wasm.data), which EmulatorJS resolves at runtime.
+        private static readonly string EmulatorJsCdnBase =
+            (Environment.GetEnvironmentVariable("RETROARR_EMULATORJS_CDN")?.TrimEnd('/'))
+            ?? "https://cdn.emulatorjs.org/latest/data";
         private const string EmulatorJsGitHubApi = "https://api.github.com/repos/EmulatorJS/EmulatorJS/releases/latest";
         // We use GitHub's zipball URL which provides source code as standard zip
 
@@ -729,7 +737,7 @@ a {{ color:#89b4fa; }}
             // Fallback to CDN for missing files (cores, etc.)
             try
             {
-                var cdnUrl = $"https://cdn.emulatorjs.org/stable/data/{path}";
+                var cdnUrl = $"{EmulatorJsCdnBase}/{path}";
                 _logger.Info($"[EmulatorJS] Proxying from CDN: {path}");
                 
                 var response = await _httpClient.GetAsync(cdnUrl);
@@ -893,7 +901,7 @@ a {{ color:#89b4fa; }}
                 _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("RetroArr/1.0");
                 
                 // Get version from CDN
-                var cdnBase = "https://cdn.emulatorjs.org/stable/data";
+                var cdnBase = EmulatorJsCdnBase;
                 var versionJson = await _httpClient.GetStringAsync($"{cdnBase}/version.json");
                 var versionInfo = JsonDocument.Parse(versionJson);
                 version = versionInfo.RootElement.GetProperty("version").GetString() ?? "unknown";

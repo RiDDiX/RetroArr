@@ -71,4 +71,11 @@ assert(
   'GetById must not re-fetch IGDB metadata synchronously (it blocked the detail page for seconds)'
 );
 
+// ---- EmulatorJS CDN uses the 'latest' channel, not deprecated 'stable' ----
+const emu = read('src', 'RetroArr.Api.V3', 'Emulator', 'EmulatorController.cs');
+assert(!emu.includes('emulatorjs.org/stable'), 'EmulatorJS CDN must not use the deprecated stable channel');
+assert(emu.includes('emulatorjs.org/latest/data'), 'EmulatorJS CDN base must point at latest/data');
+const df = read('Dockerfile');
+assert(!df.includes('emulatorjs.org/stable'), 'Dockerfile must not pull EmulatorJS from stable');
+
 console.log('map-import-and-chunk-boundary: all contract checks passed');
