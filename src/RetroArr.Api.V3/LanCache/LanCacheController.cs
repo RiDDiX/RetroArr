@@ -181,12 +181,44 @@ namespace RetroArr.Api.V3.LanCache
 
         // Persist the Web-GUI selection to the same file `select-apps` uses.
         [HttpPost("prefill/steam/apps")]
-        public IActionResult SetSteamApps([FromBody] SteamAppsSelectionRequest request)
+        public async Task<IActionResult> SetSteamApps([FromBody] SteamAppsSelectionRequest request, CancellationToken ct)
         {
             if (request == null) return BadRequest(new { message = "body required" });
-            var ok = _prefill.SetSelectedAppIds("steam", request.AppIds ?? new List<uint>());
+            var picked = new HashSet<uint>(request.AppIds ?? new List<uint>());
+
+            // Merge: preserve any already-selected appIds that are NOT in the owned
+            // library the Web-GUI can see — i.e. family-shared / CLI-selected titles.
+            // The GUI only manages owned games; it must not wipe those other picks.
+            var preserved = new List<uint>();
+            try
+            {
+                var steam = _configService.LoadSteamSettings();
+                if (steam.IsConfigured)
+                {
+                    var client = new SteamClient(steam.ApiKey);
+                    var owned = await client.GetOwnedGamesAsync(steam.SteamId).ConfigureAwait(false);
+                    var ownedIds = new HashSet<uint>(owned.Select(g => (uint)g.AppId));
+                    foreach (var id in _prefill.GetSelectedAppIds("steam"))
+                        if (!ownedIds.Contains(id)) preserved.Add(id);
+                }
+                else
+                {
+                    // No owned list to compare against — keep existing picks to be safe.
+                    preserved.AddRange(_prefill.GetSelectedAppIds("steam"));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn($"[LanCache] steam save merge fell back (keeping existing picks): {ex.Message}");
+                preserved.AddRange(_prefill.GetSelectedAppIds("steam"));
+            }
+
+            var final = new HashSet<uint>(picked);
+            foreach (var id in preserved) final.Add(id);
+
+            var ok = _prefill.SetSelectedAppIds("steam", final);
             if (!ok) return StatusCode(500, new { saved = false, message = "Could not write the selection." });
-            return Ok(new { saved = true, selectedCount = (request.AppIds ?? new List<uint>()).Distinct().Count() });
+            return Ok(new { saved = true, selectedCount = final.Count, ownedSelected = picked.Count, preservedNonOwned = preserved.Count });
         }
 
         // ---- Prefill orchestration: Steam / Battle.net / Epic ----

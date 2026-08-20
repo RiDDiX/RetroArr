@@ -187,7 +187,11 @@ namespace RetroArr.Core.LanCache
                 lock (_sync) { st.Running = true; st.Log.Clear(); }
 
                 var args = new List<string> { "prefill", "--no-ansi", "--force" };
-                if (settings.PrefillAllOwned) args.Add("--all");
+                // A saved app selection ALWAYS wins: passing --all would download the
+                // whole library and defeat the point. Only fall back to --all when the
+                // user asked for it AND there is no selection to honor.
+                var hasSelection = GetSelectedAppIds(p.Id).Count > 0;
+                if (settings.PrefillAllOwned && !hasSelection) args.Add("--all");
                 if (p.Id == "steam")
                 {
                     if (settings.PrefillRecent) args.Add("--recent");
