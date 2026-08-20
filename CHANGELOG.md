@@ -1,3 +1,8 @@
+## v1.0.207 (2026-08-20)
+
+### Changes
+- show steam family library in the picker by reusing steamprefill's session (3a9fd6e)
+
 ## v1.0.206 (2026-08-20)
 
 ### Changes
