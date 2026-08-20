@@ -1,3 +1,8 @@
+## v1.0.200 (2026-08-20)
+
+### Changes
+- lancache prefill: add battle.net and epic, generalize provider orchestration (c15d6db)
+
 ## v1.0.199 (2026-08-18)
 
 ### Changes
