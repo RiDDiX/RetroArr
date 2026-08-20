@@ -180,11 +180,15 @@ COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Create config, media and savestate directories; non-root user
-RUN mkdir -p /app/config /app/savestates /media && \
+RUN mkdir -p /app/config /app/savestates /media /home/retroarr && \
     groupadd -g 1000 retroarr && \
-    useradd -u 1000 -g retroarr -s /usr/sbin/nologin -M retroarr && \
-    chown -R retroarr:retroarr /app /media && \
+    useradd -u 1000 -g retroarr -s /usr/sbin/nologin -M -d /home/retroarr retroarr && \
+    chown -R retroarr:retroarr /app /media /home/retroarr && \
     (chown -R retroarr:retroarr /opt/steamprefill /opt/battlenetprefill /opt/epicprefill 2>/dev/null || true)
+
+# The prefill tools resolve a temp/manifest cache under $HOME; give the non-root
+# user a writable home so their config initializer doesn't fail on startup.
+ENV HOME=/home/retroarr
 
 USER retroarr
 

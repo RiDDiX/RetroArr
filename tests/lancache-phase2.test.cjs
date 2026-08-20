@@ -39,6 +39,11 @@ for (const t of ['steamprefill', 'battlenetprefill', 'epicprefill']) {
 }
 assert(entry.includes('/opt/') && entry.includes('/Config'), 'entrypoint symlinks Config dirs');
 
+// The prefill tools init a temp/manifest cache under $HOME; the non-root user
+// must have a writable home or their config initializer crashes on startup.
+assert(dockerfile.includes('/home/retroarr') && dockerfile.includes('ENV HOME=/home/retroarr'),
+  'retroarr user needs a writable HOME for the prefill tools');
+
 // Frontend
 const client = read('frontend', 'src', 'api', 'client.ts');
 assert(client.includes("apiClient.get<PrefillProviderStatus[]>('/lancache/prefill/status')"), 'getPrefillStatus wrapper (array)');
