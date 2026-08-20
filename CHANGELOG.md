@@ -1,3 +1,8 @@
+## v1.0.208 (2026-08-20)
+
+### Changes
+- revert steam session reuse: it invalidated the prefill login; show selected family titles safely (c05dccd)
+
 ## v1.0.207 (2026-08-20)
 
 ### Changes
