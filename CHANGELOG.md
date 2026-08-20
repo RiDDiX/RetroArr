@@ -1,3 +1,8 @@
+## v1.0.202 (2026-08-20)
+
+### Changes
+- fix prefill startup crash: give the non-root user a writable HOME (46ed5b3)
+
 ## v1.0.201 (2026-08-20)
 
 ### Changes
