@@ -128,21 +128,35 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
     }
   };
 
-  // Per-provider schedule helpers. Schedules live inside LanCacheSettings and are
-  // persisted with the normal Save button.
+  // Per-provider schedule helpers. Schedule edits are persisted IMMEDIATELY (the
+  // whole LanCacheSettings is saved), so they survive leaving the tab without
+  // needing the separate Save button.
   const scheduleFor = (providerId: string): PrefillSchedule =>
-    settings.schedules?.[providerId] ?? { enabled: false, time: '04:00', days: [] };
+    settings.schedules?.[providerId] ?? { enabled: false, startTime: '04:00', endTime: '', days: [] };
 
   const updateSchedule = (providerId: string, patch: Partial<PrefillSchedule>) => {
-    setSettings(s => ({
-      ...s,
-      schedules: { ...(s.schedules ?? {}), [providerId]: { ...scheduleFor(providerId), ...patch } },
-    }));
+    // Build off the freshest state to avoid dropping a prior edit.
+    setSettings(s => {
+      const cur = s.schedules?.[providerId] ?? { enabled: false, startTime: '04:00', endTime: '', days: [] };
+      const next: LanCacheSettings = {
+        ...s,
+        schedules: { ...(s.schedules ?? {}), [providerId]: { ...cur, ...patch } },
+      };
+      // Fire-and-forget persist of the just-computed next state.
+      void persistNoState(next);
+      return next;
+    });
+  };
+
+  // Persist without touching React state (state already updated in the updater).
+  const persistNoState = async (next: LanCacheSettings) => {
+    try { await lancacheApi.saveSettings(next); }
+    catch (e) { setError(getErrorMessage(e, 'Failed to save schedule')); }
   };
 
   const toggleDay = (providerId: string, day: number) => {
     const cur = scheduleFor(providerId);
-    const days = cur.days.includes(day) ? cur.days.filter(d => d !== day) : [...cur.days, day].sort();
+    const days = cur.days.includes(day) ? cur.days.filter(d => d !== day) : [...cur.days, day].sort((a, b) => a - b);
     updateSchedule(providerId, { days });
   };
 
@@ -389,13 +403,21 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
             {scheduleFor(p.id).enabled && (
               <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span>at</span>
+                  <span>from</span>
                   <input
                     type="time"
-                    value={scheduleFor(p.id).time}
-                    onChange={e => updateSchedule(p.id, { time: e.target.value || '04:00' })}
-                    disabled={saving}
+                    value={scheduleFor(p.id).startTime}
+                    onChange={e => updateSchedule(p.id, { startTime: e.target.value || '04:00' })}
                   />
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>to</span>
+                  <input
+                    type="time"
+                    value={scheduleFor(p.id).endTime ?? ''}
+                    onChange={e => updateSchedule(p.id, { endTime: e.target.value || '' })}
+                  />
+                  <span className="settings-hint" style={{ margin: 0 }}>(optional; stops the run at this time)</span>
                 </label>
                 <span className="settings-hint" style={{ margin: 0 }}>on</span>
                 {WEEKDAYS.map((label, idx) => {
@@ -406,7 +428,6 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
                       type="button"
                       className="btn-secondary"
                       onClick={() => toggleDay(p.id, idx)}
-                      disabled={saving}
                       style={{
                         padding: '2px 8px',
                         background: active ? 'var(--ctp-yellow, #f9e2af)' : undefined,
@@ -418,7 +439,7 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
                   );
                 })}
                 <span className="settings-hint" style={{ margin: 0 }}>
-                  {scheduleFor(p.id).days.length === 0 ? '(no day picked = every day)' : ''}
+                  {scheduleFor(p.id).days.length === 0 ? '(no day picked = every day)' : ''} · saved automatically
                 </span>
               </div>
             )}

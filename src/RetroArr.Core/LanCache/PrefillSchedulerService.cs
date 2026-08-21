@@ -61,7 +61,15 @@ namespace RetroArr.Core.LanCache
                 var next = ComputeNextRun(sched, now);
                 _prefill.SetNextRunUtc(providerId, next?.ToUniversalTime());
 
-                if (!IsDue(sched, now)) continue;
+                // Stop at the end of the window (if still running).
+                if (IsAtMinute(sched.EndTime, now) && _prefill.IsRunning(providerId))
+                {
+                    _logger.Info($"[PrefillScheduler] end of window for {providerId} - stopping.");
+                    _prefill.StopPrefill(providerId);
+                    continue;
+                }
+
+                if (!IsDueToStart(sched, now)) continue;
 
                 // Fire at most once per minute slot.
                 var slot = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, 0, DateTimeKind.Local);
@@ -83,18 +91,23 @@ namespace RetroArr.Core.LanCache
             }
         }
 
-        private static bool IsDue(PrefillSchedule sched, DateTime now)
+        private static bool IsDueToStart(PrefillSchedule sched, DateTime now)
         {
-            if (!TryParseTime(sched.Time, out var h, out var m)) return false;
-            if (now.Hour != h || now.Minute != m) return false;
+            if (!IsAtMinute(sched.StartTime, now)) return false;
             return sched.Days == null || sched.Days.Count == 0 || sched.Days.Contains((int)now.DayOfWeek);
         }
 
-        // Next planned local run time, for display in the UI.
+        private static bool IsAtMinute(string? time, DateTime now)
+        {
+            if (!TryParseTime(time, out var h, out var m)) return false;
+            return now.Hour == h && now.Minute == m;
+        }
+
+        // Next planned local start time, for display in the UI.
         public static DateTime? ComputeNextRun(PrefillSchedule sched, DateTime now)
         {
             if (sched == null || !sched.Enabled) return null;
-            if (!TryParseTime(sched.Time, out var h, out var m)) return null;
+            if (!TryParseTime(sched.StartTime, out var h, out var m)) return null;
 
             for (int i = 0; i < 8; i++)
             {

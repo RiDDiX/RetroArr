@@ -865,10 +865,20 @@ namespace RetroArr.Core.Configuration
     public class PrefillSchedule
     {
         public bool Enabled { get; set; }
-        public string Time { get; set; } = "04:00";
+        // Time window (local server time, 24h "HH:mm"). The prefill starts at
+        // StartTime; if EndTime is set and it is still running when that time is
+        // reached it is stopped, so providers can be staggered (Steam 00:00-04:00,
+        // Epic 04:00-06:00, …). EndTime before StartTime means the window wraps
+        // past midnight. Empty EndTime = no forced stop.
+        public string StartTime { get; set; } = "04:00";
+        public string? EndTime { get; set; }
         [SuppressMessage("Microsoft.Usage", "CA2227:CollectionPropertiesShouldBeReadOnly")]
         [SuppressMessage("Microsoft.Design", "CA1002:DoNotExposeGenericLists")]
         public List<int> Days { get; set; } = new();  // empty = every day
+
+        // Back-compat: earlier builds stored a single "Time". Deserializing it
+        // still fills StartTime.
+        public string Time { set { if (!string.IsNullOrWhiteSpace(value)) StartTime = value; } }
     }
 
     public class PostDownloadSettings

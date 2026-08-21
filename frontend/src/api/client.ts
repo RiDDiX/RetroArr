@@ -1049,8 +1049,9 @@ export interface LanCacheSettings {
 
 export interface PrefillSchedule {
   enabled: boolean;
-  time: string;   // "HH:mm", local server time
-  days: number[]; // empty = every day; 0=Sunday .. 6=Saturday
+  startTime: string;   // "HH:mm", local server time — window start
+  endTime?: string | null; // optional window end; run is stopped if still going
+  days: number[];      // empty = every day; 0=Sunday .. 6=Saturday
 }
 
 export interface LanCacheStatus {
