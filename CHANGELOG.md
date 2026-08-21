@@ -1,3 +1,8 @@
+## v1.0.209 (2026-08-21)
+
+### Changes
+- per-provider prefill schedules and a stop button for running prefills (355d760)
+
 ## v1.0.208 (2026-08-20)
 
 ### Changes
