@@ -40,6 +40,10 @@ namespace RetroArr.Core.LanCache
             public readonly List<string> Log = new();
             public DateTime? LastRunUtc;
             public int? LastExitCode;
+            // Live handle of the running prefill process, so a run can be stopped.
+            public Process? Process;
+            public bool StopRequested;
+            public DateTime? NextRunUtc;
         }
 
         private readonly Dictionary<string, ProviderDef> _providers;
@@ -157,6 +161,7 @@ namespace RetroArr.Core.LanCache
                         PrefilledCount = GetPrefilledAppIds(p.Id).Count,
                         LastRunUtc = st.LastRunUtc,
                         LastExitCode = st.LastExitCode,
+                        NextRunUtc = st.NextRunUtc,
                         LoginCommand = p.RequiresLogin ? $"docker exec -it retroarr {p.BinaryPath} select-apps" : null,
                         RecentLog = new List<string>(st.Log)
                     });
@@ -184,7 +189,7 @@ namespace RetroArr.Core.LanCache
 
             try
             {
-                lock (_sync) { st.Running = true; st.Log.Clear(); }
+                lock (_sync) { st.Running = true; st.StopRequested = false; st.Log.Clear(); }
 
                 var args = new List<string> { "prefill", "--no-ansi", "--force" };
                 // A saved app selection ALWAYS wins: passing --all would download the
@@ -219,11 +224,20 @@ namespace RetroArr.Core.LanCache
                 proc.ErrorDataReceived += (_, e) => Append(st, e.Data);
 
                 if (!proc.Start()) return PrefillRunResult.Fail($"Failed to start {p.Name}Prefill.");
+                lock (_sync) { st.Process = proc; }
                 proc.BeginOutputReadLine();
                 proc.BeginErrorReadLine();
                 await proc.WaitForExitAsync(ct).ConfigureAwait(false);
 
-                lock (_sync) { st.LastExitCode = proc.ExitCode; st.LastRunUtc = DateTime.UtcNow; }
+                bool stopped;
+                lock (_sync)
+                {
+                    st.LastExitCode = proc.ExitCode;
+                    st.LastRunUtc = DateTime.UtcNow;
+                    st.Process = null;
+                    stopped = st.StopRequested;
+                }
+                if (stopped) return PrefillRunResult.Fail("Prefill stopped by user.");
                 return proc.ExitCode == 0
                     ? PrefillRunResult.Ok(GetPrefilledAppIds(p.Id).Count)
                     : PrefillRunResult.Fail($"{p.Name}Prefill exited with code {proc.ExitCode}.");
@@ -236,9 +250,45 @@ namespace RetroArr.Core.LanCache
             }
             finally
             {
-                lock (_sync) { st.Running = false; }
+                lock (_sync) { st.Running = false; st.Process = null; }
                 st.Lock.Release();
             }
+        }
+
+        // Stop a running prefill for one provider. Kills the whole process tree
+        // (the tools spawn download workers). Safe to call when nothing runs.
+        public bool StopPrefill(string providerId)
+        {
+            if (!_providers.ContainsKey(providerId)) return false;
+            if (!_state.TryGetValue(providerId, out var st)) return false;
+
+            Process? proc;
+            lock (_sync)
+            {
+                if (!st.Running || st.Process == null) return false;
+                st.StopRequested = true;
+                proc = st.Process;
+            }
+
+            try
+            {
+                proc.Kill(entireProcessTree: true);
+                _logger.Info($"[Prefill:{providerId}] stop requested by user.");
+                Append(st, "[RetroArr] Prefill stopped by user.");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn($"[Prefill:{providerId}] stop failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        // Scheduler bookkeeping: the hosted service publishes the next planned run so
+        // the UI can show it.
+        public void SetNextRunUtc(string providerId, DateTime? nextUtc)
+        {
+            if (_state.TryGetValue(providerId, out var st)) lock (_sync) { st.NextRunUtc = nextUtc; }
         }
 
         private void Append(RunState st, string? line)
@@ -287,6 +337,7 @@ namespace RetroArr.Core.LanCache
         public int PrefilledCount { get; set; }
         public DateTime? LastRunUtc { get; set; }
         public int? LastExitCode { get; set; }
+        public DateTime? NextRunUtc { get; set; }
         public string? LoginCommand { get; set; }
         [SuppressMessage("Microsoft.Design", "CA2227:CollectionPropertiesShouldBeReadOnly")]
         [SuppressMessage("Microsoft.Design", "CA1002:DoNotExposeGenericLists")]

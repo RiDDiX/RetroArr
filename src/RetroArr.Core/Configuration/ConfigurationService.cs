@@ -850,9 +850,25 @@ namespace RetroArr.Core.Configuration
         // picker or `select-apps`). Turning this on passes --all and prefills the
         // entire owned library, ignoring that selection.
         public bool PrefillAllOwned { get; set; }
+
+        // Per-provider schedules (steam / battlenet / epic). A provider runs when
+        // Enabled and the local time-of-day HH:mm is reached on a matching day.
+        // Days: empty/null = every day; otherwise 0=Sunday .. 6=Saturday.
+        [SuppressMessage("Microsoft.Usage", "CA2227:CollectionPropertiesShouldBeReadOnly")]
+        public Dictionary<string, PrefillSchedule> Schedules { get; set; } = new();
         public bool PrefillRecent { get; set; }
         public string PrefillOs { get; set; } = "windows"; // windows/linux/macos, comma-separated
         public bool IsConfigured => !string.IsNullOrWhiteSpace(Host);
+    }
+
+    // One provider's prefill schedule. Time is local server time, 24h "HH:mm".
+    public class PrefillSchedule
+    {
+        public bool Enabled { get; set; }
+        public string Time { get; set; } = "04:00";
+        [SuppressMessage("Microsoft.Usage", "CA2227:CollectionPropertiesShouldBeReadOnly")]
+        [SuppressMessage("Microsoft.Design", "CA1002:DoNotExposeGenericLists")]
+        public List<int> Days { get; set; } = new();  // empty = every day
     }
 
     public class PostDownloadSettings

@@ -67,8 +67,23 @@ logged in / prefilled / last run** and a **Run … prefill** button. The run is
 non-interactive (`prefill --all --no-ansi …`), streams a live log into the tab,
 and updates the prefilled count from the tool's own state file when it finishes.
 
-To schedule prefills, run the tools on a timer directly (they are designed for
-`cron`/`systemd`), e.g.:
+**Stopping a run:** while a provider is prefilling, a **Stop** button appears next
+to it. It kills that tool's process tree; already-cached data stays cached and the
+next run resumes from there.
+
+## Scheduling
+
+Each provider has its own schedule in the LanCache tab: tick *Run … prefill on a
+schedule*, pick a time (24h, **local server time**) and optionally the weekdays —
+no weekday selected means every day. Schedules are stored with the other LanCache
+settings (`lancache.json`) and applied by a background service that checks every
+minute, so edits take effect without a restart. The provider's next planned run is
+shown in its status line.
+
+A scheduled run is skipped (and logged) if that provider is already running; the
+providers are independent, so Steam, Battle.net and Epic can run at different times.
+
+The tools can of course still be driven externally via `cron`/`systemd`:
 
 ```bash
 docker exec retroarr /opt/steamprefill/SteamPrefill prefill --no-ansi

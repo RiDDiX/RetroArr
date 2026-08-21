@@ -311,5 +311,20 @@ namespace RetroArr.Api.V3.LanCache
             });
             return Ok(new { started = true, message = $"{provider} prefill started. Watch progress in the LanCache tab." });
         }
+
+        // Stop a running prefill for one provider (kills the tool's process tree).
+        [HttpPost("prefill/{provider}/stop")]
+        public IActionResult PrefillStop(string provider)
+        {
+            if (!_prefill.IsRunning(provider))
+                return Ok(new { stopped = false, message = "No prefill is running for this provider." });
+
+            var ok = _prefill.StopPrefill(provider);
+            return Ok(new
+            {
+                stopped = ok,
+                message = ok ? $"{provider} prefill stopped." : $"Could not stop the {provider} prefill."
+            });
+        }
     }
 }

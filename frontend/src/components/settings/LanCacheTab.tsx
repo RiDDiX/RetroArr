@@ -1,10 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { lancacheApi, getErrorMessage, type LanCacheSettings, type LanCacheStatus, type LanCacheReconcile, type PrefillProviderStatus, type SteamAppEntry } from '../../api/client';
+import { lancacheApi, getErrorMessage, type LanCacheSettings, type LanCacheStatus, type LanCacheReconcile, type PrefillSchedule, type PrefillProviderStatus, type SteamAppEntry } from '../../api/client';
 
 interface Props {
   language: string;
   t: (key: string) => string;
 }
+
+// Sunday-first, matching DayOfWeek (0=Sunday) used by the backend scheduler.
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const DEFAULTS: LanCacheSettings = {
   enabled: false,
@@ -27,6 +30,7 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
   const [reconciling, setReconciling] = useState(false);
   const [providers, setProviders] = useState<PrefillProviderStatus[]>([]);
   const [startingId, setStartingId] = useState<string | null>(null);
+  const [stoppingId, setStoppingId] = useState<string | null>(null);
   const [steamApps, setSteamAppsList] = useState<SteamAppEntry[] | null>(null);
   const [steamLoading, setSteamLoading] = useState(false);
   const [steamSaving, setSteamSaving] = useState(false);
@@ -108,6 +112,38 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
     } finally {
       setStartingId(null);
     }
+  };
+
+  const stopPrefill = async (providerId: string) => {
+    setStoppingId(providerId); setError(null); setNotice(null);
+    try {
+      const res = await lancacheApi.stopPrefill(providerId);
+      setNotice(res.data.message);
+      const st = await lancacheApi.getPrefillStatus();
+      setProviders(st.data);
+    } catch (e) {
+      setError(getErrorMessage(e, 'Failed to stop prefill'));
+    } finally {
+      setStoppingId(null);
+    }
+  };
+
+  // Per-provider schedule helpers. Schedules live inside LanCacheSettings and are
+  // persisted with the normal Save button.
+  const scheduleFor = (providerId: string): PrefillSchedule =>
+    settings.schedules?.[providerId] ?? { enabled: false, time: '04:00', days: [] };
+
+  const updateSchedule = (providerId: string, patch: Partial<PrefillSchedule>) => {
+    setSettings(s => ({
+      ...s,
+      schedules: { ...(s.schedules ?? {}), [providerId]: { ...scheduleFor(providerId), ...patch } },
+    }));
+  };
+
+  const toggleDay = (providerId: string, day: number) => {
+    const cur = scheduleFor(providerId);
+    const days = cur.days.includes(day) ? cur.days.filter(d => d !== day) : [...cur.days, day].sort();
+    updateSchedule(providerId, { days });
   };
 
   const save = async () => {
@@ -318,14 +354,75 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
             {p.requiresLogin ? ` · ${p.loggedIn ? 'logged in' : 'not logged in'}` : ' · no login needed'}
             {` · ${p.prefilledCount} prefilled`}
             {p.lastRunUtc ? ` · last run ${new Date(p.lastRunUtc).toLocaleString()}${p.lastExitCode != null ? ` (exit ${p.lastExitCode})` : ''}` : ''}
+            {p.nextRunUtc ? ` · next run ${new Date(p.nextRunUtc).toLocaleString()}` : ''}
           </div>
-          <button
-            className="btn-primary"
-            onClick={() => runPrefill(p.id)}
-            disabled={startingId === p.id || p.running || !p.available || !p.loggedIn}
-          >
-            {p.running ? 'Prefilling...' : startingId === p.id ? 'Starting...' : `Run ${p.name} prefill`}
-          </button>
+          <div className="form-row" style={{ gap: 8 }}>
+            <button
+              className="btn-primary"
+              onClick={() => runPrefill(p.id)}
+              disabled={startingId === p.id || p.running || !p.available || !p.loggedIn}
+            >
+              {p.running ? 'Prefilling...' : startingId === p.id ? 'Starting...' : `Run ${p.name} prefill`}
+            </button>
+            {p.running && (
+              <button
+                className="btn-secondary"
+                onClick={() => stopPrefill(p.id)}
+                disabled={stoppingId === p.id}
+              >
+                {stoppingId === p.id ? 'Stopping...' : 'Stop'}
+              </button>
+            )}
+          </div>
+
+          {/* Per-provider schedule (saved with the LanCache Save button) */}
+          <div className="form-group" style={{ marginTop: 8 }}>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={scheduleFor(p.id).enabled}
+                onChange={e => updateSchedule(p.id, { enabled: e.target.checked })}
+                disabled={saving}
+              />
+              <span>Run {p.name} prefill on a schedule</span>
+            </label>
+            {scheduleFor(p.id).enabled && (
+              <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>at</span>
+                  <input
+                    type="time"
+                    value={scheduleFor(p.id).time}
+                    onChange={e => updateSchedule(p.id, { time: e.target.value || '04:00' })}
+                    disabled={saving}
+                  />
+                </label>
+                <span className="settings-hint" style={{ margin: 0 }}>on</span>
+                {WEEKDAYS.map((label, idx) => {
+                  const active = scheduleFor(p.id).days.includes(idx);
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => toggleDay(p.id, idx)}
+                      disabled={saving}
+                      style={{
+                        padding: '2px 8px',
+                        background: active ? 'var(--ctp-yellow, #f9e2af)' : undefined,
+                        color: active ? '#1e1e2e' : undefined,
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+                <span className="settings-hint" style={{ margin: 0 }}>
+                  {scheduleFor(p.id).days.length === 0 ? '(no day picked = every day)' : ''}
+                </span>
+              </div>
+            )}
+          </div>
           {!p.available && (
             <div className="alert alert-error" style={{ marginTop: 8 }}>
               {p.name}Prefill is not bundled in this image. Rebuild or pull the latest image.

@@ -285,6 +285,7 @@ namespace RetroArr.Host
 
             // LanCache prefill orchestration (Steam / Battle.net / Epic)
             builder.Services.AddSingleton<RetroArr.Core.LanCache.LanCachePrefillService>();
+            builder.Services.AddHostedService<RetroArr.Core.LanCache.PrefillSchedulerService>();
 
             // Webhook Notifications
             builder.Services.AddScoped<RetroArr.Core.Notifications.IWebhookService, RetroArr.Core.Notifications.WebhookService>();

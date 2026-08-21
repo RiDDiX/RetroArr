@@ -1043,7 +1043,14 @@ export interface LanCacheSettings {
   prefillAllOwned: boolean;
   prefillRecent: boolean;
   prefillOs: string;
+  schedules?: Record<string, PrefillSchedule>;
   isConfigured?: boolean;
+}
+
+export interface PrefillSchedule {
+  enabled: boolean;
+  time: string;   // "HH:mm", local server time
+  days: number[]; // empty = every day; 0=Sunday .. 6=Saturday
 }
 
 export interface LanCacheStatus {
@@ -1077,6 +1084,7 @@ export interface PrefillProviderStatus {
   prefilledCount: number;
   lastRunUtc?: string | null;
   lastExitCode?: number | null;
+  nextRunUtc?: string | null;
   loginCommand?: string | null;
   recentLog: string[];
 }
@@ -1088,6 +1096,7 @@ export const lancacheApi = {
   reconcile: () => apiClient.get<LanCacheReconcile>('/lancache/reconcile', { timeout: 30000 }),
   getPrefillStatus: () => apiClient.get<PrefillProviderStatus[]>('/lancache/prefill/status'),
   runPrefill: (provider: string) => apiClient.post<{ started: boolean; message: string }>(`/lancache/prefill/${provider}/run`),
+  stopPrefill: (provider: string) => apiClient.post<{ stopped: boolean; message: string }>(`/lancache/prefill/${provider}/stop`),
   getSteamApps: () => apiClient.get<SteamAppsResponse>('/lancache/prefill/steam/apps', { timeout: 30000 }),
   setSteamApps: (appIds: number[]) => apiClient.post<{ saved: boolean; selectedCount: number }>('/lancache/prefill/steam/apps', { appIds }),
 };
