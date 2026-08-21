@@ -1,3 +1,8 @@
+## v1.0.210 (2026-08-21)
+
+### Changes
+- persist prefill schedules immediately and add per-provider time windows (83ab3d9)
+
 ## v1.0.209 (2026-08-21)
 
 ### Changes
