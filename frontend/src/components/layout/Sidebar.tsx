@@ -89,7 +89,6 @@ export function Sidebar() {
         { to: '/settings#webhooks',label: 'Webhooks' },
         { to: '/settings#apiaccess', label: 'API access' },
         { to: '/user',             label: t('user') || 'User' },
-        { to: '/about',            label: t('about') || 'About' },
       ],
     },
   ];
@@ -99,16 +98,25 @@ export function Sidebar() {
       <a href="#main-content" className="skip-to-content">Skip to content</a>
 
       <div className="sidebar__brand">
-        <button
+        {/* Clicking the wordmark goes to About; the version/changelog overlay
+            keeps its own trigger on the badge next to it. */}
+        <Link
+          to="/about"
           className="sidebar__logo-btn"
-          onClick={toggleKofi}
-          type="button"
-          aria-label="RetroArr - show info"
+          aria-label={t('about') || 'About RetroArr'}
         >
           <img src={appLogo} alt="" className="sidebar__logo-eye" />
           <span className="sidebar__wordmark">RetroArr</span>
+        </Link>
+        <button
+          className="sidebar__beta pixel"
+          onClick={toggleKofi}
+          type="button"
+          aria-label={t('versionAndChangelog') || 'Version and changelog'}
+          title={t('versionAndChangelog') || 'Version and changelog'}
+        >
+          BETA
         </button>
-        <span className="sidebar__beta pixel">BETA</span>
       </div>
 
       <div className="sidebar__conn" role="status" aria-live="polite">
@@ -159,6 +167,17 @@ export function Sidebar() {
           </div>
         ))}
       </nav>
+
+      {/* Always-visible footer link so About (incl. the support links) is never
+          buried at the bottom of a long settings group. */}
+      <div className="sidebar__footer">
+        <NavLink
+          to="/about"
+          className={({ isActive }) => `sidebar__link sidebar__about ${isActive ? 'is-active' : ''}`}
+        >
+          {t('about') || 'About'}
+        </NavLink>
+      </div>
     </aside>
   );
 }

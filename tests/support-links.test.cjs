@@ -34,4 +34,20 @@ for (const url of [SPONSORS, PAYPAL, KOFI]) {
   assert(readme.includes(url), `README must link ${url}`);
 }
 
+// About must be reachable from the UI, not only by typing the URL:
+// a permanent sidebar footer link AND the RetroArr wordmark in the header.
+const sidebar = read('frontend', 'src', 'components', 'layout', 'Sidebar.tsx');
+assert(sidebar.includes('sidebar__footer') && sidebar.includes('sidebar__about'),
+  'sidebar needs an always-visible About footer link');
+assert(/to="\/about"[\s\S]{0,200}sidebar__logo-btn|sidebar__logo-btn[\s\S]{0,200}RetroArr/.test(sidebar),
+  'clicking the RetroArr wordmark must navigate to About');
+assert((sidebar.match(/to="\/about"/g) || []).length >= 2,
+  'About must be linked from both the brand and the sidebar footer');
+// The version/changelog overlay keeps its own trigger (it is not a donation popup).
+assert(sidebar.includes('toggleKofi') && sidebar.includes('sidebar__beta'),
+  'the version/changelog overlay must keep a trigger of its own');
+
+const app = read('frontend', 'src', 'App.tsx');
+assert(app.includes('path="/about"'), '/about route must exist');
+
 console.log('support-links: all contract checks passed');
