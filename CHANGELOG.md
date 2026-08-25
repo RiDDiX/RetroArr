@@ -1,3 +1,8 @@
+## v1.0.214 (2026-08-25)
+
+### Changes
+- keep the about link clear of the floating language switcher (2488bf6)
+
 ## v1.0.213 (2026-08-25)
 
 ### Changes
