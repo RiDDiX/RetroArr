@@ -1,3 +1,8 @@
+## v1.0.211 (2026-08-25)
+
+### Changes
+- add persistent prefill run history and a dedicated prefill log channel (8f07da7)
+
 ## v1.0.210 (2026-08-21)
 
 ### Changes
