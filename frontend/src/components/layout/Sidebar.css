@@ -81,6 +81,9 @@
 .sidebar__footer {
   margin-top: auto;
   padding: var(--s-4) 0 var(--s-2);
+  /* The floating LanguageSwitcher is fixed at bottom-left (bottom:20px, ~35px tall,
+     z-index 9999) and would cover this link, so keep clear of it. */
+  margin-bottom: 64px;
 }
 .sidebar__about {
   opacity: 0.75;

@@ -50,4 +50,13 @@ assert(sidebar.includes('toggleKofi') && sidebar.includes('sidebar__beta'),
 const app = read('frontend', 'src', 'App.tsx');
 assert(app.includes('path="/about"'), '/about route must exist');
 
+// The floating LanguageSwitcher sits fixed at bottom-left over the sidebar, so the
+// About footer link has to keep clearance or it gets covered.
+const sidebarCss = read('frontend', 'src', 'components', 'layout', 'Sidebar.css');
+const footerRule = sidebarCss.match(/\.sidebar__footer\s*\{([^}]*)\}/);
+assert(footerRule, '.sidebar__footer rule must exist');
+const clearance = footerRule[1].match(/margin-bottom:\s*(\d+)px/);
+assert(clearance && Number(clearance[1]) >= 56,
+  'sidebar footer needs >=56px bottom clearance for the floating language switcher');
+
 console.log('support-links: all contract checks passed');
