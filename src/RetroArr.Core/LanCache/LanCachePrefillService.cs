@@ -19,7 +19,7 @@ namespace RetroArr.Core.LanCache
     [SuppressMessage("Microsoft.Design", "CA1031:DoNotCatchGeneralExceptionTypes")]
     public sealed class LanCachePrefillService
     {
-        private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(Logging.AppLoggerService.General);
+        private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(Logging.AppLoggerService.LanCachePrefill);
 
         private sealed class ProviderDef
         {
@@ -38,6 +38,9 @@ namespace RetroArr.Core.LanCache
             public readonly SemaphoreSlim Lock = new(1, 1);
             public bool Running;
             public readonly List<string> Log = new();
+            // Every game the current run touched (parsed from the tool's "Starting X"
+            // lines as they stream, so it survives the 200-line log cap).
+            public readonly List<string> Games = new();
             public DateTime? LastRunUtc;
             public int? LastExitCode;
             // Live handle of the running prefill process, so a run can be stopped.
@@ -49,9 +52,13 @@ namespace RetroArr.Core.LanCache
         private readonly Dictionary<string, ProviderDef> _providers;
         private readonly Dictionary<string, RunState> _state;
         private readonly object _sync = new();
+        private readonly string _historyPath;
+        private readonly object _historySync = new();
+        private const int MaxHistoryPerProvider = 50;
 
         public LanCachePrefillService(ConfigurationService configService)
         {
+            _historyPath = Path.Combine(configService.GetConfigDirectory(), "prefill-history.json");
             string Bin(string env, string dflt) => Environment.GetEnvironmentVariable(env) ?? dflt;
             _providers = new(StringComparer.OrdinalIgnoreCase)
             {
@@ -174,22 +181,32 @@ namespace RetroArr.Core.LanCache
         public bool IsLoggedIn(string providerId) => _providers.TryGetValue(providerId, out var p) && IsLoggedIn(p);
         public bool IsRunning(string providerId) => _state.TryGetValue(providerId, out var s) && s.Running;
 
-        public async Task<PrefillRunResult> RunPrefillAsync(string providerId, LanCacheSettings settings, CancellationToken ct = default)
+        public async Task<PrefillRunResult> RunPrefillAsync(string providerId, LanCacheSettings settings, string trigger = "manual", CancellationToken ct = default)
         {
+            var startedUtc = DateTime.UtcNow;
             if (!_providers.TryGetValue(providerId, out var p))
                 return PrefillRunResult.Fail($"Unknown prefill provider '{providerId}'.");
             if (!IsAvailable(p))
+            {
+                RecordRun(p.Id, startedUtc, trigger, "skipped", null, "Binary not bundled.", null, null);
                 return PrefillRunResult.Fail($"{p.Name}Prefill binary not found. Rebuild/pull the image so it is bundled.");
+            }
             if (!IsLoggedIn(p))
+            {
+                RecordRun(p.Id, startedUtc, trigger, "skipped", null, "Not logged in.", null, null);
                 return PrefillRunResult.Fail($"Not logged in. One-time login: docker exec -it retroarr {p.BinaryPath} select-apps");
+            }
 
             var st = _state[p.Id];
             if (!await st.Lock.WaitAsync(0, ct).ConfigureAwait(false))
+            {
+                RecordRun(p.Id, startedUtc, trigger, "skipped", null, "Already running.", null, null);
                 return PrefillRunResult.Fail("A prefill run is already in progress for this provider.");
+            }
 
             try
             {
-                lock (_sync) { st.Running = true; st.StopRequested = false; st.Log.Clear(); }
+                lock (_sync) { st.Running = true; st.StopRequested = false; st.Log.Clear(); st.Games.Clear(); }
 
                 var args = new List<string> { "prefill", "--no-ansi", "--force" };
                 // A saved app selection ALWAYS wins: passing --all would download the
@@ -223,29 +240,53 @@ namespace RetroArr.Core.LanCache
                 proc.OutputDataReceived += (_, e) => Append(st, e.Data);
                 proc.ErrorDataReceived += (_, e) => Append(st, e.Data);
 
-                if (!proc.Start()) return PrefillRunResult.Fail($"Failed to start {p.Name}Prefill.");
+                if (!proc.Start())
+                {
+                    RecordRun(p.Id, startedUtc, trigger, "failed", null, "Failed to start process.", null, null);
+                    return PrefillRunResult.Fail($"Failed to start {p.Name}Prefill.");
+                }
                 lock (_sync) { st.Process = proc; }
                 proc.BeginOutputReadLine();
                 proc.BeginErrorReadLine();
                 await proc.WaitForExitAsync(ct).ConfigureAwait(false);
 
                 bool stopped;
+                List<string> games;
+                int exitCode;
                 lock (_sync)
                 {
                     st.LastExitCode = proc.ExitCode;
                     st.LastRunUtc = DateTime.UtcNow;
                     st.Process = null;
                     stopped = st.StopRequested;
+                    games = new List<string>(st.Games);
+                    exitCode = proc.ExitCode;
                 }
-                if (stopped) return PrefillRunResult.Fail("Prefill stopped by user.");
-                return proc.ExitCode == 0
-                    ? PrefillRunResult.Ok(GetPrefilledAppIds(p.Id).Count)
-                    : PrefillRunResult.Fail($"{p.Name}Prefill exited with code {proc.ExitCode}.");
+
+                if (stopped)
+                {
+                    RecordRun(p.Id, startedUtc, trigger, "stopped", exitCode, "Stopped by user / end of window.",
+                              games, games.Count > 0 ? games[^1] : null);
+                    return PrefillRunResult.Fail("Prefill stopped by user.");
+                }
+                if (exitCode == 0)
+                {
+                    RecordRun(p.Id, startedUtc, trigger, "completed", exitCode, null, games, null);
+                    return PrefillRunResult.Ok(GetPrefilledAppIds(p.Id).Count);
+                }
+                RecordRun(p.Id, startedUtc, trigger, "failed", exitCode, $"Exited with code {exitCode}.", games, null);
+                return PrefillRunResult.Fail($"{p.Name}Prefill exited with code {exitCode}.");
             }
-            catch (OperationCanceledException) { return PrefillRunResult.Fail("Prefill run cancelled."); }
+            catch (OperationCanceledException)
+            {
+                RecordRun(p.Id, startedUtc, trigger, "stopped", null, "Cancelled.",
+                          GetGamesSnapshot(st), null);
+                return PrefillRunResult.Fail("Prefill run cancelled.");
+            }
             catch (Exception ex)
             {
                 _logger.Error($"[Prefill:{p.Id}] run failed: {ex.Message}");
+                RecordRun(p.Id, startedUtc, trigger, "failed", null, ex.Message, GetGamesSnapshot(st), null);
                 return PrefillRunResult.Fail($"Prefill run failed: {ex.Message}");
             }
             finally
@@ -298,7 +339,99 @@ namespace RetroArr.Core.LanCache
             {
                 st.Log.Add(line);
                 if (st.Log.Count > 200) st.Log.RemoveRange(0, st.Log.Count - 200);
+
+                // Track processed games from "... Starting <name>" lines. Keeps the
+                // full list even after the log buffer is trimmed.
+                var game = ExtractStartingGame(line);
+                if (game != null) st.Games.Add(game);
             }
+        }
+
+        // Pull the game name out of a "[timestamp] Starting <name>" progress line.
+        // internal for unit tests (RetroArr.Core.Test has InternalsVisibleTo).
+        internal static string? ExtractStartingGame(string line)
+        {
+            var s = line;
+            if (s.StartsWith("[", StringComparison.Ordinal))
+            {
+                var close = s.IndexOf(']');
+                if (close > 0 && close < s.Length - 1) s = s.Substring(close + 1);
+            }
+            s = s.TrimStart();
+            const string marker = "Starting";
+            if (!s.StartsWith(marker, StringComparison.Ordinal)) return null;
+            // Require a separator so "StartingSomething" isn't treated as a game.
+            if (s.Length > marker.Length && !char.IsWhiteSpace(s[marker.Length])) return null;
+            var name = s.Substring(marker.Length).Trim();
+            if (name.Length == 0) return null;
+            // Ignore the tool's own "Starting login!" banner.
+            if (name.StartsWith("login", StringComparison.OrdinalIgnoreCase)) return null;
+            return name;
+        }
+
+        // ---- Persistent run history (one JSON file, capped per provider) ----
+
+        private Dictionary<string, List<PrefillRunRecord>> LoadHistory()
+        {
+            lock (_historySync)
+            {
+                try
+                {
+                    if (!File.Exists(_historyPath)) return new(StringComparer.OrdinalIgnoreCase);
+                    var json = File.ReadAllText(_historyPath);
+                    return JsonSerializer.Deserialize<Dictionary<string, List<PrefillRunRecord>>>(json)
+                           ?? new(StringComparer.OrdinalIgnoreCase);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warn($"[Prefill] history read failed: {ex.Message}");
+                    return new(StringComparer.OrdinalIgnoreCase);
+                }
+            }
+        }
+
+        private void AppendHistory(PrefillRunRecord rec)
+        {
+            lock (_historySync)
+            {
+                try
+                {
+                    var all = LoadHistory();
+                    if (!all.TryGetValue(rec.Provider, out var list)) { list = new(); all[rec.Provider] = list; }
+                    list.Insert(0, rec); // newest first
+                    if (list.Count > MaxHistoryPerProvider)
+                        list.RemoveRange(MaxHistoryPerProvider, list.Count - MaxHistoryPerProvider);
+                    File.WriteAllText(_historyPath, JsonSerializer.Serialize(all, new JsonSerializerOptions { WriteIndented = true }));
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warn($"[Prefill] history write failed: {ex.Message}");
+                }
+            }
+        }
+
+        public Dictionary<string, List<PrefillRunRecord>> GetAllHistory() => LoadHistory();
+
+        private List<string> GetGamesSnapshot(RunState st)
+        {
+            lock (_sync) { return new List<string>(st.Games); }
+        }
+
+        private void RecordRun(string providerId, DateTime startedUtc, string trigger, string outcome,
+                               int? exitCode, string? message, List<string>? games, string? stoppedAt)
+        {
+            AppendHistory(new PrefillRunRecord
+            {
+                Provider = providerId,
+                StartedUtc = startedUtc,
+                FinishedUtc = DateTime.UtcNow,
+                Trigger = trigger,
+                Outcome = outcome,
+                ExitCode = exitCode,
+                Message = message,
+                StoppedAt = stoppedAt,
+                Games = games ?? new List<string>()
+            });
         }
 
         private static void CollectInts(JsonElement el, HashSet<int> acc)
@@ -351,5 +484,21 @@ namespace RetroArr.Core.LanCache
         public int PrefilledCount { get; set; }
         public static PrefillRunResult Ok(int count) => new() { Success = true, PrefilledCount = count };
         public static PrefillRunResult Fail(string msg) => new() { Success = false, Message = msg };
+    }
+
+    // One persisted prefill run (kept in prefill-history.json, newest first).
+    public sealed class PrefillRunRecord
+    {
+        public string Provider { get; set; } = "";
+        public DateTime StartedUtc { get; set; }
+        public DateTime FinishedUtc { get; set; }
+        public string Trigger { get; set; } = "manual";  // manual | scheduled
+        public string Outcome { get; set; } = "";         // completed | stopped | failed | skipped
+        public int? ExitCode { get; set; }
+        public string? Message { get; set; }
+        public string? StoppedAt { get; set; }            // last game when stopped mid-run
+        [SuppressMessage("Microsoft.Design", "CA2227:CollectionPropertiesShouldBeReadOnly")]
+        [SuppressMessage("Microsoft.Design", "CA1002:DoNotExposeGenericLists")]
+        public List<string> Games { get; set; } = new();  // games processed this run
     }
 }

@@ -290,6 +290,15 @@ namespace RetroArr.Api.V3.LanCache
             return Ok(_prefill.GetAllStatus());
         }
 
+        // Persistent run history per provider (newest first): when it ran, whether it
+        // was scheduled or manual, the outcome, which games it processed and where it
+        // stopped. Lets the user confirm the cronjobs actually fired.
+        [HttpGet("prefill/history")]
+        public IActionResult PrefillHistory()
+        {
+            return Ok(_prefill.GetAllHistory());
+        }
+
         // Kick off a prefill for one provider in the background. Requires the bundled
         // binary and (where applicable) a one-time interactive login. Progress is
         // polled via prefill/status.

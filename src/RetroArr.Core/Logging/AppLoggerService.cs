@@ -33,6 +33,7 @@ namespace RetroArr.Core.Logging
         public const string Configuration = "RetroArr.Configuration";
         public const string Plugins = "RetroArr.Plugins";
         public const string Launcher = "RetroArr.Launcher";
+        public const string LanCachePrefill = "RetroArr.LanCache.Prefill";
 
         // Feature → filename mapping
         private static readonly Dictionary<string, string> FeatureFileMap = new()
@@ -50,6 +51,7 @@ namespace RetroArr.Core.Logging
             { Configuration, "configuration" },
             { Plugins, "plugins" },
             { Launcher, "launcher" },
+            { LanCachePrefill, "lancache__prefill" },
         };
 
         public AppLoggerService(ConfigurationService configService)

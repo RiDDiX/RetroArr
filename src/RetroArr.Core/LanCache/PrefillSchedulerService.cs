@@ -16,7 +16,7 @@ namespace RetroArr.Core.LanCache
     [SuppressMessage("Microsoft.Design", "CA1031:DoNotCatchGeneralExceptionTypes")]
     public sealed class PrefillSchedulerService : BackgroundService
     {
-        private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(Logging.AppLoggerService.General);
+        private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(Logging.AppLoggerService.LanCachePrefill);
         private readonly ConfigurationService _config;
         private readonly LanCachePrefillService _prefill;
 
@@ -36,6 +36,8 @@ namespace RetroArr.Core.LanCache
             try { await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken).ConfigureAwait(false); }
             catch (TaskCanceledException) { return; }
 
+            LogActiveSchedules();
+
             while (!stoppingToken.IsCancellationRequested)
             {
                 try { Tick(stoppingToken); }
@@ -44,6 +46,36 @@ namespace RetroArr.Core.LanCache
                 try { await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken).ConfigureAwait(false); }
                 catch (TaskCanceledException) { break; }
             }
+        }
+
+        // One startup line per provider so the log proves the scheduler is alive and
+        // which windows it will honor (the user asked to be able to see this).
+        private void LogActiveSchedules()
+        {
+            try
+            {
+                var settings = _config.LoadLanCacheSettings();
+                if (!settings.Enabled)
+                {
+                    _logger.Info("[PrefillScheduler] started - LanCache integration is disabled, no runs will fire.");
+                    return;
+                }
+                if (settings.Schedules == null || settings.Schedules.Count == 0)
+                {
+                    _logger.Info("[PrefillScheduler] started - no schedules configured.");
+                    return;
+                }
+                foreach (var kv in settings.Schedules)
+                {
+                    var s = kv.Value;
+                    if (s == null) continue;
+                    var days = (s.Days == null || s.Days.Count == 0) ? "every day" : string.Join(",", s.Days);
+                    _logger.Info(s.Enabled
+                        ? $"[PrefillScheduler] {kv.Key}: enabled, window {s.StartTime}{(string.IsNullOrWhiteSpace(s.EndTime) ? "" : $"-{s.EndTime}")} on {days}."
+                        : $"[PrefillScheduler] {kv.Key}: schedule disabled.");
+                }
+            }
+            catch (Exception ex) { _logger.Warn($"[PrefillScheduler] could not log schedules: {ex.Message}"); }
         }
 
         private void Tick(CancellationToken ct)
@@ -85,7 +117,7 @@ namespace RetroArr.Core.LanCache
                 _logger.Info($"[PrefillScheduler] starting scheduled prefill for {providerId}.");
                 _ = Task.Run(async () =>
                 {
-                    try { await _prefill.RunPrefillAsync(providerId, settings, ct).ConfigureAwait(false); }
+                    try { await _prefill.RunPrefillAsync(providerId, settings, "scheduled", ct).ConfigureAwait(false); }
                     catch (Exception ex) { _logger.Warn($"[PrefillScheduler] {providerId} run failed: {ex.Message}"); }
                 }, ct);
             }

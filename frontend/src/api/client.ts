@@ -1090,6 +1090,18 @@ export interface PrefillProviderStatus {
   recentLog: string[];
 }
 
+export interface PrefillRunRecord {
+  provider: string;
+  startedUtc: string;
+  finishedUtc: string;
+  trigger: string;   // manual | scheduled
+  outcome: string;   // completed | stopped | failed | skipped
+  exitCode?: number | null;
+  message?: string | null;
+  stoppedAt?: string | null;
+  games: string[];
+}
+
 export const lancacheApi = {
   getSettings: () => apiClient.get<LanCacheSettings>('/lancache/settings'),
   saveSettings: (body: LanCacheSettings) => apiClient.post<LanCacheSettings>('/lancache/settings', body),
@@ -1098,6 +1110,7 @@ export const lancacheApi = {
   getPrefillStatus: () => apiClient.get<PrefillProviderStatus[]>('/lancache/prefill/status'),
   runPrefill: (provider: string) => apiClient.post<{ started: boolean; message: string }>(`/lancache/prefill/${provider}/run`),
   stopPrefill: (provider: string) => apiClient.post<{ stopped: boolean; message: string }>(`/lancache/prefill/${provider}/stop`),
+  getPrefillHistory: () => apiClient.get<Record<string, PrefillRunRecord[]>>('/lancache/prefill/history'),
   getSteamApps: () => apiClient.get<SteamAppsResponse>('/lancache/prefill/steam/apps', { timeout: 30000 }),
   setSteamApps: (appIds: number[]) => apiClient.post<{ saved: boolean; selectedCount: number }>('/lancache/prefill/steam/apps', { appIds }),
 };

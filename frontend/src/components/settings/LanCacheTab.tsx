@@ -1,5 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { lancacheApi, getErrorMessage, type LanCacheSettings, type LanCacheStatus, type LanCacheReconcile, type PrefillSchedule, type PrefillProviderStatus, type SteamAppEntry } from '../../api/client';
+import { lancacheApi, getErrorMessage, type LanCacheSettings, type LanCacheStatus, type LanCacheReconcile, type PrefillSchedule, type PrefillProviderStatus, type PrefillRunRecord, type SteamAppEntry } from '../../api/client';
+
+const outcomeColor = (o: string): string => {
+  switch (o) {
+    case 'completed': return 'var(--ctp-green, #a6e3a1)';
+    case 'stopped': return 'var(--ctp-yellow, #f9e2af)';
+    case 'skipped': return 'var(--ctp-overlay0, #6c7086)';
+    default: return 'var(--ctp-red, #f38ba8)';
+  }
+};
 
 interface Props {
   language: string;
@@ -31,6 +40,8 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
   const [providers, setProviders] = useState<PrefillProviderStatus[]>([]);
   const [startingId, setStartingId] = useState<string | null>(null);
   const [stoppingId, setStoppingId] = useState<string | null>(null);
+  const [history, setHistory] = useState<Record<string, PrefillRunRecord[]>>({});
+  const [openHistory, setOpenHistory] = useState<string | null>(null);
   const [steamApps, setSteamAppsList] = useState<SteamAppEntry[] | null>(null);
   const [steamLoading, setSteamLoading] = useState(false);
   const [steamSaving, setSteamSaving] = useState(false);
@@ -84,8 +95,12 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
       .catch(e => setError(getErrorMessage(e, 'Failed to load LanCache settings')))
       .finally(() => setLoading(false));
     lancacheApi.getPrefillStatus().then(res => setProviders(res.data)).catch(() => {});
+    lancacheApi.getPrefillHistory().then(res => setHistory(res.data)).catch(() => {});
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
+
+  const loadHistory = () => lancacheApi.getPrefillHistory().then(res => setHistory(res.data)).catch(() => {});
+  const toggleHistory = (id: string) => { setOpenHistory(cur => (cur === id ? null : id)); loadHistory(); };
 
   // Poll prefill status while any provider run is in progress.
   useEffect(() => {
@@ -94,7 +109,10 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
         try {
           const res = await lancacheApi.getPrefillStatus();
           setProviders(res.data);
-          if (!res.data.some(p => p.running) && pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+          if (!res.data.some(p => p.running) && pollRef.current) {
+            clearInterval(pollRef.current); pollRef.current = null;
+            loadHistory(); // a run just finished — pull its new record
+          }
         } catch { /* keep polling */ }
       }, 3000);
     }
@@ -459,6 +477,63 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
               {p.recentLog.slice(-60).join('\n')}
             </pre>
           )}
+
+          {/* Persistent run history: proves whether the scheduled runs actually fired */}
+          <div style={{ marginTop: 8 }}>
+            <button className="btn-secondary" onClick={() => toggleHistory(p.id)}>
+              {openHistory === p.id ? 'Hide' : 'Show'} run history ({(history[p.id] || []).length})
+            </button>
+            {openHistory === p.id && (
+              (history[p.id] || []).length === 0 ? (
+                <div className="settings-hint" style={{ marginTop: 6 }}>
+                  No runs recorded yet. Runs (manual and scheduled) are logged here once they finish.
+                </div>
+              ) : (
+                <div style={{ marginTop: 8, maxHeight: 320, overflow: 'auto' }}>
+                  {(history[p.id] || []).map((r, i) => {
+                    const started = new Date(r.startedUtc);
+                    const finished = new Date(r.finishedUtc);
+                    const mins = Math.max(0, Math.round((finished.getTime() - started.getTime()) / 60000));
+                    return (
+                      <div key={`${r.startedUtc}-${i}`} style={{ borderLeft: `3px solid ${outcomeColor(r.outcome)}`, padding: '4px 0 4px 8px', marginBottom: 8 }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', fontSize: '0.85em' }}>
+                          <strong>{started.toLocaleString()}</strong>
+                          <span style={{ fontSize: '0.8em', fontWeight: 600, padding: '1px 6px', borderRadius: 4, background: 'var(--ctp-surface1, #45475a)' }}>
+                            {r.trigger === 'scheduled' ? 'scheduled' : 'manual'}
+                          </span>
+                          <span style={{ fontSize: '0.8em', fontWeight: 600, padding: '1px 6px', borderRadius: 4, background: outcomeColor(r.outcome), color: '#1e1e2e' }}>
+                            {r.outcome}
+                          </span>
+                          <span className="settings-hint" style={{ margin: 0 }}>
+                            {mins} min · {r.games.length} game{r.games.length === 1 ? '' : 's'}
+                            {r.exitCode != null ? ` · exit ${r.exitCode}` : ''}
+                          </span>
+                        </div>
+                        {r.stoppedAt && (
+                          <div className="settings-hint" style={{ margin: '2px 0 0' }}>
+                            Stopped at: <strong>{r.stoppedAt}</strong>
+                          </div>
+                        )}
+                        {r.message && (
+                          <div className="settings-hint" style={{ margin: '2px 0 0' }}>{r.message}</div>
+                        )}
+                        {r.games.length > 0 && (
+                          <details style={{ marginTop: 4 }}>
+                            <summary style={{ cursor: 'pointer', fontSize: '0.85em' }}>
+                              Games processed ({r.games.length})
+                            </summary>
+                            <ul style={{ margin: '4px 0 0', paddingLeft: 18, maxHeight: 160, overflow: 'auto', fontSize: '0.85em' }}>
+                              {r.games.map((g, gi) => <li key={`${g}-${gi}`}>{g}</li>)}
+                            </ul>
+                          </details>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            )}
+          </div>
         </div>
       ))}
 
