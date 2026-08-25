@@ -1,3 +1,8 @@
+## v1.0.213 (2026-08-25)
+
+### Changes
+- make about reachable from the sidebar footer and the retroarr wordmark (242cc4b)
+
 ## v1.0.212 (2026-08-25)
 
 ### Changes
