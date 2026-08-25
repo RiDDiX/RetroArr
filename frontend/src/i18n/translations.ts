@@ -917,6 +917,11 @@ export const translations = {
         plat_retro: 'Retro / Emulation',
         // About Content
         aboutMainDesc: 'RetroArr is an open-source game library manager designed to centralize, organize, and automate your video game collection across all platforms.',
+        supportTitle: 'Support development',
+        supportDesc: 'RetroArr is free and open source. If it is useful to you, you can support its development:',
+        supportGithub: 'GitHub Sponsors',
+        supportPaypal: 'PayPal',
+        supportKofi: 'Ko-fi',
         featuresTitle: 'Features',
         featureScanning: 'Library scanning with automatic detection of 55+ platforms',
         featureMetadata: 'Metadata from IGDB, Steam, and ScreenScraper',

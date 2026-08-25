@@ -274,6 +274,14 @@ frontend/
 
 Bug, idea, feature request? [Open an issue](https://github.com/RiDDiX/RetroArr/issues). PRs welcome.
 
+## Support
+
+RetroArr is free and open source. If it is useful to you, you can support its development:
+
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub-Sponsors-db61a2?style=for-the-badge&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/RiDDiX)
+[![PayPal](https://img.shields.io/badge/PayPal-Donate-0070ba?style=for-the-badge&logo=paypal&logoColor=white)](https://www.paypal.me/RiDDiX93)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Buy%20me%20a%20coffee-ff5e5b?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/riddix)
+
 ## License
 
 MIT, see [LICENSE](LICENSE).
