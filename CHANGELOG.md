@@ -1,3 +1,8 @@
+## v1.0.212 (2026-08-25)
+
+### Changes
+- add ko-fi and paypal donation links next to github sponsors (4536a88)
+
 ## v1.0.211 (2026-08-25)
 
 ### Changes
