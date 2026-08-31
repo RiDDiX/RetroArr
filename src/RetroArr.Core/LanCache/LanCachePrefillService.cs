@@ -181,6 +181,33 @@ namespace RetroArr.Core.LanCache
         public bool IsLoggedIn(string providerId) => _providers.TryGetValue(providerId, out var p) && IsLoggedIn(p);
         public bool IsRunning(string providerId) => _state.TryGetValue(providerId, out var s) && s.Running;
 
+        // CLI args for one prefill run. internal static for unit tests
+        // (RetroArr.Core.Test has InternalsVisibleTo).
+        // --force re-downloads every selected app; that is a manual reseed/benchmark
+        // knob, not a nightly one. Scheduled runs therefore use the tools' default
+        // incremental mode, which only fetches new/updated (or previously failed)
+        // content.
+        internal static List<string> BuildPrefillArgs(string providerId, bool supportsOs, LanCacheSettings settings,
+                                                      bool hasSelection, string trigger)
+        {
+            var args = new List<string> { "prefill", "--no-ansi" };
+            if (string.Equals(trigger, "manual", StringComparison.OrdinalIgnoreCase)) args.Add("--force");
+            // A saved app selection ALWAYS wins: passing --all would download the
+            // whole library and defeat the point. Only fall back to --all when the
+            // user asked for it AND there is no selection to honor.
+            if (settings.PrefillAllOwned && !hasSelection) args.Add("--all");
+            if (string.Equals(providerId, "steam", StringComparison.OrdinalIgnoreCase))
+            {
+                if (settings.PrefillRecent) args.Add("--recent");
+                if (supportsOs)
+                {
+                    args.Add("--os");
+                    args.Add(string.IsNullOrWhiteSpace(settings.PrefillOs) ? "windows" : settings.PrefillOs);
+                }
+            }
+            return args;
+        }
+
         public async Task<PrefillRunResult> RunPrefillAsync(string providerId, LanCacheSettings settings, string trigger = "manual", CancellationToken ct = default)
         {
             var startedUtc = DateTime.UtcNow;
@@ -208,21 +235,7 @@ namespace RetroArr.Core.LanCache
             {
                 lock (_sync) { st.Running = true; st.StopRequested = false; st.Log.Clear(); st.Games.Clear(); }
 
-                var args = new List<string> { "prefill", "--no-ansi", "--force" };
-                // A saved app selection ALWAYS wins: passing --all would download the
-                // whole library and defeat the point. Only fall back to --all when the
-                // user asked for it AND there is no selection to honor.
-                var hasSelection = GetSelectedAppIds(p.Id).Count > 0;
-                if (settings.PrefillAllOwned && !hasSelection) args.Add("--all");
-                if (p.Id == "steam")
-                {
-                    if (settings.PrefillRecent) args.Add("--recent");
-                    if (p.SupportsOs)
-                    {
-                        args.Add("--os");
-                        args.Add(string.IsNullOrWhiteSpace(settings.PrefillOs) ? "windows" : settings.PrefillOs);
-                    }
-                }
+                var args = BuildPrefillArgs(p.Id, p.SupportsOs, settings, GetSelectedAppIds(p.Id).Count > 0, trigger);
 
                 var psi = new ProcessStartInfo
                 {
