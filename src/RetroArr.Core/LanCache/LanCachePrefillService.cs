@@ -196,6 +196,21 @@ namespace RetroArr.Core.LanCache
         // bogus "skipped / already running" history record.
         private static bool IsBusy(RunState st) => st.Running || st.Lock.CurrentCount == 0;
 
+        // The settings store the OS selection as one comma-separated string ("windows,linux"),
+        // but the tool takes one --os per value and rejects the joined form outright.
+        // Unknown values are dropped so a hand-edited lancache.json cannot break the run.
+        internal static List<string> ParseOsList(string? value)
+        {
+            var list = new List<string>();
+            foreach (var raw in (value ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var os = raw.ToLowerInvariant();
+                if (os is "windows" or "linux" or "macos" && !list.Contains(os)) list.Add(os);
+            }
+            if (list.Count == 0) list.Add("windows");   // the tool's own default
+            return list;
+        }
+
         // CLI args for one prefill run. internal static for unit tests
         // (RetroArr.Core.Test has InternalsVisibleTo).
         // --force re-downloads every selected app; that is a manual reseed/benchmark
@@ -215,10 +230,7 @@ namespace RetroArr.Core.LanCache
             {
                 if (settings.PrefillRecent) args.Add("--recent");
                 if (supportsOs)
-                {
-                    args.Add("--os");
-                    args.Add(string.IsNullOrWhiteSpace(settings.PrefillOs) ? "windows" : settings.PrefillOs);
-                }
+                    foreach (var os in ParseOsList(settings.PrefillOs)) { args.Add("--os"); args.Add(os); }
             }
             return args;
         }

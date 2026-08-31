@@ -44,6 +44,26 @@ namespace RetroArr.Core.Test.LanCache
         }
 
         [Test]
+        public void MultipleOs_BecomeOneFlagEach()
+        {
+            // "--os windows,linux" is rejected by the tool: one --os per value.
+            var settings = new LanCacheSettings { PrefillOs = "windows,linux" };
+            Assert.That(LanCachePrefillService.BuildPrefillArgs("steam", true, settings, true, "scheduled"),
+                        Is.EqualTo(new[] { "prefill", "--no-ansi", "--os", "windows", "--os", "linux" }));
+        }
+
+        [TestCase("windows,linux,macos", "windows|linux|macos")]
+        [TestCase(" Windows , LINUX ", "windows|linux")]
+        [TestCase("windows,windows", "windows")]
+        [TestCase("plan9", "windows")]     // unknown values fall back to the tool's default
+        [TestCase("", "windows")]
+        [TestCase(null, "windows")]
+        public void ParseOsList_NormalizesTheSetting(string? value, string expected)
+        {
+            Assert.That(string.Join("|", LanCachePrefillService.ParseOsList(value)), Is.EqualTo(expected));
+        }
+
+        [Test]
         public void NonSteam_HasNoSteamOnlyFlags()
         {
             var settings = new LanCacheSettings { PrefillRecent = true };
