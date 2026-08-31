@@ -321,6 +321,38 @@ namespace RetroArr.Api.V3.LanCache
             return Ok(new { started = true, message = $"{provider} prefill started. Watch progress in the LanCache tab." });
         }
 
+        // Update one prefill tool to the newest upstream release. The binaries are
+        // pinned at image build time, so this bridges the gap between image releases
+        // (a container recreate falls back to the bundled version).
+        [HttpPost("prefill/{provider}/update")]
+        public async Task<IActionResult> PrefillUpdate(string provider, CancellationToken ct)
+        {
+            if (!_prefill.IsAvailable(provider))
+                return StatusCode(503, new { updated = false, message = $"{provider} prefill is not bundled in this image." });
+
+            try
+            {
+                var http = _httpClientFactory.CreateClient();
+                http.Timeout = TimeSpan.FromMinutes(10);
+                // api.github.com rejects requests without a User-Agent.
+                http.DefaultRequestHeaders.UserAgent.ParseAdd("RetroArr/1.0");
+
+                var result = await _prefill.UpdatePrefillAsync(provider, http, ct).ConfigureAwait(false);
+                return Ok(new
+                {
+                    updated = result.Updated,
+                    installedVersion = result.InstalledVersion,
+                    latestVersion = result.LatestVersion,
+                    message = result.Message
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn($"[LanCache] prefill update ({provider}) failed: {ex.Message}");
+                return StatusCode(502, new { updated = false, message = $"Update failed: {ex.Message}" });
+            }
+        }
+
         // Stop a running prefill for one provider (kills the tool's process tree).
         [HttpPost("prefill/{provider}/stop")]
         public IActionResult PrefillStop(string provider)

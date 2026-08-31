@@ -40,6 +40,7 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
   const [providers, setProviders] = useState<PrefillProviderStatus[]>([]);
   const [startingId, setStartingId] = useState<string | null>(null);
   const [stoppingId, setStoppingId] = useState<string | null>(null);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [history, setHistory] = useState<Record<string, PrefillRunRecord[]>>({});
   const [openHistory, setOpenHistory] = useState<string | null>(null);
   const [steamApps, setSteamAppsList] = useState<SteamAppEntry[] | null>(null);
@@ -143,6 +144,20 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
       setError(getErrorMessage(e, 'Failed to stop prefill'));
     } finally {
       setStoppingId(null);
+    }
+  };
+
+  // Pull the newest release of the prefill tool itself (the bundled binaries are
+  // pinned at image build time).
+  const updateTool = async (providerId: string) => {
+    setUpdatingId(providerId); setError(null); setNotice(null);
+    try {
+      const res = await lancacheApi.updatePrefill(providerId);
+      setNotice(res.data.message);
+    } catch (e) {
+      setError(getErrorMessage(e, 'Failed to update the prefill tool'));
+    } finally {
+      setUpdatingId(null);
     }
   };
 
@@ -392,7 +407,7 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
             <button
               className="btn-primary"
               onClick={() => runPrefill(p.id)}
-              disabled={startingId === p.id || p.running || !p.available || !p.loggedIn}
+              disabled={startingId === p.id || updatingId === p.id || p.running || !p.available || !p.loggedIn}
             >
               {p.running ? 'Prefilling...' : startingId === p.id ? 'Starting...' : `Run ${p.name} prefill`}
             </button>
@@ -405,6 +420,14 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
                 {stoppingId === p.id ? 'Stopping...' : 'Stop'}
               </button>
             )}
+            <button
+              className="btn-secondary"
+              onClick={() => updateTool(p.id)}
+              disabled={updatingId === p.id || p.running || !p.available}
+              title="Download the newest release of the prefill tool"
+            >
+              {updatingId === p.id ? 'Updating...' : 'Update tool'}
+            </button>
           </div>
 
           {/* Per-provider schedule (saved with the LanCache Save button) */}

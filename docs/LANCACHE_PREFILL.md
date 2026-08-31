@@ -71,6 +71,18 @@ and updates the prefilled count from the tool's own state file when it finishes.
 to it. It kills that tool's process tree; already-cached data stays cached and the
 next run resumes from there.
 
+## Updating the tools
+
+The prefill binaries are pinned when the Docker image is built, so a new upstream
+release normally only arrives with a new RetroArr image. **Update tool** next to
+each provider pulls that provider's newest release from GitHub and swaps the
+binary in place — your login, selection and prefill state are untouched. It is
+refused while that provider is prefilling.
+
+The updated binary lives in the image layer, not on the config volume, so
+recreating the container falls back to the bundled version (which by then is
+usually the newer one anyway).
+
 ## Scheduling
 
 Each provider has its own schedule in the LanCache tab: tick *Run … prefill on a
@@ -104,6 +116,7 @@ Both are on the mounted config volume, so nothing is lost on restart or update.
 - **Family sharing** (Steam) is not guaranteed: depot download access is
   license-based, so games shared with you may not be prefillable by your account.
 - The bundled binaries are downloaded at image build time. If that download failed
-  (CDN outage), a provider shows **not bundled** until the image is rebuilt/pulled.
+  (CDN outage), a provider shows **not bundled** until the image is rebuilt/pulled —
+  **Update tool** cannot help there, it replaces an existing binary.
 - Prefilling large libraries moves a lot of data. Use the per-provider options and
   the tools' own `select-apps` to scope what gets pulled.

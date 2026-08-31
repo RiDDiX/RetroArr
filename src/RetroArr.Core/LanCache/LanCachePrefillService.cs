@@ -3,6 +3,10 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.IO.Compression;
+using System.Linq;
+using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -28,6 +32,7 @@ namespace RetroArr.Core.LanCache
             public string BinaryPath = "";
             public string SessionFile = "";   // empty => no login required (public CDN)
             public string StateFile = "";
+            public string Repo = "";          // GitHub repo the release binaries come from
             public bool SupportsOs;
             public string ConfigDir => Path.Combine(Path.GetDirectoryName(BinaryPath) ?? "/opt", "Config");
             public bool RequiresLogin => !string.IsNullOrEmpty(SessionFile);
@@ -65,15 +70,18 @@ namespace RetroArr.Core.LanCache
                 ["steam"] = new ProviderDef {
                     Id = "steam", Name = "Steam",
                     BinaryPath = Bin("RETROARR_STEAMPREFILL_BIN", "/opt/steamprefill/SteamPrefill"),
-                    SessionFile = "account.config", StateFile = "successfullyDownloadedDepots.json", SupportsOs = true },
+                    SessionFile = "account.config", StateFile = "successfullyDownloadedDepots.json",
+                    Repo = "tpill90/steam-lancache-prefill", SupportsOs = true },
                 ["battlenet"] = new ProviderDef {
                     Id = "battlenet", Name = "Battle.net",
                     BinaryPath = Bin("RETROARR_BATTLENETPREFILL_BIN", "/opt/battlenetprefill/BattleNetPrefill"),
-                    SessionFile = "", StateFile = "successfullyDownloadedApps.json", SupportsOs = false },
+                    SessionFile = "", StateFile = "successfullyDownloadedApps.json",
+                    Repo = "tpill90/battlenet-lancache-prefill", SupportsOs = false },
                 ["epic"] = new ProviderDef {
                     Id = "epic", Name = "Epic",
                     BinaryPath = Bin("RETROARR_EPICPREFILL_BIN", "/opt/epicprefill/EpicPrefill"),
-                    SessionFile = "userAccount.json", StateFile = "successfullyDownloadedApps.json", SupportsOs = false },
+                    SessionFile = "userAccount.json", StateFile = "successfullyDownloadedApps.json",
+                    Repo = "tpill90/epic-lancache-prefill", SupportsOs = false },
             };
             _state = new(StringComparer.OrdinalIgnoreCase);
             foreach (var k in _providers.Keys) _state[k] = new RunState();
@@ -164,7 +172,7 @@ namespace RetroArr.Core.LanCache
                         SupportsOs = p.SupportsOs,
                         Available = IsAvailable(p),
                         LoggedIn = IsLoggedIn(p),
-                        Running = st.Running,
+                        Running = IsBusy(st),
                         PrefilledCount = GetPrefilledAppIds(p.Id).Count,
                         LastRunUtc = st.LastRunUtc,
                         LastExitCode = st.LastExitCode,
@@ -179,7 +187,14 @@ namespace RetroArr.Core.LanCache
 
         public bool IsAvailable(string providerId) => _providers.TryGetValue(providerId, out var p) && IsAvailable(p);
         public bool IsLoggedIn(string providerId) => _providers.TryGetValue(providerId, out var p) && IsLoggedIn(p);
-        public bool IsRunning(string providerId) => _state.TryGetValue(providerId, out var s) && s.Running;
+        public bool IsRunning(string providerId) => _state.TryGetValue(providerId, out var s) && IsBusy(s);
+
+        // A provider is busy while a prefill runs AND while its tool is being updated:
+        // both hold the admission lock, so every gate built on IsRunning (the run
+        // endpoint, the scheduler, the tab) has to see both. Without this an update
+        // window looks idle, a run is admitted, and it then dies on the lock with a
+        // bogus "skipped / already running" history record.
+        private static bool IsBusy(RunState st) => st.Running || st.Lock.CurrentCount == 0;
 
         // CLI args for one prefill run. internal static for unit tests
         // (RetroArr.Core.Test has InternalsVisibleTo).
@@ -308,6 +323,176 @@ namespace RetroArr.Core.LanCache
                 st.Lock.Release();
             }
         }
+
+        // ---- Updating the prefill tools themselves ----
+        //
+        // The binaries are pinned at image build time, so a new upstream release is
+        // otherwise only picked up by rebuilding/pulling the image. This pulls the
+        // matching release asset from GitHub and swaps the binary in place. The tools
+        // have no self-update command (their update.sh needs jq/wget, neither of which
+        // is in the runtime image), so we do it ourselves.
+        // Note: /opt is not on a mounted volume, so an updated binary is replaced by
+        // the bundled one again when the container is recreated - by then the new
+        // image usually ships that version anyway.
+        public async Task<PrefillUpdateResult> UpdatePrefillAsync(string providerId, HttpClient http, CancellationToken ct = default)
+        {
+            if (!_providers.TryGetValue(providerId, out var p))
+                return new PrefillUpdateResult { Message = $"Unknown prefill provider '{providerId}'." };
+            if (!IsAvailable(p))
+                return new PrefillUpdateResult { Message = $"{p.Name}Prefill binary not found, nothing to update." };
+            if (string.IsNullOrEmpty(p.Repo))
+                return new PrefillUpdateResult { Message = $"No release source configured for {p.Name}." };
+
+            var st = _state[p.Id];
+            // Same admission gate as a prefill run: never swap the binary under a run.
+            if (!await st.Lock.WaitAsync(0, ct).ConfigureAwait(false))
+                return new PrefillUpdateResult { Message = "A prefill run is in progress for this provider." };
+
+            try
+            {
+                var installed = await GetInstalledVersionAsync(p, ct).ConfigureAwait(false);
+
+                using var doc = JsonDocument.Parse(
+                    await http.GetStringAsync($"https://api.github.com/repos/{p.Repo}/releases/latest", ct).ConfigureAwait(false));
+                var latest = NormalizeVersion(doc.RootElement.TryGetProperty("tag_name", out var tag) ? tag.GetString() : null);
+                if (latest.Length == 0)
+                    return new PrefillUpdateResult { InstalledVersion = installed, Message = "Could not read the latest release from GitHub." };
+
+                if (string.Equals(installed, latest, StringComparison.OrdinalIgnoreCase))
+                    return new PrefillUpdateResult
+                    {
+                        InstalledVersion = installed, LatestVersion = latest,
+                        Message = $"{p.Name}Prefill is up to date ({latest})."
+                    };
+
+                var assetUrl = PickAssetUrl(doc.RootElement, RuntimeInformation.OSArchitecture);
+                if (assetUrl == null)
+                    return new PrefillUpdateResult
+                    {
+                        InstalledVersion = installed, LatestVersion = latest,
+                        Message = $"Release {latest} has no asset for this architecture ({RuntimeInformation.OSArchitecture})."
+                    };
+
+                await InstallAsync(p, assetUrl, http, ct).ConfigureAwait(false);
+                _logger.Info($"[Prefill:{p.Id}] updated {installed} -> {latest}");
+                return new PrefillUpdateResult
+                {
+                    Updated = true, InstalledVersion = latest, LatestVersion = latest,
+                    Message = $"{p.Name}Prefill updated {(installed.Length == 0 ? "" : installed + " ")}-> {latest}."
+                };
+            }
+            finally
+            {
+                st.Lock.Release();
+            }
+        }
+
+        // Download the release asset and replace the binary. Everything happens in a
+        // scratch dir NEXT TO the binary: same filesystem, so the final File.Move is a
+        // rename (a running process keeps its old inode instead of failing ETXTBSY),
+        // and the release zip never lands in the tool dir itself - extracting there
+        // would replace the Config symlink the entrypoint set up onto /app/config.
+        private static async Task InstallAsync(ProviderDef p, string assetUrl, HttpClient http, CancellationToken ct)
+        {
+            var toolDir = Path.GetDirectoryName(p.BinaryPath) ?? "/opt";
+            var work = Path.Combine(toolDir, ".retroarr-update");
+            try
+            {
+                if (Directory.Exists(work)) Directory.Delete(work, true);
+                Directory.CreateDirectory(work);
+
+                var zipPath = Path.Combine(work, "release.zip");
+                using (var src = await http.GetStreamAsync(assetUrl, ct).ConfigureAwait(false))
+                using (var dst = File.Create(zipPath))
+                    await src.CopyToAsync(dst, ct).ConfigureAwait(false);
+
+                var extracted = Path.Combine(work, "unpacked");
+                ZipFile.ExtractToDirectory(zipPath, extracted, overwriteFiles: true);
+
+                var name = Path.GetFileName(p.BinaryPath);
+                var fresh = FindBinary(extracted, name)
+                            ?? throw new FileNotFoundException($"'{name}' not found in the release asset.");
+
+                File.Move(fresh, p.BinaryPath, overwrite: true);
+                // The entrypoint skips a tool whose binary is not executable, which
+                // would leave it without its Config symlink on the next start.
+                if (!OperatingSystem.IsWindows())
+                    File.SetUnixFileMode(p.BinaryPath,
+                        UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                        UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                        UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+            }
+            finally
+            {
+                try { if (Directory.Exists(work)) Directory.Delete(work, true); } catch { }
+            }
+        }
+
+        // The tools print their version as "v3.7.2" and nothing else.
+        private async Task<string> GetInstalledVersionAsync(ProviderDef p, CancellationToken ct)
+        {
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = p.BinaryPath,
+                    WorkingDirectory = Path.GetDirectoryName(p.BinaryPath),
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                psi.ArgumentList.Add("--version");
+                using var proc = Process.Start(psi);
+                if (proc == null) return string.Empty;
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeout.CancelAfter(TimeSpan.FromSeconds(30));
+                var output = await proc.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
+                await proc.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+                var line = output.Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.Length > 0);
+                return NormalizeVersion(line);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn($"[Prefill:{p.Id}] could not read installed version: {ex.Message}");
+                return string.Empty;
+            }
+        }
+
+        // GitHub tags carry a 'v' prefix, --version and the asset names do not.
+        // internal for unit tests (RetroArr.Core.Test has InternalsVisibleTo).
+        internal static string NormalizeVersion(string? raw)
+        {
+            var trimmed = (raw ?? string.Empty).Trim();
+            if (trimmed.Length > 0 && (trimmed[0] == 'v' || trimmed[0] == 'V')) trimmed = trimmed.Substring(1);
+            return trimmed;
+        }
+
+        // Release assets are named "<Tool>-<version>-<rid>.zip"; take the download URL
+        // straight from the release JSON instead of rebuilding the name.
+        internal static string? PickAssetUrl(JsonElement release, Architecture arch)
+        {
+            var rid = arch switch
+            {
+                Architecture.X64 => "linux-x64",
+                Architecture.Arm64 => "linux-arm64",
+                _ => null
+            };
+            if (rid == null || !release.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Array)
+                return null;
+            foreach (var asset in assets.EnumerateArray())
+            {
+                var name = asset.TryGetProperty("name", out var n) ? n.GetString() : null;
+                if (name == null || !name.EndsWith($"-{rid}.zip", StringComparison.OrdinalIgnoreCase)) continue;
+                return asset.TryGetProperty("browser_download_url", out var url) ? url.GetString() : null;
+            }
+            return null;
+        }
+
+        // The zips ship the binary inside a "<Tool>-<version>-<rid>/" folder, but not
+        // always - the image build has the same fallback.
+        internal static string? FindBinary(string root, string name) =>
+            Directory.EnumerateFiles(root, name, SearchOption.AllDirectories).FirstOrDefault();
 
         // Stop a running prefill for one provider. Kills the whole process tree
         // (the tools spawn download workers). Safe to call when nothing runs.
@@ -497,6 +682,15 @@ namespace RetroArr.Core.LanCache
         public int PrefilledCount { get; set; }
         public static PrefillRunResult Ok(int count) => new() { Success = true, PrefilledCount = count };
         public static PrefillRunResult Fail(string msg) => new() { Success = false, Message = msg };
+    }
+
+    // Outcome of an attempt to update one prefill tool to its newest release.
+    public sealed class PrefillUpdateResult
+    {
+        public bool Updated { get; set; }
+        public string? InstalledVersion { get; set; }
+        public string? LatestVersion { get; set; }
+        public string? Message { get; set; }
     }
 
     // One persisted prefill run (kept in prefill-history.json, newest first).
