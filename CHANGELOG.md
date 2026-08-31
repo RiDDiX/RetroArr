@@ -1,3 +1,8 @@
+## v1.0.216 (2026-08-31)
+
+### Changes
+- add an update button for the prefill tools (5f3d168)
+
 ## v1.0.215 (2026-08-31)
 
 ### Changes
