@@ -1,3 +1,8 @@
+## v1.0.215 (2026-08-31)
+
+### Changes
+- run scheduled prefills without --force (aa057cb)
+
 ## v1.0.214 (2026-08-25)
 
 ### Changes
