@@ -1,3 +1,8 @@
+## v1.0.217 (2026-08-31)
+
+### Changes
+- pass one --os per operating system to the prefill (d2455ef)
+
 ## v1.0.216 (2026-08-31)
 
 ### Changes
