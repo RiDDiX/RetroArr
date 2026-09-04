@@ -1,3 +1,8 @@
+## v1.0.219 (2026-09-04)
+
+### Changes
+- make the manual full re-download opt-in (10e5185)
+
 ## v1.0.218 (2026-09-04)
 
 ### Changes
