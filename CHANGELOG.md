@@ -1,3 +1,8 @@
+## v1.0.218 (2026-09-04)
+
+### Changes
+- retry the apps a prefill run skipped (c1450ab)
+
 ## v1.0.217 (2026-08-31)
 
 ### Changes
