@@ -32,6 +32,7 @@ RetroArr's; see the [LanCache docs](https://lancache.net/docs/).
 | Host / Port | Your LanCache address (IP or DNS, default port 80) — no `http://`, just the host |
 | Prefill all owned | Pass `--all` to the prefill tools |
 | Also prefill recent | Steam only: also include games played in the last 2 weeks (`--recent`) |
+| Re-download everything | Manual runs only: pass `--force` for a full reseed instead of fetching just what is missing |
 | Retry skipped apps | After a run that skipped apps, retry them once right away |
 | Operating system(s) | Steam only: which OS depots to download (`--os`) |
 
@@ -75,6 +76,13 @@ it. Those apps are *not* recorded as downloaded, so with **Retry skipped apps**
 enabled RetroArr immediately runs one more pass, which fetches only what is still
 missing. The retry is never forced and happens at most once per run; it shows up in
 the history as its own entry with a `…-retry` trigger.
+
+**What a run actually downloads:** by default the tools skip every app that is
+already up to date — they are counted in the summary and not even logged. Only
+new, updated or previously failed content is fetched. **Re-download everything**
+turns that off for manual runs (`--force`), which is what you want for a
+deliberate reseed or a speed benchmark, and not much else. Scheduled runs and the
+retry pass are always incremental.
 
 **Stopping a run:** while a provider is prefilling, a **Stop** button appears next
 to it. It kills that tool's process tree; already-cached data stays cached and the

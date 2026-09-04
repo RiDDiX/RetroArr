@@ -16,9 +16,13 @@ assert(tab.includes('settings.prefillRetryFailed'), 'tab must expose a toggle fo
 
 assert(svc.includes('settings.PrefillRetryFailed && pass.Skipped > 0'), 'retry only after a run that skipped apps');
 assert(svc.includes('trigger + "-retry"'), 'the retry pass must be recorded under its own trigger');
-// "-retry" is not "manual", so BuildPrefillArgs cannot add --force to it.
-assert(/if \(string\.Equals\(trigger, "manual", StringComparison\.OrdinalIgnoreCase\)\) args\.Add\("--force"\);/.test(svc),
-  'only a plain manual run may be forced');
+// "-retry" is not "manual", so BuildPrefillArgs cannot add --force to it, and a
+// plain manual run only forces when the user asked for a reseed.
+assert(svc.includes('settings.PrefillForceManual && string.Equals(trigger, "manual"'),
+  'forcing is opt-in and manual-only');
+assert(cfg.includes('public bool PrefillForceManual'), 'reseed setting must exist on the C# side');
+assert(client.includes('prefillForceManual: boolean;'), 'reseed setting must be mirrored in the TS interface');
+assert(tab.includes('settings.prefillForceManual'), 'tab must expose the reseed toggle');
 assert((svc.match(/RunPassAsync\(/g) || []).length >= 3, 'both passes must go through the same runner');
 
 console.log('PASS lancache-prefill-retry');

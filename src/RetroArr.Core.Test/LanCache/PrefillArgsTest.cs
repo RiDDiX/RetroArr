@@ -4,9 +4,9 @@ using RetroArr.Core.LanCache;
 
 namespace RetroArr.Core.Test.LanCache
 {
-    // The nightly run must not be a full re-download: --force makes the prefill
-    // tools fetch every selected app again (a reseed/benchmark knob), which is what
-    // hammered the scheduled 02:05 Steam run. Manual runs keep it on purpose.
+    // --force makes the prefill tools fetch every selected app again instead of
+    // skipping the ones already up to date. Nothing gets it by default; a manual run
+    // only when the user ticked the reseed option.
     [TestFixture]
     public class PrefillArgsTest
     {
@@ -19,10 +19,23 @@ namespace RetroArr.Core.Test.LanCache
         }
 
         [Test]
-        public void Manual_Forces()
+        public void Manual_DoesNotForce_ByDefault()
         {
             var args = LanCachePrefillService.BuildPrefillArgs("steam", true, new LanCacheSettings(), true, "manual");
-            Assert.That(args, Contains.Item("--force"));
+            Assert.That(args, Does.Not.Contain("--force"));
+        }
+
+        [Test]
+        public void Manual_Forces_WhenTheReseedOptionIsOn()
+        {
+            var settings = new LanCacheSettings { PrefillForceManual = true };
+            Assert.That(LanCachePrefillService.BuildPrefillArgs("steam", true, settings, true, "manual"),
+                        Contains.Item("--force"));
+            // The option is about manual runs only - the nightly one stays incremental.
+            Assert.That(LanCachePrefillService.BuildPrefillArgs("steam", true, settings, true, "scheduled"),
+                        Does.Not.Contain("--force"));
+            Assert.That(LanCachePrefillService.BuildPrefillArgs("steam", true, settings, true, "manual-retry"),
+                        Does.Not.Contain("--force"));
         }
 
         [Test]
@@ -38,7 +51,10 @@ namespace RetroArr.Core.Test.LanCache
         [Test]
         public void SteamOptions_Unchanged()
         {
-            var settings = new LanCacheSettings { PrefillAllOwned = true, PrefillRecent = true, PrefillOs = "linux" };
+            var settings = new LanCacheSettings
+            {
+                PrefillAllOwned = true, PrefillRecent = true, PrefillOs = "linux", PrefillForceManual = true
+            };
             Assert.That(LanCachePrefillService.BuildPrefillArgs("steam", true, settings, false, "manual"),
                         Is.EqualTo(new[] { "prefill", "--no-ansi", "--force", "--all", "--recent", "--os", "linux" }));
         }
@@ -69,7 +85,8 @@ namespace RetroArr.Core.Test.LanCache
         {
             // The retry exists to pick up what a run skipped - forcing it would
             // re-download the whole selection instead.
-            var args = LanCachePrefillService.BuildPrefillArgs("steam", true, new LanCacheSettings(), true, trigger);
+            var settings = new LanCacheSettings { PrefillForceManual = true };
+            var args = LanCachePrefillService.BuildPrefillArgs("steam", true, settings, true, trigger);
             Assert.That(args, Does.Not.Contain("--force"));
         }
 
@@ -85,7 +102,7 @@ namespace RetroArr.Core.Test.LanCache
         [Test]
         public void NonSteam_HasNoSteamOnlyFlags()
         {
-            var settings = new LanCacheSettings { PrefillRecent = true };
+            var settings = new LanCacheSettings { PrefillRecent = true, PrefillForceManual = true };
             var args = LanCachePrefillService.BuildPrefillArgs("epic", false, settings, true, "manual");
             Assert.That(args, Is.EqualTo(new[] { "prefill", "--no-ansi", "--force" }));
         }

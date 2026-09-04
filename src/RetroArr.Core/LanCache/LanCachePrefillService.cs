@@ -216,15 +216,15 @@ namespace RetroArr.Core.LanCache
 
         // CLI args for one prefill run. internal static for unit tests
         // (RetroArr.Core.Test has InternalsVisibleTo).
-        // --force re-downloads every selected app; that is a manual reseed/benchmark
-        // knob, not a nightly one. Scheduled runs therefore use the tools' default
-        // incremental mode, which only fetches new/updated (or previously failed)
-        // content.
+        // --force re-downloads every selected app instead of only what is new or
+        // missing - a deliberate reseed/benchmark knob. Scheduled runs and retry
+        // passes never get it; a manual run only when the user asked for it.
         internal static List<string> BuildPrefillArgs(string providerId, bool supportsOs, LanCacheSettings settings,
                                                       bool hasSelection, string trigger)
         {
             var args = new List<string> { "prefill", "--no-ansi" };
-            if (string.Equals(trigger, "manual", StringComparison.OrdinalIgnoreCase)) args.Add("--force");
+            if (settings.PrefillForceManual && string.Equals(trigger, "manual", StringComparison.OrdinalIgnoreCase))
+                args.Add("--force");
             // A saved app selection ALWAYS wins: passing --all would download the
             // whole library and defeat the point. Only fall back to --all when the
             // user asked for it AND there is no selection to honor.

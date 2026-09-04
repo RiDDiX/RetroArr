@@ -1042,6 +1042,7 @@ export interface LanCacheSettings {
   port: number;
   prefillAllOwned: boolean;
   prefillRecent: boolean;
+  prefillForceManual: boolean;
   prefillRetryFailed: boolean;
   prefillOs: string;
   schedules?: Record<string, PrefillSchedule>;

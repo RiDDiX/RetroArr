@@ -858,6 +858,11 @@ namespace RetroArr.Core.Configuration
         public Dictionary<string, PrefillSchedule> Schedules { get; set; } = new();
         public bool PrefillRecent { get; set; }
 
+        // Pass --force on a manual run: re-download every selected app instead of only
+        // what is new or missing. A deliberate reseed/benchmark knob, off by default -
+        // the tools skip up-to-date apps entirely without it.
+        public bool PrefillForceManual { get; set; }
+
         // After a run that skipped apps (a dropped Steam session usually takes the
         // whole tail of a long run with it), retry those once. The retry is a plain
         // incremental pass, so it only touches what is still missing.

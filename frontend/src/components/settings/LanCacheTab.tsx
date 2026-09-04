@@ -24,6 +24,7 @@ const DEFAULTS: LanCacheSettings = {
   port: 80,
   prefillAllOwned: false,
   prefillRecent: false,
+  prefillForceManual: false,
   prefillRetryFailed: true,
   prefillOs: 'windows',
 };
@@ -315,6 +316,21 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
           />
           <span>Also prefill games played in the last 2 weeks</span>
         </label>
+      </div>
+      <div className="form-group">
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={settings.prefillForceManual}
+            onChange={e => setSettings(s => ({ ...s, prefillForceManual: e.target.checked }))}
+            disabled={saving}
+          />
+          <span>Re-download everything on a manual run</span>
+        </label>
+        <div className="settings-hint">
+          Off: a manual run fetches only what is new or missing, like the scheduled one.
+          On: every selected game is downloaded again, for a deliberate reseed or a benchmark.
+        </div>
       </div>
       <div className="form-group">
         <label className="checkbox-row">
