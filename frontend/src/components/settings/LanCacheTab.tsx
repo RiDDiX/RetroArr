@@ -24,6 +24,7 @@ const DEFAULTS: LanCacheSettings = {
   port: 80,
   prefillAllOwned: false,
   prefillRecent: false,
+  prefillRetryFailed: true,
   prefillOs: 'windows',
 };
 
@@ -314,6 +315,20 @@ const LanCacheTab: React.FC<Props> = ({ t }) => {
           />
           <span>Also prefill games played in the last 2 weeks</span>
         </label>
+      </div>
+      <div className="form-group">
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={settings.prefillRetryFailed}
+            onChange={e => setSettings(s => ({ ...s, prefillRetryFailed: e.target.checked }))}
+            disabled={saving}
+          />
+          <span>Retry apps a run skipped, once, right after it</span>
+        </label>
+        <div className="settings-hint">
+          The retry only fetches what is still missing, never a full re-download.
+        </div>
       </div>
       <div className="form-group">
         <label>Prefill for operating system(s)</label>

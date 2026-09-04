@@ -46,6 +46,9 @@ namespace RetroArr.Core.LanCache
             // Every game the current run touched (parsed from the tool's "Starting X"
             // lines as they stream, so it survives the 200-line log cap).
             public readonly List<string> Games = new();
+            // Apps the current pass gave up on ("Skipping app..."), counted as they
+            // stream so it survives the 200-line log cap.
+            public int Skipped;
             public DateTime? LastRunUtc;
             public int? LastExitCode;
             // Live handle of the running prefill process, so a run can be stopped.
@@ -235,6 +238,84 @@ namespace RetroArr.Core.LanCache
             return args;
         }
 
+        // What one prefill process did. ExitCode is null when it could not be started.
+        private sealed class PassResult
+        {
+            public int? ExitCode;
+            public bool Stopped;
+            public int Skipped;
+            public List<string> Games = new();
+        }
+
+        // Run the tool once and stream its output into the provider's live log. The
+        // caller holds the provider's lock for the whole run, so the per-pass counters
+        // can safely be reset here.
+        private async Task<PassResult> RunPassAsync(ProviderDef p, RunState st, List<string> args, CancellationToken ct)
+        {
+            lock (_sync) { st.Games.Clear(); st.Skipped = 0; }
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = p.BinaryPath,
+                WorkingDirectory = Path.GetDirectoryName(p.BinaryPath),
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            foreach (var a in args) psi.ArgumentList.Add(a);
+
+            _logger.Info($"[Prefill:{p.Id}] running: {p.BinaryPath} {string.Join(' ', args)}");
+            using var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
+            proc.OutputDataReceived += (_, e) => Append(st, e.Data);
+            proc.ErrorDataReceived += (_, e) => Append(st, e.Data);
+
+            if (!proc.Start()) return new PassResult();
+
+            lock (_sync) { st.Process = proc; }
+            proc.BeginOutputReadLine();
+            proc.BeginErrorReadLine();
+            await proc.WaitForExitAsync(ct).ConfigureAwait(false);
+
+            lock (_sync)
+            {
+                st.LastExitCode = proc.ExitCode;
+                st.LastRunUtc = DateTime.UtcNow;
+                st.Process = null;
+                return new PassResult
+                {
+                    ExitCode = proc.ExitCode,
+                    Stopped = st.StopRequested,
+                    Skipped = st.Skipped,
+                    Games = new List<string>(st.Games)
+                };
+            }
+        }
+
+        // Write one history row for a finished pass and return its outcome.
+        private string RecordPassOutcome(ProviderDef p, DateTime startedUtc, string trigger, PassResult pass)
+        {
+            if (pass.ExitCode == null)
+            {
+                RecordRun(p.Id, startedUtc, trigger, "failed", null, "Failed to start process.", null, null);
+                return "failed";
+            }
+            if (pass.Stopped)
+            {
+                RecordRun(p.Id, startedUtc, trigger, "stopped", pass.ExitCode, "Stopped by user / end of window.",
+                          pass.Games, pass.Games.Count > 0 ? pass.Games[^1] : null);
+                return "stopped";
+            }
+            if (pass.ExitCode != 0)
+            {
+                RecordRun(p.Id, startedUtc, trigger, "failed", pass.ExitCode, $"Exited with code {pass.ExitCode}.", pass.Games, null);
+                return "failed";
+            }
+            RecordRun(p.Id, startedUtc, trigger, "completed", pass.ExitCode,
+                      pass.Skipped > 0 ? $"{pass.Skipped} app(s) skipped." : null, pass.Games, null);
+            return "completed";
+        }
+
         public async Task<PrefillRunResult> RunPrefillAsync(string providerId, LanCacheSettings settings, string trigger = "manual", CancellationToken ct = default)
         {
             var startedUtc = DateTime.UtcNow;
@@ -260,62 +341,32 @@ namespace RetroArr.Core.LanCache
 
             try
             {
-                lock (_sync) { st.Running = true; st.StopRequested = false; st.Log.Clear(); st.Games.Clear(); }
+                lock (_sync) { st.Running = true; st.StopRequested = false; st.Log.Clear(); st.Games.Clear(); st.Skipped = 0; }
 
-                var args = BuildPrefillArgs(p.Id, p.SupportsOs, settings, GetSelectedAppIds(p.Id).Count > 0, trigger);
+                var hasSelection = GetSelectedAppIds(p.Id).Count > 0;
+                var pass = await RunPassAsync(p, st, BuildPrefillArgs(p.Id, p.SupportsOs, settings, hasSelection, trigger), ct)
+                                 .ConfigureAwait(false);
+                var outcome = RecordPassOutcome(p, startedUtc, trigger, pass);
 
-                var psi = new ProcessStartInfo
+                if (outcome == "stopped") return PrefillRunResult.Fail("Prefill stopped by user.");
+                if (pass.ExitCode == null) return PrefillRunResult.Fail($"Failed to start {p.Name}Prefill.");
+                if (outcome == "failed") return PrefillRunResult.Fail($"{p.Name}Prefill exited with code {pass.ExitCode}.");
+
+                // Apps the tool gave up on are not marked as downloaded, so one more
+                // plain pass retries exactly those - a Steam session that drops at the
+                // tail of a long run otherwise leaves them until the next scheduled
+                // night. Never forced, and never more than one extra pass.
+                if (settings.PrefillRetryFailed && pass.Skipped > 0)
                 {
-                    FileName = p.BinaryPath,
-                    WorkingDirectory = Path.GetDirectoryName(p.BinaryPath),
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                foreach (var a in args) psi.ArgumentList.Add(a);
-
-                _logger.Info($"[Prefill:{p.Id}] running: {p.BinaryPath} {string.Join(' ', args)}");
-                using var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
-                proc.OutputDataReceived += (_, e) => Append(st, e.Data);
-                proc.ErrorDataReceived += (_, e) => Append(st, e.Data);
-
-                if (!proc.Start())
-                {
-                    RecordRun(p.Id, startedUtc, trigger, "failed", null, "Failed to start process.", null, null);
-                    return PrefillRunResult.Fail($"Failed to start {p.Name}Prefill.");
-                }
-                lock (_sync) { st.Process = proc; }
-                proc.BeginOutputReadLine();
-                proc.BeginErrorReadLine();
-                await proc.WaitForExitAsync(ct).ConfigureAwait(false);
-
-                bool stopped;
-                List<string> games;
-                int exitCode;
-                lock (_sync)
-                {
-                    st.LastExitCode = proc.ExitCode;
-                    st.LastRunUtc = DateTime.UtcNow;
-                    st.Process = null;
-                    stopped = st.StopRequested;
-                    games = new List<string>(st.Games);
-                    exitCode = proc.ExitCode;
+                    var retryTrigger = trigger + "-retry";
+                    var retryStartedUtc = DateTime.UtcNow;
+                    _logger.Info($"[Prefill:{p.Id}] {pass.Skipped} app(s) skipped, retrying them once.");
+                    var retry = await RunPassAsync(p, st, BuildPrefillArgs(p.Id, p.SupportsOs, settings, hasSelection, retryTrigger), ct)
+                                      .ConfigureAwait(false);
+                    RecordPassOutcome(p, retryStartedUtc, retryTrigger, retry);
                 }
 
-                if (stopped)
-                {
-                    RecordRun(p.Id, startedUtc, trigger, "stopped", exitCode, "Stopped by user / end of window.",
-                              games, games.Count > 0 ? games[^1] : null);
-                    return PrefillRunResult.Fail("Prefill stopped by user.");
-                }
-                if (exitCode == 0)
-                {
-                    RecordRun(p.Id, startedUtc, trigger, "completed", exitCode, null, games, null);
-                    return PrefillRunResult.Ok(GetPrefilledAppIds(p.Id).Count);
-                }
-                RecordRun(p.Id, startedUtc, trigger, "failed", exitCode, $"Exited with code {exitCode}.", games, null);
-                return PrefillRunResult.Fail($"{p.Name}Prefill exited with code {exitCode}.");
+                return PrefillRunResult.Ok(GetPrefilledAppIds(p.Id).Count);
             }
             catch (OperationCanceledException)
             {
@@ -554,6 +605,7 @@ namespace RetroArr.Core.LanCache
                 // full list even after the log buffer is trimmed.
                 var game = ExtractStartingGame(line);
                 if (game != null) st.Games.Add(game);
+                if (IsSkippedAppLine(line)) st.Skipped++;
             }
         }
 
@@ -578,6 +630,13 @@ namespace RetroArr.Core.LanCache
             if (name.StartsWith("login", StringComparison.OrdinalIgnoreCase)) return null;
             return name;
         }
+
+        // The tools log "Unexpected download error : <msg>  Skipping app..." for an app
+        // they could not fetch. Those apps are not marked as downloaded, so a plain
+        // (non-forced) run picks them up again - that is what the retry pass is for.
+        // internal for unit tests (RetroArr.Core.Test has InternalsVisibleTo).
+        internal static bool IsSkippedAppLine(string line) =>
+            line.Contains("Skipping app", StringComparison.OrdinalIgnoreCase);
 
         // ---- Persistent run history (one JSON file, capped per provider) ----
 

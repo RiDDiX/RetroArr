@@ -63,6 +63,25 @@ namespace RetroArr.Core.Test.LanCache
             Assert.That(string.Join("|", LanCachePrefillService.ParseOsList(value)), Is.EqualTo(expected));
         }
 
+        [TestCase("manual-retry")]
+        [TestCase("scheduled-retry")]
+        public void RetryPass_IsNeverForced(string trigger)
+        {
+            // The retry exists to pick up what a run skipped - forcing it would
+            // re-download the whole selection instead.
+            var args = LanCachePrefillService.BuildPrefillArgs("steam", true, new LanCacheSettings(), true, trigger);
+            Assert.That(args, Does.Not.Contain("--force"));
+        }
+
+        [TestCase("[9:43:31 PM] Unexpected download error : Unable to download manifests!  Skipping app...", true)]
+        [TestCase("Unexpected download error : name or service not known Skipping app...", true)]
+        [TestCase("[9:43:31 PM] Starting Half-Life 2", false)]
+        [TestCase("Prefill complete!", false)]
+        public void IsSkippedAppLine_SpotsGivenUpApps(string line, bool expected)
+        {
+            Assert.That(LanCachePrefillService.IsSkippedAppLine(line), Is.EqualTo(expected));
+        }
+
         [Test]
         public void NonSteam_HasNoSteamOnlyFlags()
         {

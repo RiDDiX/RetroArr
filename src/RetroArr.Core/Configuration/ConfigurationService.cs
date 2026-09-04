@@ -857,6 +857,11 @@ namespace RetroArr.Core.Configuration
         [SuppressMessage("Microsoft.Usage", "CA2227:CollectionPropertiesShouldBeReadOnly")]
         public Dictionary<string, PrefillSchedule> Schedules { get; set; } = new();
         public bool PrefillRecent { get; set; }
+
+        // After a run that skipped apps (a dropped Steam session usually takes the
+        // whole tail of a long run with it), retry those once. The retry is a plain
+        // incremental pass, so it only touches what is still missing.
+        public bool PrefillRetryFailed { get; set; } = true;
         public string PrefillOs { get; set; } = "windows"; // windows/linux/macos, comma-separated
         public bool IsConfigured => !string.IsNullOrWhiteSpace(Host);
     }
