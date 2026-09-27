@@ -1,3 +1,28 @@
+## v1.0.220 (2026-09-27)
+
+### Changes
+- keep platforms on legacy entries and fix duplicate label warnings (3ffac1d)
+- map a platform per download from the queue (623f245)
+- only match tracker names on equality (d3d9c66)
+- key download history by client (7cbc441)
+- match tracked releases by their real name (fed9dea)
+- track downloads per client and by transmission hash (a581953)
+- show client status messages and fall back in manual import (4d7f7a1)
+- keep jackett categories and deluge ssl in automatic search (4431977)
+- fix platform pickers and igdb ids in the library (76ecea7)
+- only clean up rar volumes that were actually extracted (4622bab)
+- fix wrong igdb platform ids and duplicated unwanted extensions (472c854)
+- map missing qbittorrent states and handle the no-subfolder layout (7c99360)
+- create a missing sabnzbd category and scope history to it (f769863)
+- label deluge torrents and map queued and finished states (db2431a)
+- fix nzbget queue actions, history states and nzb names (f5995b0)
+- fix transmission labels, ids and finished state (a345fc5)
+- keep seeding torrents intact on import and ask before deleting (281ea23)
+- add a security policy (34fb2a5)
+- match IGDB platforms in the add picker by id (559b634)
+- let a platform tag in the title beat a coarse console category (984ceb8)
+- only fetch the configured category from download clients (05ce7c8)
+
 ## v1.0.219 (2026-09-04)
 
 ### Changes
