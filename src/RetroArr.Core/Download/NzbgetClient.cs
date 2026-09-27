@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
@@ -7,6 +9,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Net.Http.Headers;
 using System.Diagnostics.CodeAnalysis;
+using System.Web;
 
 namespace RetroArr.Core.Download
 {
@@ -28,6 +31,8 @@ namespace RetroArr.Core.Download
         private readonly string _baseUrl;
         private readonly string _username;
         private readonly string _password;
+        // NZBGet before 25.0 doesn't decode \uXXXX escapes, and the default encoder escapes '+' (all over base64), '&' and quotes
+        private static readonly JsonSerializerOptions _json = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
         public NzbgetClient(string host, int port, string username, string password, string? urlBase = null)
         {
@@ -85,7 +90,7 @@ namespace RetroArr.Core.Download
                     id = 1
                 };
                 
-                var json = JsonSerializer.Serialize(request);
+                var json = JsonSerializer.Serialize(request, _json);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
                 
                 var response = await _httpClient.PostAsync(_baseUrl, content);
@@ -119,7 +124,9 @@ namespace RetroArr.Core.Download
             {
                 // Downloading NZB content first to be safe and compatible
                 using var nzbDownloader = new HttpClient();
-                var nzbBytes = await nzbDownloader.GetByteArrayAsync(nzbUrl);
+                using var nzbResponse = await nzbDownloader.GetAsync(nzbUrl);
+                nzbResponse.EnsureSuccessStatusCode();
+                var nzbBytes = await nzbResponse.Content.ReadAsByteArrayAsync();
                 var nzbBase64 = Convert.ToBase64String(nzbBytes);
                 
                 var appendRequest = new
@@ -127,7 +134,7 @@ namespace RetroArr.Core.Download
                     method = "append",
                     @params = new object[] 
                     { 
-                        "RetroArr_download.nzb", // Filename
+                        BuildNzbFilename(nzbUrl, nzbResponse.Content.Headers.ContentDisposition), // Filename, becomes NZBName
                         nzbBase64,              // Content (Base64)
                         category ?? "",         // Category
                         0,                      // Priority
@@ -135,12 +142,13 @@ namespace RetroArr.Core.Download
                         false,                  // Paused
                         "",                     // DupeKey
                         0,                      // DupeScore
-                        "SCORE"                 // DupeMode
+                        "SCORE",                // DupeMode
+                        new object[0]           // Parameters. NZBGet before 26.3 reads past the last param into "id" and rejects the call unless an array ends the list
                     },
                     id = 2
                 };
 
-                var json = JsonSerializer.Serialize(appendRequest);
+                var json = JsonSerializer.Serialize(appendRequest, _json);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
                 
                 var response = await _httpClient.PostAsync(_baseUrl, content);
@@ -167,28 +175,12 @@ namespace RetroArr.Core.Download
         {
             try
             {
-                int nzbId;
-                if (!int.TryParse(id, out nzbId)) return false;
+                if (!int.TryParse(id, out var nzbId)) return false;
 
-                // Try deleting from Queue. Files go either way: HistoryDelete below also removes a parked job's files
-                var queueReq = new 
-                { 
-                    method = "editqueue", 
-                    @params = new object[] { "GroupDelete", 0, new[] { nzbId } }, 
-                    id = 10 
-                };
-                await SendRpcRequestAsync(queueReq);
-
-                // Try deleting from History
-                var historyReq = new 
-                { 
-                    method = "editqueue", 
-                    @params = new object[] { "HistoryDelete", 0, new[] { nzbId } }, 
-                    id = 11 
-                };
-                await SendRpcRequestAsync(historyReq);
-
-                return true;
+                // Delete from the queue, then drop the history entry. Files go either way: HistoryDelete also removes a parked job's files
+                var fromQueue = await EditQueueAsync("GroupDelete", nzbId);
+                var fromHistory = await EditQueueAsync("HistoryDelete", nzbId);
+                return fromQueue || fromHistory;
             }
             catch
             {
@@ -199,23 +191,27 @@ namespace RetroArr.Core.Download
         public async Task<bool> PauseDownloadAsync(string id)
         {
              try {
-                int nzbId;
-                if (!int.TryParse(id, out nzbId)) return false;
-                var req = new { method = "editqueue", @params = new object[] { "GroupPause", 0, new[] { nzbId } }, id = 20 };
-                await SendRpcRequestAsync(req);
-                return true;
+                if (!int.TryParse(id, out var nzbId)) return false;
+                return await EditQueueAsync("GroupPause", nzbId);
             } catch { return false; }
         }
 
         public async Task<bool> ResumeDownloadAsync(string id)
         {
              try {
-                int nzbId;
-                if (!int.TryParse(id, out nzbId)) return false;
-                var req = new { method = "editqueue", @params = new object[] { "GroupResume", 0, new[] { nzbId } }, id = 21 };
-                await SendRpcRequestAsync(req);
-                return true;
+                if (!int.TryParse(id, out var nzbId)) return false;
+                return await EditQueueAsync("GroupResume", nzbId);
             } catch { return false; }
+        }
+
+        // editqueue(Command, Offset, Param, IDs): NZBGet before 18 requires the int offset, 18+ still accepts it,
+        // and every version needs the string param. The result is false when no job matched.
+        private async Task<bool> EditQueueAsync(string command, int nzbId)
+        {
+            var result = await SendRpcRequestAsync(new { method = "editqueue", @params = new object[] { command, 0, "", new[] { nzbId } }, id = 10 });
+            if (result?.ValueKind == JsonValueKind.True) return true;
+            _logger.Debug($"[NZBGet] editqueue {command} for {nzbId} did not apply");
+            return false;
         }
 
         public async Task<List<DownloadStatus>> GetDownloadsAsync()
@@ -235,7 +231,7 @@ namespace RetroArr.Core.Download
                         {
                             Id = group.GetProperty("NZBID").GetInt32().ToString(),
                             Name = group.GetProperty("NZBName").GetString() ?? string.Empty,
-                            Size = group.GetProperty("FileSizeLo").GetInt64(), // Simple approach, NZBGet splits 64bit into Lo/Hi
+                            Size = ReadSize(group, "FileSize"),
                             Progress = CalculateProgress(group),
                             State = MapQueueStatus(group.GetProperty("Status").GetString()),
                             Category = group.GetProperty("Category").GetString(),
@@ -255,7 +251,7 @@ namespace RetroArr.Core.Download
                         {
                             Id = item.GetProperty("NZBID").GetInt32().ToString(),
                             Name = item.GetProperty("NZBName").GetString() ?? string.Empty,
-                            Size = item.GetProperty("FileSizeLo").GetInt64(),
+                            Size = ReadSize(item, "FileSize"),
                             Progress = 100,
                             State = MapHistoryStatus(item.GetProperty("Status").GetString()),
                             Category = item.GetProperty("Category").GetString(),
@@ -274,7 +270,7 @@ namespace RetroArr.Core.Download
 
         private async Task<JsonElement?> SendRpcRequestAsync(object request)
         {
-            var json = JsonSerializer.Serialize(request);
+            var json = JsonSerializer.Serialize(request, _json);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
             var response = await _httpClient.PostAsync(_baseUrl, content);
             if (!response.IsSuccessStatusCode) return null;
@@ -290,8 +286,8 @@ namespace RetroArr.Core.Download
 
         private float CalculateProgress(JsonElement group)
         {
-            long fileSize = group.GetProperty("FileSizeLo").GetInt64();
-            long remaining = group.GetProperty("RemainingSizeLo").GetInt64();
+            long fileSize = ReadSize(group, "FileSize");
+            long remaining = ReadSize(group, "RemainingSize");
             if (fileSize == 0) return 100;
             return (float)((fileSize - remaining) / (double)fileSize * 100);
         }
@@ -307,15 +303,52 @@ namespace RetroArr.Core.Download
             };
         }
 
-        private DownloadState MapHistoryStatus(string? status)
+        // NZBGet splits 64-bit values into unsigned 32-bit Hi/Lo fields
+        private static long ReadSize(JsonElement item, string name)
         {
-            return status?.ToUpper() switch
+            // Lo is unsigned 32-bit; NZBGet before 21.1 could send it negative
+            return (item.GetProperty(name + "Hi").GetInt64() << 32) | (item.GetProperty(name + "Lo").GetInt64() & 0xFFFFFFFFL);
+        }
+
+        // History status is "<total>/<detail>": SUCCESS/ALL, WARNING/SCRIPT, FAILURE/HEALTH, DELETED/MANUAL, ...
+        private static DownloadState MapHistoryStatus(string? status)
+        {
+            var upper = status?.ToUpperInvariant() ?? string.Empty;
+            // Only a post-processing script failed, the download itself is complete
+            if (upper == "WARNING/SCRIPT") return DownloadState.Completed;
+
+            return upper.Split('/')[0] switch
             {
                 "SUCCESS" => DownloadState.Completed,
+                "WARNING" => DownloadState.Error, // damaged, repair or unpack skipped, password, no space
                 "FAILURE" => DownloadState.Error,
                 "DELETED" => DownloadState.Deleted,
                 _ => DownloadState.Unknown
             };
+        }
+
+        // NZBGet names the job after the file name and runs its duplicate check on that name, so every job
+        // needs its release name: the NZB response's file name (Prowlarr and most indexers send one), else
+        // Prowlarr's file= parameter, else a *.nzb URL path segment, else something unique.
+        internal static string BuildNzbFilename(string nzbUrl, ContentDispositionHeaderValue? disposition)
+        {
+            var name = disposition?.FileNameStar ?? disposition?.FileName;
+            if (string.IsNullOrWhiteSpace(name) && Uri.TryCreate(nzbUrl, UriKind.Absolute, out var uri))
+            {
+                name = HttpUtility.ParseQueryString(uri.Query)["file"];
+                var segment = Uri.UnescapeDataString(uri.Segments[^1]);
+                if (string.IsNullOrWhiteSpace(name) && segment.EndsWith(".nzb", StringComparison.OrdinalIgnoreCase))
+                    name = segment;
+            }
+
+            name = Path.GetFileName((name ?? string.Empty).Trim().Trim('"').Replace('\\', '/'));
+            name = new string(name.Where(c => !char.IsControl(c)).ToArray()).Trim();
+            if (name.EndsWith(".nzb", StringComparison.OrdinalIgnoreCase)) name = name[..^4].TrimEnd();
+            // NZBGet stores the file and later a folder under this name, keep it well below the 255 byte limit
+            while (Encoding.UTF8.GetByteCount(name) > 200) name = name[..^1];
+            name = name.TrimEnd();
+            if (name.Length == 0) name = "RetroArr_" + Guid.NewGuid().ToString("N");
+            return name + ".nzb";
         }
     }
 }
