@@ -136,7 +136,7 @@ namespace RetroArr.Api.V3.DownloadClients
                     }
                     else if (config.Implementation.Equals("Transmission", StringComparison.OrdinalIgnoreCase))
                     {
-                        client = new TransmissionClient(config.Host, config.Port, config.Username ?? "", config.Password ?? "");
+                        client = new TransmissionClient(config.Host, config.Port, config.Username ?? "", config.Password ?? "", config.Category);
                     }
                     else if (config.Implementation.Equals("SABnzbd", StringComparison.OrdinalIgnoreCase))
                     {

@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -24,9 +26,10 @@ namespace RetroArr.Core.Download
         private readonly string _rpcUrl;
         private readonly string _username;
         private readonly string _password;
+        private readonly string? _category;
         private string? _sessionId;
 
-        public TransmissionClient(string host, int port, string username, string password)
+        public TransmissionClient(string host, int port, string username, string password, string? category = null)
         {
             _httpClient = new HttpClient(new HttpClientHandler { AutomaticDecompression = System.Net.DecompressionMethods.All });
             
@@ -41,6 +44,7 @@ namespace RetroArr.Core.Download
             _rpcUrl = $"{cleanHost}:{port}/transmission/rpc";
             _username = username;
             _password = password;
+            _category = category;
         }
 
         private void SetupHeaders()
@@ -159,11 +163,11 @@ namespace RetroArr.Core.Download
                 }
             }
 
-            _logger.Info($"[Transmission] Sending arguments: {string.Join(", ", args.Keys)}");
+            // The category becomes a label; 4.x rejects the whole add for a blank label or one with a comma
+            var label = string.IsNullOrWhiteSpace(category) || category.Contains(',') ? null : category;
+            if (label != null) args["labels"] = new[] { label };
 
-            // Transmission doesn't support categories natively in the same way qBittorrent does
-            // Usually path is used, but for now we will just add the torrent.
-            // If category mapping to download-dir is needed, it would go here.
+            _logger.Info($"[Transmission] Sending arguments: {string.Join(", ", args.Keys)}");
 
             var response = await SendRequestAsync("torrent-add", args);
             
@@ -178,6 +182,8 @@ namespace RetroArr.Core.Download
                 {
                     var resultStr = result.GetString();
                     _logger.Info($"[Transmission] RPC Result: {resultStr}");
+                    if (resultStr == "success" && label != null)
+                        await EnsureLabelAsync(doc.RootElement, label);
                     return resultStr == "success";
                 }
             }
@@ -189,6 +195,41 @@ namespace RetroArr.Core.Download
             return false;
         }
 
+        // 3.00 ignores labels on torrent-add and no version labels a duplicate, so add the label when it is missing
+        private async Task EnsureLabelAsync(JsonElement addResult, string label)
+        {
+            try
+            {
+                if (!addResult.TryGetProperty("arguments", out var added)) return;
+                if (!added.TryGetProperty("torrent-added", out var torrent) && !added.TryGetProperty("torrent-duplicate", out torrent)) return;
+                var hash = torrent.GetProperty("hashString").GetString();
+                if (string.IsNullOrEmpty(hash)) return;
+
+                var response = await SendRequestAsync("torrent-get", new { ids = new[] { hash }, fields = new[] { "labels" } });
+                using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                var labels = doc.RootElement.GetProperty("arguments").GetProperty("torrents").EnumerateArray().SelectMany(ReadLabels).ToList();
+                if (labels.Contains(label, StringComparer.OrdinalIgnoreCase)) return;
+
+                labels.Add(label);
+                var set = await SendRequestAsync("torrent-set", new Dictionary<string, object> { { "ids", new[] { hash } }, { "labels", labels } });
+                _logger.Info($"[Transmission] Set label '{label}' on {hash}: {await set.Content.ReadAsStringAsync()}");
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn($"[Transmission] Could not set label '{label}': {ex.Message}");
+            }
+        }
+
+        // 3.00 answers unknown fields with 0, so only an array counts
+        private static IEnumerable<string> ReadLabels(JsonElement torrent) =>
+            torrent.TryGetProperty("labels", out var labels) && labels.ValueKind == JsonValueKind.Array
+                ? labels.EnumerateArray().Where(l => l.ValueKind == JsonValueKind.String).Select(l => l.GetString()!)
+                : Enumerable.Empty<string>();
+
+        // Transmission looks up a string id as a hash, so the numeric ids from GetDownloadsAsync go out as numbers
+        private static object[] Ids(string id) =>
+            new object[] { int.TryParse(id, NumberStyles.None, CultureInfo.InvariantCulture, out var n) ? n : id };
+
         public Task<bool> AddNzbAsync(string url, string? category = null)
         {
             throw new NotSupportedException("Transmission does not handle NZB downloads. Configure SABnzbd or NZBGet as a Usenet client.");
@@ -198,7 +239,7 @@ namespace RetroArr.Core.Download
         {
             var args = new Dictionary<string, object>
             {
-                { "ids", new[] { id } },
+                { "ids", Ids(id) },
                 { "delete-local-data", deleteFiles }
             };
 
@@ -208,14 +249,14 @@ namespace RetroArr.Core.Download
 
         public async Task<bool> PauseDownloadAsync(string id)
         {
-            var args = new Dictionary<string, object> { { "ids", new[] { id } } };
+            var args = new Dictionary<string, object> { { "ids", Ids(id) } };
             var response = await SendRequestAsync("torrent-stop", args);
             return response.IsSuccessStatusCode;
         }
 
         public async Task<bool> ResumeDownloadAsync(string id)
         {
-            var args = new Dictionary<string, object> { { "ids", new[] { id } } };
+            var args = new Dictionary<string, object> { { "ids", Ids(id) } };
             var response = await SendRequestAsync("torrent-start", args);
             return response.IsSuccessStatusCode;
         }
@@ -224,7 +265,7 @@ namespace RetroArr.Core.Download
         {
             var args = new
             {
-                fields = new[] { "id", "name", "totalSize", "percentDone", "status", "downloadDir", "error", "errorString" }
+                fields = new[] { "id", "name", "totalSize", "percentDone", "status", "downloadDir", "error", "errorString", "labels" }
             };
 
             var response = await SendRequestAsync("torrent-get", args);
@@ -239,14 +280,16 @@ namespace RetroArr.Core.Download
             {
                 foreach (var torrent in torrents.EnumerateArray())
                 {
+                    var labels = ReadLabels(torrent).ToList();
                     statusList.Add(new DownloadStatus
                     {
                         Id = torrent.GetProperty("id").GetInt32().ToString(),
                         Name = torrent.GetProperty("name").GetString() ?? string.Empty,
                         Size = torrent.GetProperty("totalSize").GetInt64(),
                         Progress = (float)torrent.GetProperty("percentDone").GetDouble() * 100,
-                        State = MapState(torrent.GetProperty("status").GetInt32()),
-                        DownloadPath = CombinePath(torrent.GetProperty("downloadDir").GetString(), torrent.GetProperty("name").GetString())
+                        State = MapState(torrent.GetProperty("status").GetInt32(), torrent.GetProperty("percentDone").GetDouble()),
+                        DownloadPath = CombinePath(torrent.GetProperty("downloadDir").GetString(), torrent.GetProperty("name").GetString()),
+                        Category = labels.FirstOrDefault(l => l.Equals(_category, StringComparison.OrdinalIgnoreCase)) ?? labels.FirstOrDefault()
                     });
                 }
             }
@@ -258,8 +301,11 @@ namespace RetroArr.Core.Download
         private static string? CombinePath(string? dir, string? name) =>
             string.IsNullOrEmpty(dir) || string.IsNullOrEmpty(name) ? dir : System.IO.Path.Combine(dir, name);
 
-        private DownloadState MapState(int status)
+        private static DownloadState MapState(int status, double percentDone)
         {
+            // stopped or waiting in the seed queue after finishing is still a finished download
+            if (percentDone >= 1 && (status == 0 || status == 5)) return DownloadState.Completed;
+
             return status switch
             {
                 0 => DownloadState.Paused,     // TR_STATUS_STOPPED

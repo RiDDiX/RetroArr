@@ -198,7 +198,7 @@ namespace RetroArr.Core.Download
             if (config.Implementation.Equals("qBittorrent", StringComparison.OrdinalIgnoreCase))
                 return new QBittorrentClient(config.Host, config.Port, config.Username ?? "", config.Password ?? "", config.UrlBase, config.Category);
             if (config.Implementation.Equals("Transmission", StringComparison.OrdinalIgnoreCase))
-                return new TransmissionClient(config.Host, config.Port, config.Username ?? "", config.Password ?? "");
+                return new TransmissionClient(config.Host, config.Port, config.Username ?? "", config.Password ?? "", config.Category);
             if (config.Implementation.Equals("SABnzbd", StringComparison.OrdinalIgnoreCase))
                 return new SabnzbdClient(config.Host, config.Port, config.ApiKey ?? "", config.UrlBase, config.Category);
             if (config.Implementation.Equals("NZBGet", StringComparison.OrdinalIgnoreCase))
