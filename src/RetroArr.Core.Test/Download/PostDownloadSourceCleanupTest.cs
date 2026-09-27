@@ -142,7 +142,7 @@ namespace RetroArr.Core.Test.Download
             Assert.That(Directory.GetFiles(library, "*", SearchOption.AllDirectories).Select(Path.GetFileName), Does.Contain("game.zip"));
         }
 
-        private async Task<(PostDownloadProcessor Processor, string Library, string Source)> TorrentSetup(PostDownloadSettings settings, IFileMoverService? mover = null, string implementation = "Transmission")
+        private async Task<(PostDownloadProcessor Processor, string Library, string Source)> TorrentSetup(PostDownloadSettings settings, IFileMoverService? mover = null, string implementation = "Transmission", IArchiveService? archive = null)
         {
             var config = new ConfigurationService(_root);
             var library = Directory.CreateDirectory(Path.Combine(_root, "library", "Test Game")).FullName;
@@ -161,7 +161,7 @@ namespace RetroArr.Core.Test.Download
             }
             var processor = new PostDownloadProcessor(config, mover ?? new FileMoverService(),
                 new SqliteGameRepository(new TestDbContextFactory(dbOptions)), null!,
-                new ArchiveService(), new TitleCleanerService());
+                archive ?? new ArchiveService(), new TitleCleanerService());
             return (processor, library, source);
         }
 
@@ -588,6 +588,33 @@ namespace RetroArr.Core.Test.Download
             var imported = Directory.GetFiles(library, "*", SearchOption.AllDirectories).Select(Path.GetFileName).ToArray();
             Assert.That(imported, Is.EqualTo(new[] { "Test Game.iso" }));
             Assert.That(File.ReadAllText(Path.Combine(library, "Test Game.iso")), Is.EqualTo(GameIso));
+        }
+
+        [TestCase("SABnzbd")]
+        [TestCase("Transmission")]
+        public async Task Rar5VolumeSet_UpperCaseNames_IsExtractedOnceFromTheFirstVolume(string implementation)
+        {
+            var archive = new RecordingArchive();
+            var (processor, _, source) = await TorrentSetup(new PostDownloadSettings { EnableAutoMove = true, EnableAutoExtract = true }, implementation: implementation, archive: archive);
+            File.WriteAllBytes(Path.Combine(source, "GAME.PART1.RAR"), GameRarVolumes[0]);
+            File.WriteAllBytes(Path.Combine(source, "GAME.PART2.RAR"), GameRarVolumes[1]);
+
+            var result = await processor.ProcessCompletedDownloadAsync(Torrent(source));
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            Assert.That(archive.Opened.Select(Path.GetFileName), Is.EqualTo(new[] { "GAME.PART1.RAR" }));
+        }
+
+        private sealed class RecordingArchive : IArchiveService
+        {
+            private readonly ArchiveService _inner = new();
+            public List<string> Opened { get; } = new();
+            public bool IsArchive(string path) => _inner.IsArchive(path);
+            public bool Extract(string sourceFile, string destinationDirectory, ICollection<string>? volumes = null)
+            {
+                Opened.Add(sourceFile);
+                return _inner.Extract(sourceFile, destinationDirectory, volumes);
+            }
         }
 
         // SharpCompress reads on into name.part2.rar or name.r00 whether or not they are real volumes, and extracts both

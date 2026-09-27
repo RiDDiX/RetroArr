@@ -278,8 +278,27 @@ namespace RetroArr.Api.V3.DownloadClients
             if (string.IsNullOrEmpty(request.DownloadName) || string.IsNullOrEmpty(request.PlatformFolder))
                 return BadRequest("DownloadName and PlatformFolder are required.");
 
-            _platformTracker.SetPlatformForDownload(request.DownloadName, request.PlatformFolder, request.GameId, request.ImportSubfolder);
-            _logger.Info($"[DownloadClient] Manual platform mapping: '{request.DownloadName}' -> '{request.PlatformFolder}' (gameId={request.GameId}, subfolder={request.ImportSubfolder})");
+            // With its ids the mapping goes onto that download. A mapping by name reaches every download of that
+            // name (older builds named every NZBGet job 'RetroArr_download'), so with ids it's only stored when no
+            // other tracked download has the name.
+            var byId = request.ClientId.HasValue && !string.IsNullOrEmpty(request.DownloadId);
+            var tracked = byId ? _trackedDownloadService.Find(request.ClientId!.Value, request.DownloadId!) : null;
+            if (tracked != null)
+            {
+                tracked.PlatformFolder = request.PlatformFolder;
+                if (request.GameId.HasValue) tracked.GameId = request.GameId;
+                if (!string.IsNullOrEmpty(request.ImportSubfolder)) tracked.ImportSubfolder = request.ImportSubfolder;
+                _trackedDownloadService.Save();
+            }
+
+            var nameShared = byId && _trackedDownloadService.GetTrackedDownloads()
+                .Any(t => t != tracked && string.Equals(t.Title, request.DownloadName, StringComparison.OrdinalIgnoreCase));
+            if (!nameShared)
+                _platformTracker.SetPlatformForDownload(request.DownloadName, request.PlatformFolder, request.GameId, request.ImportSubfolder);
+            else if (tracked == null)
+                return NotFound($"Download '{request.DownloadId}' is not tracked");
+
+            _logger.Info($"[DownloadClient] Manual platform mapping: '{request.DownloadName}' ({request.ClientId}/{request.DownloadId}) -> '{request.PlatformFolder}' (gameId={request.GameId}, subfolder={request.ImportSubfolder})");
             return Ok(new { message = $"Platform mapped to {request.PlatformFolder}" });
         }
 
@@ -991,6 +1010,8 @@ namespace RetroArr.Api.V3.DownloadClients
         public string PlatformFolder { get; set; } = string.Empty;
         public int? GameId { get; set; }
         public string? ImportSubfolder { get; set; }
+        public int? ClientId { get; set; }
+        public string? DownloadId { get; set; }
     }
 
     #endregion

@@ -28,6 +28,38 @@ assert(
   'Import must still send the selected gameId'
 );
 
+// ---- Mapping goes to the one download: ids alone aren't unique across clients, names aren't unique at all ----
+assert(
+  status.includes('clientId: mapModal.downloadClientId,') && status.includes('downloadId: mapModal.downloadId,'),
+  'Map & Import must send the download\'s clientId and downloadId to map-platform'
+);
+assert(
+  status.includes('body: JSON.stringify({ downloadName: d.name, clientId: d.clientId, downloadId: d.id, platformFolder })'),
+  'The queue platform editor must send the download\'s clientId and downloadId to map-platform'
+);
+assert(
+  status.includes('<tr key={`${u.downloadClientId}-${u.downloadId}`}>') && !status.includes('key={u.downloadId}'),
+  'Unmapped rows must be keyed by client and download id'
+);
+assert(
+  (status.match(/editingPlatform === `\$\{d\.clientId\}-\$\{d\.id\}`|setEditingPlatform\(`\$\{d\.clientId\}-\$\{d\.id\}`\)/g) || []).length === 2,
+  'The queue platform editor must open for one client\'s download only'
+);
+const mapController = read('src', 'RetroArr.Api.V3', 'DownloadClients', 'DownloadClientController.cs');
+assert(
+  /public int\? ClientId \{ get; set; \}\s*public string\? DownloadId \{ get; set; \}\s*\}/.test(mapController),
+  'MapPlatformRequest must take optional ClientId and DownloadId'
+);
+assert(
+  mapController.includes('_trackedDownloadService.Find(request.ClientId!.Value, request.DownloadId!)') &&
+  mapController.includes('tracked.PlatformFolder = request.PlatformFolder;'),
+  'map-platform must set the mapping on the tracked download its ids name'
+);
+assert(
+  /nameShared = byId && _trackedDownloadService\.GetTrackedDownloads\(\)\s*\.Any\(t => t != tracked && string\.Equals\(t\.Title, request\.DownloadName, StringComparison\.OrdinalIgnoreCase\)\);\s*if \(!nameShared\)\s*_platformTracker\.SetPlatformForDownload\(/.test(mapController),
+  'map-platform with ids must not store a name mapping another tracked download would pick up'
+);
+
 // ---- Hard-refresh fix: ChunkErrorBoundary wraps the lazy routes ----
 const app = read('frontend', 'src', 'App.tsx');
 assert(

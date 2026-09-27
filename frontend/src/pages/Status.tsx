@@ -406,11 +406,11 @@ const Status: React.FC = () => {
     await fetch(`/api/v3/settings/gog/download-status/${trackId}`, { method: 'DELETE' });
   };
 
-  const handleMapPlatform = async (downloadName: string, platformFolder: string) => {
+  const handleMapPlatform = async (d: DownloadStatus, platformFolder: string) => {
     await fetch(`${API_BASE}/queue/map-platform`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ downloadName, platformFolder })
+      body: JSON.stringify({ downloadName: d.name, clientId: d.clientId, downloadId: d.id, platformFolder })
     });
     setEditingPlatform(null);
   };
@@ -456,6 +456,8 @@ const Status: React.FC = () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         downloadName: mapModal.title,
+        clientId: mapModal.downloadClientId,
+        downloadId: mapModal.downloadId,
         platformFolder: mapPlatform,
         gameId: mapGameId || null,
         importSubfolder: mapFileType === 'Main' || mapFileType === '' ? null : mapFileType
@@ -656,11 +658,11 @@ const Status: React.FC = () => {
                         )}
                         {d.platformFolder && (
                           <div style={{ fontSize: '0.8em', color: 'var(--ctp-subtext0)', marginTop: '2px' }}>
-                            {editingPlatform === d.id ? (
+                            {editingPlatform === `${d.clientId}-${d.id}` ? (
                               <select
                                 className="platform-select"
                                 value={d.platformFolder || ''}
-                                onChange={e => { handleMapPlatform(d.name, e.target.value); }}
+                                onChange={e => { handleMapPlatform(d, e.target.value); }}
                                 onBlur={() => setEditingPlatform(null)}
                                 autoFocus
                               >
@@ -670,7 +672,7 @@ const Status: React.FC = () => {
                                 ))}
                               </select>
                             ) : (
-                              <span className="platform-label" onClick={() => setEditingPlatform(d.id)}>
+                              <span className="platform-label" onClick={() => setEditingPlatform(`${d.clientId}-${d.id}`)}>
                                 📂 {d.platformFolder}
                               </span>
                             )}
@@ -857,7 +859,7 @@ const Status: React.FC = () => {
               </thead>
               <tbody>
                 {unmapped.map(u => (
-                  <tr key={u.downloadId}>
+                  <tr key={`${u.downloadClientId}-${u.downloadId}`}>
                     <td>
                       <div>
                         {u.title}
