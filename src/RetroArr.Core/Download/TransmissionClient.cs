@@ -195,13 +195,14 @@ namespace RetroArr.Core.Download
             return false;
         }
 
-        // 3.00 ignores labels on torrent-add and no version labels a duplicate, so add the label when it is missing
+        // 3.00 ignores labels on torrent-add, so add the label when it is missing. A duplicate is left
+        // alone: the torrent was already there and may belong to another app.
         private async Task EnsureLabelAsync(JsonElement addResult, string label)
         {
             try
             {
                 if (!addResult.TryGetProperty("arguments", out var added)) return;
-                if (!added.TryGetProperty("torrent-added", out var torrent) && !added.TryGetProperty("torrent-duplicate", out torrent)) return;
+                if (!added.TryGetProperty("torrent-added", out var torrent)) return;
                 var hash = torrent.GetProperty("hashString").GetString();
                 if (string.IsNullOrEmpty(hash)) return;
 
@@ -226,7 +227,7 @@ namespace RetroArr.Core.Download
                 ? labels.EnumerateArray().Where(l => l.ValueKind == JsonValueKind.String).Select(l => l.GetString()!)
                 : Enumerable.Empty<string>();
 
-        // Transmission looks up a string id as a hash, so the numeric ids from GetDownloadsAsync go out as numbers
+        // Download ids are hashes, which Transmission takes as strings; a numeric id still goes out as a number
         private static object[] Ids(string id) =>
             new object[] { int.TryParse(id, NumberStyles.None, CultureInfo.InvariantCulture, out var n) ? n : id };
 
@@ -265,7 +266,7 @@ namespace RetroArr.Core.Download
         {
             var args = new
             {
-                fields = new[] { "id", "name", "totalSize", "percentDone", "status", "downloadDir", "error", "errorString", "labels" }
+                fields = new[] { "hashString", "name", "totalSize", "percentDone", "status", "downloadDir", "error", "errorString", "labels" }
             };
 
             var response = await SendRequestAsync("torrent-get", args);
@@ -283,7 +284,8 @@ namespace RetroArr.Core.Download
                     var labels = ReadLabels(torrent).ToList();
                     statusList.Add(new DownloadStatus
                     {
-                        Id = torrent.GetProperty("id").GetInt32().ToString(),
+                        // the numeric id changes with every daemon restart, the hash never does
+                        Id = torrent.GetProperty("hashString").GetString() ?? string.Empty,
                         Name = torrent.GetProperty("name").GetString() ?? string.Empty,
                         Size = torrent.GetProperty("totalSize").GetInt64(),
                         Progress = (float)torrent.GetProperty("percentDone").GetDouble() * 100,

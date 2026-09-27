@@ -62,7 +62,7 @@ namespace RetroArr.Core.Download
                     if (enabledClients.Any())
                     {
                         // Phase 1: Refresh tracked downloads from all clients
-                        var seenDownloadIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        var seenDownloadIds = new HashSet<(int, string)>();
                         foreach (var clientConfig in enabledClients)
                         {
                             await RefreshClientDownloadsAsync(clientConfig, seenDownloadIds);
@@ -94,7 +94,7 @@ namespace RetroArr.Core.Download
         /// <summary>
         /// Phase 1: Poll a download client and update tracked downloads.
         /// </summary>
-        private async Task RefreshClientDownloadsAsync(DownloadClient config, HashSet<string> seenDownloadIds)
+        private async Task RefreshClientDownloadsAsync(DownloadClient config, HashSet<(int, string)> seenDownloadIds)
         {
             IDownloadClient? client = CreateClient(config);
             if (client == null) return;
@@ -116,7 +116,7 @@ namespace RetroArr.Core.Download
                 foreach (var download in downloads)
                 {
                     // Track which IDs are still reported by clients
-                    seenDownloadIds.Add(download.Id);
+                    seenDownloadIds.Add((config.Id, download.Id));
 
                     // Resolve platform folder, game ID, and import subfolder from tracker
                     download.PlatformFolder = _platformTracker.LookupByName(download.Name);
@@ -175,14 +175,14 @@ namespace RetroArr.Core.Download
                     // Import: Process downloads that are ready
                     if (tracked.State == TrackedDownloadState.ImportPending)
                     {
-                        _importStatus.MarkImporting(tracked.DownloadId);
+                        _importStatus.MarkImporting(tracked.DownloadClientId, tracked.DownloadId);
                         try
                         {
                             await _completedDownloadService.ImportAsync(tracked);
                         }
                         finally
                         {
-                            _importStatus.MarkFinished(tracked.DownloadId);
+                            _importStatus.MarkFinished(tracked.DownloadClientId, tracked.DownloadId);
                         }
                     }
                 }

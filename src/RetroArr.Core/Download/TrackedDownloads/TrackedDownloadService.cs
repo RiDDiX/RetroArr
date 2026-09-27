@@ -17,7 +17,8 @@ namespace RetroArr.Core.Download.TrackedDownloads
     public class TrackedDownloadService
     {
         private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(Logging.AppLoggerService.DownloadsMonitor);
-        private readonly ConcurrentDictionary<string, TrackedDownload> _cache = new();
+        // NZBGet ids are small numbers every client counts on its own, so an id only means something per client
+        private readonly ConcurrentDictionary<(int ClientId, string DownloadId), TrackedDownload> _cache = new();
         private readonly string _persistencePath;
         private readonly object _saveLock = new();
 
@@ -27,15 +28,15 @@ namespace RetroArr.Core.Download.TrackedDownloads
             Load();
         }
 
-        public TrackedDownload? Find(string downloadId)
+        public TrackedDownload? Find(int clientId, string downloadId)
         {
-            _cache.TryGetValue(downloadId, out var tracked);
+            _cache.TryGetValue((clientId, downloadId), out var tracked);
             return tracked;
         }
 
         public TrackedDownload TrackDownload(DownloadStatus downloadItem, int clientId, string clientName)
         {
-            if (_cache.TryGetValue(downloadItem.Id, out var existing))
+            if (_cache.TryGetValue((clientId, downloadItem.Id), out var existing) || TryTakeOverNumericEntry(downloadItem, clientId, out existing))
             {
                 // Update mutable fields but preserve state
                 existing.Title = downloadItem.Name;
@@ -79,7 +80,7 @@ namespace RetroArr.Core.Download.TrackedDownloads
                 Added = DateTime.UtcNow
             };
 
-            _cache.TryAdd(downloadItem.Id, tracked);
+            _cache.TryAdd((clientId, downloadItem.Id), tracked);
             Save();
             return tracked;
         }
@@ -89,9 +90,9 @@ namespace RetroArr.Core.Download.TrackedDownloads
             return _cache.Values.ToList();
         }
 
-        public void StopTracking(string downloadId)
+        public void StopTracking(int clientId, string downloadId)
         {
-            _cache.TryRemove(downloadId, out _);
+            _cache.TryRemove((clientId, downloadId), out _);
             Save();
         }
 
@@ -99,7 +100,7 @@ namespace RetroArr.Core.Download.TrackedDownloads
         /// Reconcile tracked downloads against the set of IDs currently reported by all clients.
         /// Removes stale entries that the download client no longer knows about.
         /// </summary>
-        public int ReconcileWithClientIds(HashSet<string> activeClientIds)
+        public int ReconcileWithClientIds(HashSet<(int ClientId, string DownloadId)> activeClientIds)
         {
             int removed = 0;
             var allTracked = _cache.Values.ToList();
@@ -107,14 +108,14 @@ namespace RetroArr.Core.Download.TrackedDownloads
             foreach (var tracked in allTracked)
             {
                 // If the client still reports this download, skip
-                if (activeClientIds.Contains(tracked.DownloadId))
+                if (activeClientIds.Contains(Key(tracked)))
                     continue;
 
                 // Terminal states: remove from cache immediately
                 if (tracked.State == TrackedDownloadState.Imported ||
                     tracked.State == TrackedDownloadState.Ignored)
                 {
-                    _cache.TryRemove(tracked.DownloadId, out _);
+                    _cache.TryRemove(Key(tracked), out _);
                     removed++;
                     continue;
                 }
@@ -123,7 +124,7 @@ namespace RetroArr.Core.Download.TrackedDownloads
                 if (tracked.State == TrackedDownloadState.Downloading)
                 {
                     _logger.Info($"[TrackedDownload] Removing stale entry '{tracked.Title}' - no longer in client queue.");
-                    _cache.TryRemove(tracked.DownloadId, out _);
+                    _cache.TryRemove(Key(tracked), out _);
                     removed++;
                     continue;
                 }
@@ -138,7 +139,7 @@ namespace RetroArr.Core.Download.TrackedDownloads
                     if (age.TotalHours > 1)
                     {
                         _logger.Info($"[TrackedDownload] Removing stale import entry '{tracked.Title}' - not in client queue for over 1h.");
-                        _cache.TryRemove(tracked.DownloadId, out _);
+                        _cache.TryRemove(Key(tracked), out _);
                         removed++;
                     }
                     continue;
@@ -150,7 +151,7 @@ namespace RetroArr.Core.Download.TrackedDownloads
                     var age = DateTime.UtcNow - tracked.Added;
                     if (age.TotalHours > 24)
                     {
-                        _cache.TryRemove(tracked.DownloadId, out _);
+                        _cache.TryRemove(Key(tracked), out _);
                         removed++;
                     }
                 }
@@ -163,6 +164,27 @@ namespace RetroArr.Core.Download.TrackedDownloads
             }
 
             return removed;
+        }
+
+        private static (int, string) Key(TrackedDownload tracked) => (tracked.DownloadClientId, tracked.DownloadId);
+
+        internal static bool IsNumericId(string id) => id.Length > 0 && id.All(char.IsAsciiDigit);
+
+        internal static bool IsHashId(string id) => id.Length == 40 && id.All(char.IsAsciiHexDigit);
+
+        // Transmission ids were its per-session torrent numbers before they became the hash. An entry an
+        // earlier build tracked under the number moves to the hash, so the torrent isn't tracked twice.
+        private bool TryTakeOverNumericEntry(DownloadStatus downloadItem, int clientId, [NotNullWhen(true)] out TrackedDownload? tracked)
+        {
+            tracked = IsHashId(downloadItem.Id)
+                ? _cache.Values.FirstOrDefault(t => t.DownloadClientId == clientId && t.Title == downloadItem.Name && IsNumericId(t.DownloadId))
+                : null;
+            if (tracked == null || !_cache.TryRemove(Key(tracked), out _)) return false;
+
+            tracked.DownloadId = downloadItem.Id;
+            _cache[Key(tracked)] = tracked;
+            Save();
+            return true;
         }
 
         public void Save()
@@ -207,7 +229,7 @@ namespace RetroArr.Core.Download.TrackedDownloads
                         continue;
                     }
 
-                    _cache.TryAdd(entry.DownloadId, entry);
+                    _cache.TryAdd(Key(entry), entry);
                 }
             }
             catch (Exception ex)

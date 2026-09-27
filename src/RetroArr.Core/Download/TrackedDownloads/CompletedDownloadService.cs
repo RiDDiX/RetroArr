@@ -206,7 +206,8 @@ namespace RetroArr.Core.Download.TrackedDownloads
 
         private async Task<bool> SkipIfImportedAsync(TrackedDownload trackedDownload)
         {
-            var existingHistory = await _historyRepo.FindByDownloadIdAsync(trackedDownload.DownloadId);
+            var existingHistory = await _historyRepo.FindByDownloadIdAsync(trackedDownload.DownloadId,
+                trackedDownload.DownloadClientId, trackedDownload.Title);
             if (existingHistory == null || existingHistory.State != DownloadHistoryState.Imported)
             {
                 return false;

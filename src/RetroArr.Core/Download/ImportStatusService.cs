@@ -4,21 +4,21 @@ namespace RetroArr.Core.Download
 {
     public class ImportStatusService
     {
-        private readonly ConcurrentDictionary<string, bool> _importingDownloads = new ConcurrentDictionary<string, bool>();
+        private readonly ConcurrentDictionary<(int, string), bool> _importingDownloads = new ConcurrentDictionary<(int, string), bool>();
 
-        public void MarkImporting(string id)
+        public void MarkImporting(int clientId, string id)
         {
-            _importingDownloads.TryAdd(id, true);
+            _importingDownloads.TryAdd((clientId, id), true);
         }
 
-        public void MarkFinished(string id)
+        public void MarkFinished(int clientId, string id)
         {
-            _importingDownloads.TryRemove(id, out _);
+            _importingDownloads.TryRemove((clientId, id), out _);
         }
 
-        public bool IsImporting(string id)
+        public bool IsImporting(int clientId, string id)
         {
-            return _importingDownloads.ContainsKey(id);
+            return _importingDownloads.ContainsKey((clientId, id));
         }
     }
 }

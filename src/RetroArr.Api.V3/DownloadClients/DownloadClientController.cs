@@ -160,13 +160,13 @@ namespace RetroArr.Api.V3.DownloadClients
                             d.ClientName = config.Name;
                             d.PlatformFolder = _platformTracker.LookupByName(d.Name);
                             d.GameId = _platformTracker.LookupGameId(d.Name);
-                            if (_importStatus.IsImporting(d.Id))
+                            if (_importStatus.IsImporting(config.Id, d.Id))
                             {
                                 d.State = DownloadState.Importing;
                             }
 
                             // Enrich with tracked download state
-                            var tracked = _trackedDownloadService.Find(d.Id);
+                            var tracked = _trackedDownloadService.Find(config.Id, d.Id);
                             if (tracked != null)
                             {
                                 d.TrackedState = tracked.State.ToString();
@@ -336,14 +336,14 @@ namespace RetroArr.Api.V3.DownloadClients
                 }
 
                 // Phase 2: Import
-                _importStatus.MarkImporting(tracked.DownloadId);
+                _importStatus.MarkImporting(tracked.DownloadClientId, tracked.DownloadId);
                 try
                 {
                     await _completedDownloadService.ImportAsync(tracked);
                 }
                 finally
                 {
-                    _importStatus.MarkFinished(tracked.DownloadId);
+                    _importStatus.MarkFinished(tracked.DownloadClientId, tracked.DownloadId);
                 }
 
                 if (tracked.State == TrackedDownloadState.Imported)

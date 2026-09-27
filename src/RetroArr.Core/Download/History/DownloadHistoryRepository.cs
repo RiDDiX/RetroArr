@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using RetroArr.Core.Data;
+using RetroArr.Core.Download.TrackedDownloads;
 
 namespace RetroArr.Core.Download.History
 {
@@ -18,18 +19,41 @@ namespace RetroArr.Core.Download.History
             _contextFactory = contextFactory;
         }
 
-        public async Task<DownloadHistoryEntry?> FindByDownloadIdAsync(string downloadId)
+        // NZBGet ids are small numbers every client counts on its own, so a numeric id only matches its
+        // own client. Hashes and SABnzbd ids are unique by themselves and still match after a client
+        // was removed and added again.
+        private static IQueryable<DownloadHistoryEntry> ForDownload(IQueryable<DownloadHistoryEntry> history, string downloadId, int clientId)
         {
-            using var context = await _contextFactory.CreateDbContextAsync();
-            return await context.DownloadHistory
-                .FirstOrDefaultAsync(h => h.DownloadId == downloadId);
+            var perClient = TrackedDownloadService.IsNumericId(downloadId);
+            return history.Where(h => h.DownloadId == downloadId && (!perClient || h.ClientId == clientId));
         }
 
+        public async Task<DownloadHistoryEntry?> FindByDownloadIdAsync(string downloadId, int clientId, string title)
+        {
+            using var context = await _contextFactory.CreateDbContextAsync();
+            var entry = await ForDownload(context.DownloadHistory, downloadId, clientId).FirstOrDefaultAsync();
+            if (entry != null || !TrackedDownloadService.IsHashId(downloadId))
+                return entry;
+
+            // Transmission ids were its per-session torrent numbers before they became the hash. An import
+            // recorded under the old number is taken over once, so the torrent isn't imported again.
+            var legacy = (await context.DownloadHistory
+                    .Where(h => h.ClientId == clientId && h.Title == title && h.State == DownloadHistoryState.Imported)
+                    .ToListAsync())
+                .FirstOrDefault(h => TrackedDownloadService.IsNumericId(h.DownloadId));
+            if (legacy == null) return null;
+
+            legacy.DownloadId = downloadId;
+            await context.SaveChangesAsync();
+            return legacy;
+        }
+
+        // The unique index on DownloadId refuses a second client's row for the same numeric id; that
+        // flush fails and the first client's row stays as it was.
         public async Task UpsertAsync(DownloadHistoryEntry entry)
         {
             using var context = await _contextFactory.CreateDbContextAsync();
-            var existing = await context.DownloadHistory
-                .FirstOrDefaultAsync(h => h.DownloadId == entry.DownloadId);
+            var existing = await ForDownload(context.DownloadHistory, entry.DownloadId, entry.ClientId).FirstOrDefaultAsync();
 
             if (existing != null)
             {

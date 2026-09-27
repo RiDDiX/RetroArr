@@ -6,9 +6,13 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
 using NUnit.Framework;
+using RetroArr.Core.Configuration;
 using RetroArr.Core.Download;
+using RetroArr.Core.Download.TrackedDownloads;
 
 namespace RetroArr.Core.Test.Download
 {
@@ -77,13 +81,14 @@ namespace RetroArr.Core.Test.Download
             Assert.That(tr.Requests, Does.Contain($"torrent-set {{\"ids\":[\"abc123\"],\"labels\":{expectedLabels}}}"));
         }
 
+        // The torrent was already there and may belong to another app (Deluge leaves it alone too)
         [Test]
-        public async Task Add_Duplicate_GetsTheLabelToo()
+        public async Task Add_Duplicate_IsNotLabelled()
         {
             using var tr = new FakeTransmission { AddedKey = "torrent-duplicate", Torrents = "[{\"labels\":[]}]" };
 
             Assert.That(await new TransmissionClient("127.0.0.1", tr.Port, "u", "p").AddTorrentAsync(Magnet, "RetroArr"), Is.True);
-            Assert.That(tr.Requests, Does.Contain("torrent-set {\"ids\":[\"abc123\"],\"labels\":[\"RetroArr\"]}"));
+            Assert.That(tr.Requests, Is.EqualTo(new[] { $"torrent-add {{\"filename\":\"{Magnet}\",\"labels\":[\"RetroArr\"]}}" }));
         }
 
         [Test]
@@ -114,7 +119,7 @@ namespace RetroArr.Core.Test.Download
         {
             using var tr = new FakeTransmission
             {
-                Torrents = "[{\"id\":1,\"name\":\"Some.Game-GRP\",\"totalSize\":1,\"percentDone\":0.5,\"status\":4," +
+                Torrents = "[{\"hashString\":\"0123456789abcdef0123456789abcdef01234567\",\"name\":\"Some.Game-GRP\",\"totalSize\":1,\"percentDone\":0.5,\"status\":4," +
                            $"\"downloadDir\":\"/downloads\",\"error\":0,\"errorString\":\"\",\"labels\":{labels}}}]"
             };
 
@@ -122,6 +127,58 @@ namespace RetroArr.Core.Test.Download
 
             Assert.That(downloads.Single().Category, Is.EqualTo(expected));
             Assert.That(tr.Requests.Single(), Does.Contain("\"labels\"]"));
+        }
+
+        // The numeric id is renumbered on every daemon restart, so a new torrent could take an imported one's id
+        [Test]
+        public async Task Downloads_IdIsTheHash()
+        {
+            using var tr = new FakeTransmission
+            {
+                Torrents = "[{\"id\":3,\"hashString\":\"0123456789abcdef0123456789abcdef01234567\",\"name\":\"Some.Game-GRP\"," +
+                           "\"totalSize\":1,\"percentDone\":1,\"status\":6,\"downloadDir\":\"/downloads\"}]"
+            };
+
+            var downloads = await new TransmissionClient("127.0.0.1", tr.Port, "u", "p").GetDownloadsAsync();
+
+            Assert.That(downloads.Single().Id, Is.EqualTo("0123456789abcdef0123456789abcdef01234567"));
+            Assert.That(tr.Requests.Single(), Does.Contain("\"hashString\""));
+        }
+
+        // The monitor keeps only the configured category, so the client must report that label, not the first one
+        [Test]
+        public async Task Monitor_TracksATorrentWhoseCategoryIsNotItsFirstLabel()
+        {
+            const string hash = "0123456789abcdef0123456789abcdef01234567";
+            using var tr = new FakeTransmission
+            {
+                Torrents = $"[{{\"hashString\":\"{hash}\",\"name\":\"Some.Game-GRP\",\"totalSize\":1,\"percentDone\":0.5," +
+                           "\"status\":4,\"downloadDir\":\"/downloads\",\"labels\":[\"tv\",\"RetroArr\"]}]"
+            };
+            var root = Path.Combine(Path.GetTempPath(), "retroarr_trmonitor_" + Path.GetRandomFileName());
+            Directory.CreateDirectory(Path.Combine(root, "config"));
+            try
+            {
+                var config = new ConfigurationService(root);
+                config.SaveDownloadClients(new List<DownloadClient>
+                {
+                    new() { Id = 2, Name = "tr", Implementation = "Transmission", Host = "127.0.0.1", Port = tr.Port, Category = "RetroArr" }
+                });
+                config.SavePostDownloadSettings(new PostDownloadSettings { EnableAutoMove = false });
+                var tracked = new TrackedDownloadService(root);
+                using var monitor = new DownloadMonitorService(config, tracked, null!, new DownloadPlatformTracker(root),
+                    new ImportStatusService(), NullLogger<DownloadMonitorService>.Instance);
+
+                await monitor.StartAsync(CancellationToken.None);
+                for (var i = 0; i < 100 && tracked.GetTrackedDownloads().Count == 0; i++) await Task.Delay(50);
+                await monitor.StopAsync(CancellationToken.None);
+
+                Assert.That(tracked.Find(2, hash)?.Category, Is.EqualTo("RetroArr"));
+            }
+            finally
+            {
+                Directory.Delete(root, true);
+            }
         }
 
         [TestCase(0, 1.0, DownloadState.Completed)]
@@ -133,7 +190,7 @@ namespace RetroArr.Core.Test.Download
         {
             using var tr = new FakeTransmission
             {
-                Torrents = FormattableString.Invariant($"[{{\"id\":1,\"name\":\"Some.Game-GRP\",\"totalSize\":1,\"percentDone\":{percentDone},\"status\":{status},\"downloadDir\":\"/downloads\"}}]")
+                Torrents = FormattableString.Invariant($"[{{\"hashString\":\"0123456789abcdef0123456789abcdef01234567\",\"name\":\"Some.Game-GRP\",\"totalSize\":1,\"percentDone\":{percentDone},\"status\":{status},\"downloadDir\":\"/downloads\"}}]")
             };
 
             var downloads = await new TransmissionClient("127.0.0.1", tr.Port, "u", "p").GetDownloadsAsync();
@@ -182,7 +239,7 @@ namespace RetroArr.Core.Test.Download
                     HttpListenerContext ctx;
                     try { ctx = await listener.GetContextAsync(); }
                     catch { return; }
-                    var body = "{\"arguments\":{\"torrents\":[{\"id\":1,\"name\":\"Some.Game-GRP\",\"totalSize\":1,\"percentDone\":1," +
+                    var body = "{\"arguments\":{\"torrents\":[{\"hashString\":\"0123456789abcdef0123456789abcdef01234567\",\"name\":\"Some.Game-GRP\",\"totalSize\":1,\"percentDone\":1," +
                                "\"status\":6,\"downloadDir\":\"/downloads/complete\",\"error\":0,\"errorString\":\"\"}]},\"result\":\"success\"}";
                     var bytes = Encoding.UTF8.GetBytes(body);
                     await ctx.Response.OutputStream.WriteAsync(bytes);
