@@ -93,6 +93,12 @@ namespace RetroArr.Core.Download
         {
             try
             {
+                var wanted = HistoryCategoryFilter(category);
+                if (wanted != null)
+                {
+                    await EnsureCategoryAsync(wanted);
+                }
+
                 // Add NZB by URL
                 var url = $"{_baseUrl}?mode=addurl&name={Uri.EscapeDataString(nzbUrl)}&cat={Uri.EscapeDataString(category ?? "default")}&apikey={_apiKey}&output=json";
                 var response = await _httpClient.GetAsync(url);
@@ -109,6 +115,46 @@ namespace RetroArr.Core.Download
                 return false;
             }
         }
+
+        // SAB files a job with an unknown category under Default ('*'), where the category filter
+        // never finds it again, so create the category first. SAB only files jobs under lowercase
+        // names; a mixed-case one (possible via the API before 3.2) doesn't count.
+        private async Task EnsureCategoryAsync(string category)
+        {
+            try
+            {
+                var catsJson = await _httpClient.GetStringAsync($"{_baseUrl}?mode=get_cats&apikey={_apiKey}&output=json");
+                using (var cats = JsonDocument.Parse(catsJson))
+                {
+                    if (!cats.RootElement.TryGetProperty("categories", out var names))
+                    {
+                        throw new InvalidOperationException(SabError(cats.RootElement, catsJson));
+                    }
+
+                    if (names.EnumerateArray().Any(c => c.GetString() == category))
+                    {
+                        return;
+                    }
+                }
+
+                var resultJson = await _httpClient.GetStringAsync($"{_baseUrl}?mode=set_config&section=categories&name={Uri.EscapeDataString(category)}&apikey={_apiKey}&output=json");
+                using var result = JsonDocument.Parse(resultJson);
+                if (!result.RootElement.TryGetProperty("config", out _))
+                {
+                    throw new InvalidOperationException(SabError(result.RootElement, resultJson));
+                }
+
+                _logger.Info($"[Sabnzbd] Created missing category '{category}'");
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn($"[Sabnzbd] Category '{category}' does not exist and could not be created ({ex.Message}). SABnzbd will put the download in its Default category, where RetroArr won't pick it up. Add the category in SABnzbd.");
+            }
+        }
+
+        // Older SABnzbd answers a refused call with HTTP 200 and {"status": false, "error": "..."}
+        private static string SabError(JsonElement root, string raw) =>
+            root.TryGetProperty("error", out var error) ? error.GetString() ?? raw : raw;
 
         public async Task<bool> RemoveDownloadAsync(string id, bool deleteFiles)
         {
@@ -168,6 +214,11 @@ namespace RetroArr.Core.Download
             return lower == category ? category : $"{category},{lower}";
         }
 
+        // History jobs always carry the stored, lowercased name, and SAB before 3.3 takes a single value here.
+        // Filtering matters: history_limit (10 by default) counts every category of a shared SAB.
+        internal static string? HistoryCategoryFilter(string? category) =>
+            QueueCategoryFilter(category) == null ? null : category!.ToLowerInvariant();
+
         public async Task<List<DownloadStatus>> GetDownloadsAsync()
         {
             var statusList = new List<DownloadStatus>();
@@ -204,7 +255,10 @@ namespace RetroArr.Core.Download
                 }
 
                 // 2. Get History (Completed items)
-                var historyUrl = $"{_baseUrl}?mode=history&apikey={_apiKey}&output=json";
+                var historyFilter = HistoryCategoryFilter(_category);
+                var historyUrl = historyFilter == null
+                    ? $"{_baseUrl}?mode=history&apikey={_apiKey}&output=json"
+                    : $"{_baseUrl}?mode=history&category={Uri.EscapeDataString(historyFilter)}&apikey={_apiKey}&output=json";
                 var historyResponse = await _httpClient.GetAsync(historyUrl);
                 if (historyResponse.IsSuccessStatusCode)
                 {

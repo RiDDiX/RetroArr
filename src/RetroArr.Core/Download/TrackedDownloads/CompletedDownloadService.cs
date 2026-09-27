@@ -64,6 +64,14 @@ namespace RetroArr.Core.Download.TrackedDownloads
                 return;
             }
 
+            // A client can list a job again long after its import (an old SABnzbd history row, a pruned
+            // tracker entry) when its files are already gone. ImportAsync would skip it anyway.
+            if (await SkipIfImportedAsync(trackedDownload))
+            {
+                _trackedDownloadService.Save();
+                return;
+            }
+
             // Resolve platform folder from tracker if not already set
             if (string.IsNullOrEmpty(trackedDownload.PlatformFolder))
             {
@@ -133,11 +141,8 @@ namespace RetroArr.Core.Download.TrackedDownloads
             }
 
             // Guard: skip if already successfully imported (prevents overwriting Imported→Failed on retry)
-            var existingHistory = await _historyRepo.FindByDownloadIdAsync(trackedDownload.DownloadId);
-            if (existingHistory != null && existingHistory.State == DownloadHistoryState.Imported)
+            if (await SkipIfImportedAsync(trackedDownload))
             {
-                trackedDownload.MarkImported();
-                _logger.LogInformation("[CompletedDownload] '{Title}' was already imported - skipping re-import.", trackedDownload.Title);
                 return;
             }
 
@@ -197,6 +202,21 @@ namespace RetroArr.Core.Download.TrackedDownloads
                 await FlushToHistoryAsync(trackedDownload, DownloadHistoryState.ImportFailed,
                     ex.Message, null);
             }
+        }
+
+        private async Task<bool> SkipIfImportedAsync(TrackedDownload trackedDownload)
+        {
+            var existingHistory = await _historyRepo.FindByDownloadIdAsync(trackedDownload.DownloadId);
+            if (existingHistory == null || existingHistory.State != DownloadHistoryState.Imported)
+            {
+                return false;
+            }
+
+            trackedDownload.ClearWarnings();
+            trackedDownload.IsUnmapped = false;
+            trackedDownload.MarkImported();
+            _logger.LogInformation("[CompletedDownload] '{Title}' was already imported - skipping re-import.", trackedDownload.Title);
+            return true;
         }
 
         // Upsert on DownloadId so a retried terminal state doesn't double-row.
