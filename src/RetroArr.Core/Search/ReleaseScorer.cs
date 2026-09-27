@@ -44,10 +44,12 @@ namespace RetroArr.Core.Search
 
             // Platform: if the detector identified a platform and it doesn't
             // match the game's platform folder, reject. If detection failed
-            // (DetectedPlatform == null), allow through with a signal so the
-            // user knows to double-check.
+            // (no folder or "unknown"), allow through with a signal so the
+            // user knows to double-check, but never auto-download it.
             var gamePlatformFolder = game.Platform?.FolderName?.Trim();
-            if (!string.IsNullOrEmpty(release.PlatformFolder) && !string.IsNullOrEmpty(gamePlatformFolder))
+            var platformUnknown = string.IsNullOrEmpty(release.PlatformFolder)
+                || string.Equals(release.PlatformFolder, "unknown", StringComparison.OrdinalIgnoreCase);
+            if (!platformUnknown && !string.IsNullOrEmpty(gamePlatformFolder))
             {
                 if (!string.Equals(release.PlatformFolder, gamePlatformFolder, StringComparison.OrdinalIgnoreCase))
                 {
@@ -55,7 +57,7 @@ namespace RetroArr.Core.Search
                 }
                 scored.Signals.Add($"platform match ({release.PlatformFolder})");
             }
-            else if (string.IsNullOrEmpty(release.PlatformFolder))
+            else if (platformUnknown)
             {
                 scored.Signals.Add("platform unknown - manual review recommended");
             }
@@ -241,6 +243,11 @@ namespace RetroArr.Core.Search
                 {
                     scored.Decision = ReleaseDecision.Review;
                     scored.Reason = "high score but no trusted source - manual review";
+                }
+                else if (platformUnknown)
+                {
+                    scored.Decision = ReleaseDecision.Review;
+                    scored.Reason = "high score but platform unknown - manual review";
                 }
                 else
                 {

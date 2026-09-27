@@ -470,7 +470,10 @@ namespace RetroArr.Core.Download
             var gamePlatform = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.Id == game.PlatformId);
             var folderMode = mediaSettings.FolderNamingMode;
             var gamePlatformFolder = gamePlatform?.GetEffectiveFolderName(folderMode);
-            var downloadPlatformFolder = download.PlatformFolder;
+            // "unknown" is the release detector's no-match marker, not a platform choice
+            var downloadPlatformFolder = string.Equals(download.PlatformFolder, "unknown", StringComparison.OrdinalIgnoreCase)
+                ? null
+                : download.PlatformFolder;
 
             // If download platform differs from game platform, look for a matching game entry on that platform
             if (!string.IsNullOrEmpty(downloadPlatformFolder) &&

@@ -1,11 +1,69 @@
+using System;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
 using NUnit.Framework;
+using RetroArr.Core.Configuration;
+using RetroArr.Core.Data;
 using RetroArr.Core.Download;
+using RetroArr.Core.Games;
+using RetroArr.Core.IO;
 
 namespace RetroArr.Core.Test.Download
 {
     [TestFixture]
     public class PostDownloadProcessorTest
     {
+        // ── Import with the release detector's "unknown" platform ─────
+
+        [Test]
+        public async Task GameTargetedImport_WithUnknownPlatformHint_UsesTheGamesPlatform()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "retroarr_pdunknown_" + Path.GetRandomFileName());
+            Directory.CreateDirectory(Path.Combine(root, "config"));
+            try
+            {
+                var config = new ConfigurationService(root);
+                var library = Directory.CreateDirectory(Path.Combine(root, "library", "nds", "Pokemon Platinum")).FullName;
+                config.SaveMediaSettings(new MediaSettings { FolderPath = Path.Combine(root, "library") });
+                config.SavePostDownloadSettings(new PostDownloadSettings { EnableAutoMove = true });
+
+                var source = Directory.CreateDirectory(Path.Combine(root, "downloads", "Pokemon.Platinum")).FullName;
+                File.WriteAllText(Path.Combine(source, "Pokemon Platinum.nds"), "rom");
+
+                var dbOptions = new DbContextOptionsBuilder<RetroArrDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+                using (var ctx = new RetroArrDbContext(dbOptions))
+                {
+                    ctx.Games.Add(new Game { Id = 1, Title = "Pokemon Platinum", PlatformId = 53, Path = library });
+                    await ctx.SaveChangesAsync();
+                }
+
+                var processor = new PostDownloadProcessor(config, new FileMoverService(),
+                    new SqliteGameRepository(new DbFactory(dbOptions)), null!, new ArchiveService(), new TitleCleanerService());
+                await processor.ProcessCompletedDownloadAsync(new DownloadStatus
+                {
+                    Id = "x", Name = "Pokemon Platinum", DownloadPath = source, GameId = 1,
+                    PlatformFolder = "unknown", State = DownloadState.Completed
+                });
+
+                using var check = new RetroArrDbContext(dbOptions);
+                Assert.That(check.Games.Count(), Is.EqualTo(1), "a second game was created on the Unknown platform");
+                Assert.That(Directory.GetFiles(library), Has.Length.EqualTo(1));
+            }
+            finally
+            {
+                Directory.Delete(root, true);
+            }
+        }
+
+        private sealed class DbFactory : IDbContextFactory<RetroArrDbContext>
+        {
+            private readonly DbContextOptions<RetroArrDbContext> _options;
+            public DbFactory(DbContextOptions<RetroArrDbContext> options) => _options = options;
+            public RetroArrDbContext CreateDbContext() => new RetroArrDbContext(_options);
+        }
+
         // ── DetectContentType: Patch with version ─────────────────────
 
         [TestCase("Street Fighter x Tekken Update v1.02 PS3", "1.02")]
