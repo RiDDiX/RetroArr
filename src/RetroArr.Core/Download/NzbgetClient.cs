@@ -31,7 +31,7 @@ namespace RetroArr.Core.Download
 
         public NzbgetClient(string host, int port, string username, string password, string? urlBase = null)
         {
-            _httpClient = new HttpClient();
+            _httpClient = new HttpClient(new HttpClientHandler { AutomaticDecompression = System.Net.DecompressionMethods.All });
             
             // Basic Auth
             var authValue = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{username}:{password}"));

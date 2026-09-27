@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
 using System.Text.Json;
@@ -21,10 +22,11 @@ namespace RetroArr.Core.Download
         private readonly HttpClient _httpClient;
         private readonly string _baseUrl;
         private readonly string _apiKey;
+        private readonly string? _category;
 
-        public SabnzbdClient(string host, int port, string apiKey, string? urlBase = null)
+        public SabnzbdClient(string host, int port, string apiKey, string? urlBase = null, string? category = null)
         {
-            _httpClient = new HttpClient();
+            _httpClient = new HttpClient(new HttpClientHandler { AutomaticDecompression = System.Net.DecompressionMethods.All });
             
             // Handle host formatting
             string cleanHost = host.Trim();
@@ -47,6 +49,7 @@ namespace RetroArr.Core.Download
             // SABnzbd API endpoint
             _baseUrl = $"{cleanHost}:{port}{finalUrlBase}/api";
             _apiKey = apiKey;
+            _category = category;
         }
 
         public async Task<bool> TestConnectionAsync()
@@ -145,6 +148,25 @@ namespace RetroArr.Core.Download
             } catch { return false; }
         }
 
+        // Only pull our own category from the queue, a shared SABnzbd can hold hundreds of other jobs.
+        // SAB matches it case-sensitively and stores it lowercased, while URL grabs keep the name as sent
+        // until the NZB is fetched, so ask for both. Names that don't survive that are fetched unfiltered.
+        internal static string? QueueCategoryFilter(string? category)
+        {
+            if (string.IsNullOrEmpty(category) || category != category.Trim() || category.Contains(',') || category.Any(c => c > 127))
+            {
+                return null;
+            }
+
+            var lower = category.ToLowerInvariant();
+            if (lower is "*" or "default" or "none")
+            {
+                return null;
+            }
+
+            return lower == category ? category : $"{category},{lower}";
+        }
+
         public async Task<List<DownloadStatus>> GetDownloadsAsync()
         {
             var statusList = new List<DownloadStatus>();
@@ -152,7 +174,10 @@ namespace RetroArr.Core.Download
             try
             {
                 // 1. Get Queue (Items currently downloading or paused)
-                var queueUrl = $"{_baseUrl}?mode=queue&apikey={_apiKey}&output=json";
+                var categoryFilter = QueueCategoryFilter(_category);
+                var queueUrl = categoryFilter == null
+                    ? $"{_baseUrl}?mode=queue&apikey={_apiKey}&output=json"
+                    : $"{_baseUrl}?mode=queue&category={Uri.EscapeDataString(categoryFilter)}&apikey={_apiKey}&output=json";
                 var queueResponse = await _httpClient.GetAsync(queueUrl);
                 if (queueResponse.IsSuccessStatusCode)
                 {

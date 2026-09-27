@@ -28,7 +28,7 @@ namespace RetroArr.Core.Download
 
         public TransmissionClient(string host, int port, string username, string password)
         {
-            _httpClient = new HttpClient();
+            _httpClient = new HttpClient(new HttpClientHandler { AutomaticDecompression = System.Net.DecompressionMethods.All });
             
             string cleanHost = host.Trim();
             if (!cleanHost.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && 

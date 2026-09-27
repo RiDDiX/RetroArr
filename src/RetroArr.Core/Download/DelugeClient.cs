@@ -24,9 +24,11 @@ namespace RetroArr.Core.Download
         // CookieContainer handles cookies automatically
         // private readonly System.Net.CookieContainer _cookieContainer; 
         private string? _cookie;
+        private readonly string? _category;
 
-        public DelugeClient(string host, int port, string password, bool useSsl = false)
+        public DelugeClient(string host, int port, string password, bool useSsl = false, string? category = null)
         {
+            _category = category;
             var scheme = useSsl ? "https" : "http";
             _baseUrl = $"{scheme}://{host}:{port}/json";
             _password = password;
@@ -34,6 +36,7 @@ namespace RetroArr.Core.Download
             var handler = new HttpClientHandler 
             { 
                 UseCookies = true,
+                AutomaticDecompression = System.Net.DecompressionMethods.All,
                 ServerCertificateCustomValidationCallback = (sender, cert, chain, sslPolicyErrors) => true // Accept self-signed
             };
 
@@ -473,7 +476,28 @@ namespace RetroArr.Core.Download
         {
             await EnsureAuthenticatedAsync();
             var keys = new[] { "name", "total_size", "state", "progress", "save_path", "hash", "label" };
-            var dictResult = await CallJsonRpcAsync<Dictionary<string, DelugeTorrentStatus>>("core.get_torrents_status", new object[] { new { }, keys });
+            object filter = new { };
+            if (!string.IsNullOrEmpty(_category))
+            {
+                // Only pull our own label, a shared Deluge can hold many other torrents. Labels need the Label
+                // plugin and match case-sensitively, so ask for the real label names that equal ours ignoring case.
+                try
+                {
+                    var plugins = await CallJsonRpcAsync<List<string>>("core.get_enabled_plugins", Array.Empty<object>());
+                    var labels = plugins?.Contains("Label") == true
+                        ? await CallJsonRpcAsync<List<string>>("label.get_labels", Array.Empty<object>())
+                        : null;
+                    filter = new Dictionary<string, object>
+                    {
+                        ["label"] = (labels ?? new List<string>()).Where(l => l.Equals(_category, StringComparison.OrdinalIgnoreCase)).ToList()
+                    };
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warn($"[Deluge] Label lookup failed, fetching all torrents: {ex.Message}");
+                }
+            }
+            var dictResult = await CallJsonRpcAsync<Dictionary<string, DelugeTorrentStatus>>("core.get_torrents_status", new object[] { filter, keys });
             
             var list = new List<DownloadStatus>();
             if (dictResult == null) return list;

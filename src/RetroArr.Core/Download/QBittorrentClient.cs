@@ -34,11 +34,12 @@ namespace RetroArr.Core.Download
         private readonly string _baseUrl;
         private readonly string _username;
         private readonly string _password;
+        private readonly string? _category;
         private string? _cookie;
 
-        public QBittorrentClient(string host, int port, string username, string password, string? urlBase = null)
+        public QBittorrentClient(string host, int port, string username, string password, string? urlBase = null, string? category = null)
         {
-            _httpClient = new HttpClient();
+            _httpClient = new HttpClient(new HttpClientHandler { AutomaticDecompression = System.Net.DecompressionMethods.All });
             
             // Handle case where host might already contain http:// or https://
             string cleanHost = host.Trim();
@@ -63,6 +64,7 @@ namespace RetroArr.Core.Download
             _baseUrl = $"{cleanHost}:{port}{finalUrlBase}/api/v2";
             _username = username;
             _password = password;
+            _category = category;
         }
 
         private async Task EnsureAuthenticatedAsync()
@@ -259,7 +261,63 @@ namespace RetroArr.Core.Download
         public async Task<List<TorrentInfo>> GetTorrentsAsync()
         {
             await EnsureAuthenticatedAsync();
-            var response = await _httpClient.GetAsync($"{_baseUrl}/torrents/info");
+            if (string.IsNullOrEmpty(_category))
+            {
+                return await FetchTorrentsAsync(null);
+            }
+
+            // Only pull our own category, a shared qBittorrent can hold megabytes of other torrents.
+            // qBittorrent matches category names case-sensitively and our category filter doesn't,
+            // so also ask for every other spelling of it that qBittorrent knows.
+            try
+            {
+                var response = await _httpClient.GetAsync($"{_baseUrl}/torrents/categories");
+                response.EnsureSuccessStatusCode();
+
+                var names = new HashSet<string>(StringComparer.Ordinal) { _category };
+                using (var categories = JsonDocument.Parse(await response.Content.ReadAsStringAsync()))
+                {
+                    if (categories.RootElement.ValueKind == JsonValueKind.Object)
+                    {
+                        foreach (var category in categories.RootElement.EnumerateObject())
+                        {
+                            if (category.Name.Equals(_category, StringComparison.OrdinalIgnoreCase))
+                            {
+                                names.Add(category.Name);
+                            }
+                        }
+                    }
+                }
+
+                var torrents = new List<TorrentInfo>();
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var name in names)
+                {
+                    foreach (var torrent in await FetchTorrentsAsync(name))
+                    {
+                        if (seen.Add(torrent.Hash))
+                        {
+                            torrents.Add(torrent);
+                        }
+                    }
+                }
+
+                return torrents;
+            }
+            catch (Exception ex) when (ex is HttpRequestException || ex is JsonException)
+            {
+                // qBittorrent before 4.1.4 has no categories endpoint, and some look-alikes can't filter
+                _logger.Debug($"[qBittorrent] Category filter not available ({ex.Message}), fetching all torrents");
+                return await FetchTorrentsAsync(null);
+            }
+        }
+
+        private async Task<List<TorrentInfo>> FetchTorrentsAsync(string? category)
+        {
+            // The filter goes in a form body: qBittorrent reads a '+' in the query string as a space, even as %2B
+            var response = category == null
+                ? await _httpClient.GetAsync($"{_baseUrl}/torrents/info")
+                : await _httpClient.PostAsync($"{_baseUrl}/torrents/info", new FormUrlEncodedContent(new Dictionary<string, string> { { "category", category } }));
             response.EnsureSuccessStatusCode();
 
             var json = await response.Content.ReadAsStringAsync();

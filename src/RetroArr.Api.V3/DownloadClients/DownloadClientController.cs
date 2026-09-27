@@ -132,7 +132,7 @@ namespace RetroArr.Api.V3.DownloadClients
                     IDownloadClient? client = null;
                     if (config.Implementation.Equals("qBittorrent", StringComparison.OrdinalIgnoreCase))
                     {
-                        client = new QBittorrentClient(config.Host, config.Port, config.Username ?? "", config.Password ?? "", config.UrlBase);
+                        client = new QBittorrentClient(config.Host, config.Port, config.Username ?? "", config.Password ?? "", config.UrlBase, config.Category);
                     }
                     else if (config.Implementation.Equals("Transmission", StringComparison.OrdinalIgnoreCase))
                     {
@@ -140,7 +140,7 @@ namespace RetroArr.Api.V3.DownloadClients
                     }
                     else if (config.Implementation.Equals("SABnzbd", StringComparison.OrdinalIgnoreCase))
                     {
-                        client = new SabnzbdClient(config.Host, config.Port, config.ApiKey ?? "", config.UrlBase);
+                        client = new SabnzbdClient(config.Host, config.Port, config.ApiKey ?? "", config.UrlBase, config.Category);
                     }
                     else if (config.Implementation.Equals("NZBGet", StringComparison.OrdinalIgnoreCase))
                     {
@@ -148,7 +148,7 @@ namespace RetroArr.Api.V3.DownloadClients
                     }
                     else if (config.Implementation.Equals("Deluge", StringComparison.OrdinalIgnoreCase))
                     {
-                        client = new DelugeClient(config.Host, config.Port, config.Password ?? "", config.UseSsl);
+                        client = new DelugeClient(config.Host, config.Port, config.Password ?? "", config.UseSsl, config.Category);
                     }
 
                     if (client != null)
