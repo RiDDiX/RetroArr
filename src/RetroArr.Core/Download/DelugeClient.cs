@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 
 namespace RetroArr.Core.Download
 {
@@ -217,7 +218,51 @@ namespace RetroArr.Core.Download
         public async Task<bool> AddTorrentAsync(string url, string? category = null)
         {
             await EnsureAuthenticatedAsync();
+            var hash = await AddAsync(url);
+            if (!string.IsNullOrEmpty(category) && !string.IsNullOrEmpty(hash))
+            {
+                await SetLabelAsync(hash, category);
+            }
+            return true;
+        }
 
+        // Deluge ignores a "label" add option, labels come from the Label plugin and are set after the add.
+        // Failing to label never fails the add, it only keeps the torrent out of RetroArr's category.
+        private async Task SetLabelAsync(string hash, string category)
+        {
+            // The plugin stores labels lowercased and only accepts [a-z0-9_.-]
+            if (!Regex.IsMatch(category, @"^[A-Za-z0-9_.-]+\z"))
+            {
+                _logger.Warn($"[Deluge] Category '{category}' can't be used as a Deluge label (only letters, digits, '_', '.' and '-'). The torrent was added without a label and won't show up in RetroArr; change the category.");
+                return;
+            }
+            var label = category.ToLowerInvariant();
+            try
+            {
+                var plugins = await CallJsonRpcAsync<List<string>>("core.get_enabled_plugins", Array.Empty<object>());
+                if (plugins?.Contains("Label") != true)
+                {
+                    _logger.Warn($"[Deluge] The Label plugin is disabled, so category '{category}' can't be set and the torrent won't show up in RetroArr. Enable the Label plugin in Deluge or clear the category.");
+                    return;
+                }
+                var labels = await CallJsonRpcAsync<List<string>>("label.get_labels", Array.Empty<object>());
+                if (labels?.Contains(label) != true)
+                {
+                    // Can race with another add ("Label already exists"), set_torrent below fails if it's really missing
+                    try { await CallJsonRpcAsync<object>("label.add", new object[] { label }); }
+                    catch (Exception) { }
+                }
+                await CallJsonRpcAsync<object>("label.set_torrent", new object[] { hash, label });
+                _logger.Info($"[Deluge] Label '{label}' set on {hash}.");
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn($"[Deluge] Could not set label '{label}' on {hash}, the torrent won't show up in RetroArr: {ex.Message}");
+            }
+        }
+
+        private async Task<string?> AddAsync(string url)
+        {
             // Aggressive Cleanup
             var sb = new StringBuilder();
             foreach (char c in url)
@@ -232,10 +277,6 @@ namespace RetroArr.Core.Download
             _logger.Info($"[Deluge] Sanitized URL: '{url}'");
 
             var options = new Dictionary<string, object>();
-            if (!string.IsNullOrEmpty(category))
-            {
-                options["label"] = category;
-            }
             options["add_paused"] = false; 
 
             // 1. Explicit Magnet -> DIRECT
@@ -401,13 +442,13 @@ namespace RetroArr.Core.Download
             }
         }
 
-        private async Task<bool> AddMagnetAsync(string magnet, Dictionary<string, object> options)
+        private async Task<string?> AddMagnetAsync(string magnet, Dictionary<string, object> options)
         {
             _logger.Info($"[Deluge] Adding via Magnet.");
             return await ExecuteDelugeAddAsync("core.add_torrent_magnet", new object[] { magnet, options });
         }
 
-        private async Task<bool> AddFileAsync(string path, Dictionary<string, object> options)
+        private async Task<string?> AddFileAsync(string path, Dictionary<string, object> options)
         {
              _logger.Info($"[Deluge] Adding via Local File.");
              var bytes = await File.ReadAllBytesAsync(path);
@@ -416,7 +457,7 @@ namespace RetroArr.Core.Download
              return await ExecuteDelugeAddAsync("core.add_torrent_file", new object[] { name, base64, options });
         }
 
-        private async Task<bool> ExecuteDelugeAddAsync(string method, object[] parameters)
+        private async Task<string?> ExecuteDelugeAddAsync(string method, object[] parameters)
         {
              try 
             {
@@ -431,14 +472,14 @@ namespace RetroArr.Core.Download
                     _logger.Info($"[Deluge] torrent added. Hash: {result}");
                 }
                 
-                return true;
+                return result;
             }
             catch (Exception ex)
             {
                 if (ex.Message.Contains("Torrent already in session", StringComparison.OrdinalIgnoreCase))
                 {
                     _logger.Info("[Deluge] Torrent already exists in session. Treating as success.");
-                    return true;
+                    return null;
                 }
 
                 _logger.Error($"[Deluge] {method} failed: {ex.Message}");
@@ -511,7 +552,7 @@ namespace RetroArr.Core.Download
                     Name = d.Name,
                     Size = d.TotalSize,
                     Progress = d.Progress,
-                    State = MapState(d.State),
+                    State = MapState(d.State, d.Progress),
                     Category = d.Label,
                     // save_path is the folder shared by all torrents, the torrent itself lives below it
                     DownloadPath = string.IsNullOrEmpty(d.SavePath) ? d.SavePath : Path.Combine(d.SavePath, d.Name)
@@ -521,15 +562,18 @@ namespace RetroArr.Core.Download
             return list;
         }
 
-        private DownloadState MapState(string state)
+        private DownloadState MapState(string state, float progress)
         {
             return state.ToLowerInvariant() switch
             {
                 "downloading" => DownloadState.Downloading,
                 "seeding" => DownloadState.Completed,
+                // Deluge uses the same Paused/Queued states before and after the download finished
+                "paused" when progress >= 100 => DownloadState.Completed,
                 "paused" => DownloadState.Paused,
                 "checking" => DownloadState.Checking,
-                "queuing" => DownloadState.Queued,
+                "queued" when progress >= 100 => DownloadState.Completed,
+                "queued" => DownloadState.Queued,
                 "error" => DownloadState.Error,
                 "active" => DownloadState.Downloading,
                 "allocating" => DownloadState.Downloading,
