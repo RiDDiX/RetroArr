@@ -102,7 +102,8 @@ namespace RetroArr.Core.Download
             {
                 foreach (var cookie in cookies)
                 {
-                    if (cookie.StartsWith("SID=", StringComparison.Ordinal))
+                    // qBittorrent 5.2 names the session cookie QBT_SID_<WebUI port>, older versions SID
+                    if (cookie.StartsWith("SID=", StringComparison.Ordinal) || cookie.StartsWith("QBT_SID_", StringComparison.Ordinal))
                     {
                         _cookie = cookie.Split(';')[0];
                         _httpClient.DefaultRequestHeaders.Remove("Cookie");
@@ -215,7 +216,7 @@ namespace RetroArr.Core.Download
 
             foreach (var torrent in torrents)
             {
-                statusList.Add(new DownloadStatus
+                var status = new DownloadStatus
                 {
                     Id = torrent.Hash,
                     Name = torrent.Name,
@@ -228,10 +229,30 @@ namespace RetroArr.Core.Download
                         : (!string.IsNullOrEmpty(torrent.Save_Path) 
                             ? System.IO.Path.Combine(torrent.Save_Path, torrent.Name) 
                             : null)
-                });
+                };
+
+                // A multi-file torrent without a folder of its own ("Don't create subfolder" layout, or no root
+                // folder in the torrent) reports the save folder itself as its content path. That folder holds
+                // every other torrent saved there too, so it must never be handed to the importer.
+                if (!string.IsNullOrEmpty(torrent.Content_Path) &&
+                    (SamePath(torrent.Content_Path, torrent.Save_Path) || SamePath(torrent.Content_Path, torrent.Download_Path)))
+                {
+                    status.DownloadPath = null;
+                    status.StatusMessages.Add($"qBittorrent saved this torrent straight into '{torrent.Content_Path}' without a folder of its own, " +
+                        "so RetroArr can't tell its files from the rest of that folder and won't import it. " +
+                        "Set 'Torrent content layout' to 'Create subfolder' in qBittorrent's options and add the torrent again.");
+                }
+
+                statusList.Add(status);
             }
 
             return statusList;
+        }
+
+        private static bool SamePath(string path, string other)
+        {
+            return !string.IsNullOrEmpty(other) &&
+                path.Replace('\\', '/').TrimEnd('/').Equals(other.Replace('\\', '/').TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
         }
 
         private DownloadState MapState(string state)
@@ -240,18 +261,23 @@ namespace RetroArr.Core.Download
             {
                 "downloading" => DownloadState.Downloading,
                 "stalleddl" => DownloadState.Downloading,
+                "forceddl" => DownloadState.Downloading,
+                "metadl" => DownloadState.Downloading,
+                "forcedmetadl" => DownloadState.Downloading,
                 "pauseddl" => DownloadState.Paused,
                 "stoppeddl" => DownloadState.Paused,
                 "queueddl" => DownloadState.Queued,
                 "checkingdl" => DownloadState.Checking,
-                "checkingresumeData" => DownloadState.Checking,
+                "checkingresumedata" => DownloadState.Checking,
                 "uploading" => DownloadState.Completed,
                 "stalledup" => DownloadState.Completed,
+                "forcedup" => DownloadState.Completed,
                 "pausedup" => DownloadState.Completed, // Technically completed
                 "stoppedup" => DownloadState.Completed,
                 "queuedup" => DownloadState.Completed,
-                "checkingup" => DownloadState.Completed,
-                "moving" => DownloadState.Completed,
+                // The files are being rechecked or moved, importing now would read them half-way
+                "checkingup" => DownloadState.Checking,
+                "moving" => DownloadState.Checking,
                 "missingfiles" => DownloadState.Error,
                 "error" => DownloadState.Error,
                 _ => DownloadState.Unknown
@@ -347,5 +373,7 @@ namespace RetroArr.Core.Download
         public string Save_Path { get; set; } = string.Empty;
         [JsonPropertyName("content_path")]
         public string Content_Path { get; set; } = string.Empty;
+        [JsonPropertyName("download_path")]
+        public string Download_Path { get; set; } = string.Empty;
     }
 }

@@ -25,6 +25,8 @@ namespace RetroArr.Core.Test.Download
             public int CategoriesStatus { get; set; } = 200;
             public int InfoPostStatus { get; set; } = 200;
             public bool IgnoreCategory { get; set; }
+            public string LoginCookie { get; set; } = "SID=test; path=/";
+            public string? InfoJson { get; set; }
             public List<string> AcceptEncodings { get; } = new();
             public (string Hash, string Category)[] Torrents { get; set; } =
             {
@@ -75,7 +77,7 @@ namespace RetroArr.Core.Test.Download
                     var body = "Ok.";
                     if (path == "/api/v2/auth/login")
                     {
-                        ctx.Response.AddHeader("Set-Cookie", "SID=test; path=/");
+                        ctx.Response.AddHeader("Set-Cookie", LoginCookie);
                     }
                     else if (path == "/api/v2/torrents/categories")
                     {
@@ -85,6 +87,10 @@ namespace RetroArr.Core.Test.Download
                     else if (path == "/api/v2/torrents/info" && ctx.Request.HttpMethod == "POST" && InfoPostStatus != 200)
                     {
                         ctx.Response.StatusCode = InfoPostStatus;
+                    }
+                    else if (path == "/api/v2/torrents/info" && InfoJson != null)
+                    {
+                        body = InfoJson;
                     }
                     else if (path == "/api/v2/torrents/info")
                     {
@@ -221,6 +227,68 @@ namespace RetroArr.Core.Test.Download
             await Ids(new QBittorrentClient("127.0.0.1", qb.Port, "u", "p"));
 
             Assert.That(qb.AcceptEncodings, Has.All.Contains("gzip"));
+        }
+
+        private static async Task<DownloadStatus> Single(string torrentJson)
+        {
+            using var qb = new FakeQBittorrent { InfoJson = "[" + torrentJson + "]" };
+            var downloads = await new QBittorrentClient("127.0.0.1", qb.Port, "u", "p").GetDownloadsAsync();
+            Assert.That(downloads, Has.Count.EqualTo(1));
+            return downloads[0];
+        }
+
+        [TestCase("forcedUP", DownloadState.Completed)]
+        [TestCase("stalledUP", DownloadState.Completed)]
+        [TestCase("stoppedUP", DownloadState.Completed)]
+        [TestCase("pausedUP", DownloadState.Completed)]
+        [TestCase("forcedDL", DownloadState.Downloading)]
+        [TestCase("metaDL", DownloadState.Downloading)]
+        [TestCase("forcedMetaDL", DownloadState.Downloading)]
+        [TestCase("checkingResumeData", DownloadState.Checking)]
+        [TestCase("checkingUP", DownloadState.Checking)]
+        [TestCase("moving", DownloadState.Checking)]
+        [TestCase("checkingDL", DownloadState.Checking)]
+        public async Task State_IsMapped(string state, DownloadState expected)
+        {
+            var d = await Single($"{{\"hash\":\"aaa\",\"name\":\"Game\",\"state\":\"{state}\"}}");
+
+            Assert.That(d.State, Is.EqualTo(expected));
+        }
+
+        [TestCase("/downloads/retro", "/downloads/retro", "")]
+        [TestCase("/downloads/retro", "/downloads/retro/", "")]
+        [TestCase("D:\\\\Downloads\\\\Retro", "D:/downloads/retro/", "")]
+        [TestCase("/downloads/incomplete", "/downloads/retro", "/downloads/incomplete/")]
+        public async Task ContentPathIsTheSaveFolder_IsNotHandedToTheImporter(string contentPath, string savePath, string downloadPath)
+        {
+            var d = await Single($"{{\"hash\":\"aaa\",\"name\":\"Game\",\"state\":\"stalledUP\",\"content_path\":\"{contentPath}\",\"save_path\":\"{savePath}\",\"download_path\":\"{downloadPath}\"}}");
+
+            Assert.That(d.DownloadPath, Is.Null);
+            Assert.That(d.StatusMessages, Has.One.Contains("Create subfolder"));
+        }
+
+        [TestCase("/downloads/retro/Game (USA).iso")]
+        [TestCase("/downloads/retro/Game")]
+        public async Task ContentPathInsideTheSaveFolder_IsTheDownloadPath(string contentPath)
+        {
+            var d = await Single($"{{\"hash\":\"aaa\",\"name\":\"Game\",\"state\":\"stalledUP\",\"content_path\":\"{contentPath}\",\"save_path\":\"/downloads/retro/\",\"download_path\":\"\"}}");
+
+            Assert.That(d.DownloadPath, Is.EqualTo(contentPath));
+            Assert.That(d.StatusMessages, Is.Empty);
+        }
+
+        [TestCase("QBT_SID_8080=abc; HttpOnly; path=/")]
+        [TestCase("SID=abc; HttpOnly; path=/")]
+        public async Task LogsInOncePerClient(string cookie)
+        {
+            using var qb = new FakeQBittorrent { LoginCookie = cookie };
+            var client = new QBittorrentClient("127.0.0.1", qb.Port, "u", "p");
+
+            await client.GetDownloadsAsync();
+            await client.GetVersionAsync();
+            await client.PauseDownloadAsync("aaa");
+
+            Assert.That(qb.Requests.Count(r => r.StartsWith("POST /api/v2/auth/login", StringComparison.Ordinal)), Is.EqualTo(1));
         }
 
         [Test]
