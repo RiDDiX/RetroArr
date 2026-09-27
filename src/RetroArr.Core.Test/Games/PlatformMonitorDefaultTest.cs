@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
@@ -68,6 +69,18 @@ namespace RetroArr.Core.Test.Games
             PlatformService.SetMonitorNewItemsDefault(pid, false);
             Assert.That(PlatformService.GetMonitorNewItemsDefault(pid, true), Is.False,
                 "stored false wins over a true fallback");
+        }
+
+        [Test]
+        [Platform(Exclude = "Win")]
+        public void MonitorDefault_PersistsUnderTempConfig_NotTheRealOne()
+        {
+            PlatformService.SetMonitorNewItemsDefault(999092, true);
+
+            // TestConfigIsolation points ApplicationData at a temp dir for the whole run.
+            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            Assert.That(appData, Does.StartWith(Path.GetTempPath()));
+            Assert.That(File.Exists(Path.Combine(appData, "RetroArr", "config", "platform_monitoring.json")), Is.True);
         }
 
         private sealed class TestDbContextFactory : IDbContextFactory<RetroArrDbContext>

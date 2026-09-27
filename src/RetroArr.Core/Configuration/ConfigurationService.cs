@@ -1,6 +1,7 @@
 using System;
 using System.Text.Json;
 using System.IO;
+using System.Linq;
 using RetroArr.Core.Prowlarr;
 using RetroArr.Core.Jackett;
 using RetroArr.Core.MetadataSource.Igdb;
@@ -394,7 +395,12 @@ namespace RetroArr.Core.Configuration
                 try
                 {
                     var json = File.ReadAllText(_postDownloadConfigFile);
-                    return JsonSerializer.Deserialize<PostDownloadSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new PostDownloadSettings();
+                    var settings = JsonSerializer.Deserialize<PostDownloadSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new PostDownloadSettings();
+                    // Older saves put the defaults in front of the user's list again on every save.
+                    // A blank entry would match every file without an extension in DeepClean.
+                    settings.UnwantedExtensions = (settings.UnwantedExtensions ?? new List<string>())
+                        .Where(e => !string.IsNullOrWhiteSpace(e)).Distinct().ToList();
+                    return settings;
                 }
                 catch { }
             }
@@ -897,6 +903,8 @@ namespace RetroArr.Core.Configuration
         public bool EnableAutoExtract { get; set; } = true;
         public bool EnableDeepClean { get; set; } = true;
         public int MonitorIntervalSeconds { get; set; } = 60;
+        // The API binds with Newtonsoft, which would otherwise append the posted list to these defaults.
+        [Newtonsoft.Json.JsonProperty(ObjectCreationHandling = Newtonsoft.Json.ObjectCreationHandling.Replace)]
         public List<string> UnwantedExtensions { get; set; } = new List<string> { ".txt", ".nfo", ".url" };
     }
 

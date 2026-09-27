@@ -108,7 +108,7 @@ namespace RetroArr.Core.Games
             new Platform { Id = 53, Name = "Nintendo DS", Slug = "nds", FolderName = "nds", Type = PlatformType.NintendoDS, Category = "Nintendo", IgdbPlatformId = 20, ScreenScraperSystemId = 15, Enabled = true },
             new Platform { Id = 54, Name = "Nintendo 3DS", Slug = "3ds", FolderName = "3ds", Type = PlatformType.Nintendo3DS, Category = "Nintendo", IgdbPlatformId = 37, ScreenScraperSystemId = 17, Enabled = true },
             new Platform { Id = 55, Name = "Virtual Boy", Slug = "virtualboy", FolderName = "virtualboy", Type = PlatformType.VirtualBoy, Category = "Nintendo", IgdbPlatformId = 87, ScreenScraperSystemId = 11, Enabled = false },
-            new Platform { Id = 56, Name = "Pokémon Mini", Slug = "pokemini", FolderName = "pokemini", Type = PlatformType.PokemonMini, Category = "Nintendo", IgdbPlatformId = 152, ScreenScraperSystemId = 211, Enabled = false },
+            new Platform { Id = 56, Name = "Pokémon Mini", Slug = "pokemini", FolderName = "pokemini", Type = PlatformType.PokemonMini, Category = "Nintendo", IgdbPlatformId = 166, ScreenScraperSystemId = 211, Enabled = false },
             new Platform { Id = 127, Name = "Super Game Boy", Slug = "sgb", FolderName = "sgb", Type = PlatformType.SuperGameBoy, Category = "Nintendo", IgdbPlatformId = 33, ParentPlatformId = 50, Enabled = false, FolderAliases = new[] { "sgb-msu1" } },
 
             // ========== Sega ==========
@@ -121,8 +121,8 @@ namespace RetroArr.Core.Games
             new Platform { Id = 66, Name = "Sega Saturn", Slug = "saturn", FolderName = "saturn", Type = PlatformType.Saturn, Category = "Sega", IgdbPlatformId = 32, ScreenScraperSystemId = 22, Enabled = true },
             new Platform { Id = 67, Name = "Dreamcast", Slug = "dreamcast", FolderName = "dreamcast", Type = PlatformType.Dreamcast, Category = "Sega", IgdbPlatformId = 23, ScreenScraperSystemId = 23, Enabled = true },
             new Platform { Id = 68, Name = "Naomi", Slug = "naomi", FolderName = "naomi", Type = PlatformType.Naomi, Category = "Sega", IgdbPlatformId = 52, ScreenScraperSystemId = 75, Enabled = false },
-            new Platform { Id = 69, Name = "Naomi 2", Slug = "naomi2", FolderName = "naomi2", Type = PlatformType.Naomi2, Category = "Sega", IgdbPlatformId = 122, Enabled = false },
-            new Platform { Id = 70, Name = "Atomiswave", Slug = "atomiswave", FolderName = "atomiswave", Type = PlatformType.Atomiswave, Category = "Sega", IgdbPlatformId = 123, ScreenScraperSystemId = 75, Enabled = false },
+            new Platform { Id = 69, Name = "Naomi 2", Slug = "naomi2", FolderName = "naomi2", Type = PlatformType.Naomi2, Category = "Sega", IgdbPlatformId = null, Enabled = false },
+            new Platform { Id = 70, Name = "Atomiswave", Slug = "atomiswave", FolderName = "atomiswave", Type = PlatformType.Atomiswave, Category = "Sega", IgdbPlatformId = null, ScreenScraperSystemId = 75, Enabled = false },
             new Platform { Id = 71, Name = "Sega ST-V", Slug = "segastv", FolderName = "segastv", Type = PlatformType.SegaSTV, Category = "Sega", IgdbPlatformId = null, Enabled = false },
             new Platform { Id = 72, Name = "Sega Chihiro", Slug = "chihiro", FolderName = "chihiro", Type = PlatformType.SegaChihiro, Category = "Sega", IgdbPlatformId = null, Enabled = false },
             new Platform { Id = 73, Name = "Sega Model 2", Slug = "model2", FolderName = "model2", Type = PlatformType.SegaModel2, Category = "Sega", IgdbPlatformId = null, Enabled = false },
@@ -135,7 +135,7 @@ namespace RetroArr.Core.Games
             new Platform { Id = 81, Name = "Atari 5200", Slug = "atari5200", FolderName = "atari5200", Type = PlatformType.Atari5200, Category = "Atari", IgdbPlatformId = 66, ScreenScraperSystemId = 40, Enabled = false },
             new Platform { Id = 82, Name = "Atari 7800", Slug = "atari7800", FolderName = "atari7800", Type = PlatformType.Atari7800, Category = "Atari", IgdbPlatformId = 60, ScreenScraperSystemId = 41, Enabled = false },
             new Platform { Id = 83, Name = "Atari Jaguar", Slug = "jaguar", FolderName = "jaguar", Type = PlatformType.Jaguar, Category = "Atari", IgdbPlatformId = 62, ScreenScraperSystemId = 27, Enabled = false },
-            new Platform { Id = 84, Name = "Atari Jaguar CD", Slug = "jaguarcd", FolderName = "jaguarcd", Type = PlatformType.JaguarCD, Category = "Atari", IgdbPlatformId = 171, ScreenScraperSystemId = 171, Enabled = false },
+            new Platform { Id = 84, Name = "Atari Jaguar CD", Slug = "jaguarcd", FolderName = "jaguarcd", Type = PlatformType.JaguarCD, Category = "Atari", IgdbPlatformId = 410, ScreenScraperSystemId = 171, Enabled = false },
             new Platform { Id = 85, Name = "Atari Lynx", Slug = "lynx", FolderName = "lynx", Type = PlatformType.Lynx, Category = "Atari", IgdbPlatformId = 61, ScreenScraperSystemId = 28, Enabled = false },
             new Platform { Id = 86, Name = "Atari ST", Slug = "atarist", FolderName = "atarist", Type = PlatformType.AtariST, Category = "Atari", IgdbPlatformId = 63, ScreenScraperSystemId = 42, Enabled = false },
             new Platform { Id = 87, Name = "Atari 800", Slug = "atari800", FolderName = "atari800", Type = PlatformType.Atari800, Category = "Atari", IgdbPlatformId = 65, ScreenScraperSystemId = 43, Enabled = false },
@@ -193,11 +193,11 @@ namespace RetroArr.Core.Games
 
             // ========== Handhelds & Others ==========
             new Platform { Id = 110, Name = "WonderSwan", Slug = "wonderswan", FolderName = "wonderswan", Type = PlatformType.WonderSwan, Category = "Handhelds", IgdbPlatformId = 57, ScreenScraperSystemId = 45, Enabled = false, RetroBatFolderName = "wswan", BatoceraFolderName = "wswan" },
-            new Platform { Id = 111, Name = "WonderSwan Color", Slug = "wonderswancolor", FolderName = "wonderswancolor", Type = PlatformType.WonderSwanColor, Category = "Handhelds", IgdbPlatformId = 57, ScreenScraperSystemId = 46, Enabled = false, RetroBatFolderName = "wswanc", BatoceraFolderName = "wswanc" },
+            new Platform { Id = 111, Name = "WonderSwan Color", Slug = "wonderswancolor", FolderName = "wonderswancolor", Type = PlatformType.WonderSwanColor, Category = "Handhelds", IgdbPlatformId = 123, ScreenScraperSystemId = 46, Enabled = false, RetroBatFolderName = "wswanc", BatoceraFolderName = "wswanc" },
             new Platform { Id = 112, Name = "Neo Geo Pocket", Slug = "ngp", FolderName = "ngp", Type = PlatformType.NeoGeoPocket, Category = "Handhelds", IgdbPlatformId = 119, ScreenScraperSystemId = 25, Enabled = false },
             new Platform { Id = 113, Name = "Neo Geo Pocket Color", Slug = "ngpc", FolderName = "ngpc", Type = PlatformType.NeoGeoPocketColor, Category = "Handhelds", IgdbPlatformId = 120, ScreenScraperSystemId = 82, Enabled = false },
-            new Platform { Id = 114, Name = "Watara Supervision", Slug = "supervision", FolderName = "supervision", Type = PlatformType.WataraSupervision, Category = "Handhelds", IgdbPlatformId = 95, Enabled = false },
-            new Platform { Id = 115, Name = "Nokia N-Gage", Slug = "ngage", FolderName = "ngage", Type = PlatformType.NokiaNGage, Category = "Handhelds", IgdbPlatformId = 161, Enabled = false },
+            new Platform { Id = 114, Name = "Watara Supervision", Slug = "supervision", FolderName = "supervision", Type = PlatformType.WataraSupervision, Category = "Handhelds", IgdbPlatformId = 415, Enabled = false },
+            new Platform { Id = 115, Name = "Nokia N-Gage", Slug = "ngage", FolderName = "ngage", Type = PlatformType.NokiaNGage, Category = "Handhelds", IgdbPlatformId = 42, Enabled = false },
             new Platform { Id = 116, Name = "Arduboy", Slug = "arduboy", FolderName = "arduboy", Type = PlatformType.Arduboy, Category = "Handhelds", IgdbPlatformId = null, Enabled = false },
             new Platform { Id = 117, Name = "Gamate", Slug = "gamate", FolderName = "gamate", Type = PlatformType.Gamate, Category = "Handhelds", IgdbPlatformId = null, Enabled = false },
             new Platform { Id = 118, Name = "Game & Watch", Slug = "gameandwatch", FolderName = "gameandwatch", Type = PlatformType.GameAndWatch, Category = "Handhelds", IgdbPlatformId = null, ScreenScraperSystemId = 52, Enabled = false },
@@ -226,7 +226,7 @@ namespace RetroArr.Core.Games
             new Platform { Id = 177, Name = "TI-99/4A", Slug = "ti99", FolderName = "ti99", Type = PlatformType.TI99, Category = "Computer", IgdbPlatformId = 129, ScreenScraperSystemId = 205, Enabled = false },
             new Platform { Id = 178, Name = "Tomy Tutor", Slug = "tutor", FolderName = "tutor", Type = PlatformType.TomyTutor, Category = "Computer", IgdbPlatformId = null, Enabled = false },
             new Platform { Id = 179, Name = "SAM Coupé", Slug = "samcoupe", FolderName = "samcoupe", Type = PlatformType.SamCoupe, Category = "Computer", IgdbPlatformId = null, Enabled = false },
-            new Platform { Id = 180, Name = "Oric / Atmos", Slug = "oricatmos", FolderName = "oricatmos", Type = PlatformType.OricAtmos, Category = "Computer", IgdbPlatformId = 131, ScreenScraperSystemId = 131, Enabled = false },
+            new Platform { Id = 180, Name = "Oric / Atmos", Slug = "oricatmos", FolderName = "oricatmos", Type = PlatformType.OricAtmos, Category = "Computer", IgdbPlatformId = null, ScreenScraperSystemId = 131, Enabled = false },
             new Platform { Id = 181, Name = "Philips P2000T", Slug = "p2000t", FolderName = "p2000t", Type = PlatformType.PhilipsP2000T, Category = "Computer", IgdbPlatformId = null, Enabled = false },
             new Platform { Id = 182, Name = "Philips VG5000", Slug = "vg5k", FolderName = "vg5k", Type = PlatformType.PhilipsVG5000, Category = "Computer", IgdbPlatformId = null, Enabled = false },
             new Platform { Id = 183, Name = "Aamber Pegasus", Slug = "pegasus", FolderName = "pegasus", Type = PlatformType.Pegasus, Category = "Computer", IgdbPlatformId = null, Enabled = false },
@@ -235,7 +235,7 @@ namespace RetroArr.Core.Games
             new Platform { Id = 186, Name = "FM-7", Slug = "fm7", FolderName = "fm7", Type = PlatformType.FM7, Category = "Computer", IgdbPlatformId = null, Enabled = false },
             new Platform { Id = 187, Name = "NEC PC-8800", Slug = "pc88", FolderName = "pc88", Type = PlatformType.NECPC88, Category = "Computer", IgdbPlatformId = null, Enabled = false },
             new Platform { Id = 188, Name = "NEC PC-9800", Slug = "pc98", FolderName = "pc98", Type = PlatformType.NECPC98, Category = "Computer", IgdbPlatformId = null, ScreenScraperSystemId = 208, Enabled = false },
-            new Platform { Id = 189, Name = "TRS-80 Color Computer", Slug = "coco", FolderName = "coco", Type = PlatformType.TRS80CoCo, Category = "Computer", IgdbPlatformId = 144, ScreenScraperSystemId = 144, Enabled = false },
+            new Platform { Id = 189, Name = "TRS-80 Color Computer", Slug = "coco", FolderName = "coco", Type = PlatformType.TRS80CoCo, Category = "Computer", IgdbPlatformId = 151, ScreenScraperSystemId = 144, Enabled = false },
 
             // ========== Special / Modern ==========
             new Platform { Id = 120, Name = "ScummVM", Slug = "scummvm", FolderName = "scummvm", Type = PlatformType.ScummVM, Category = "Special", IgdbPlatformId = null, ScreenScraperSystemId = 123, Enabled = true },
