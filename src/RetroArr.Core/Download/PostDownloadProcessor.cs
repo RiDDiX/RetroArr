@@ -176,9 +176,8 @@ namespace RetroArr.Core.Download
             // A torrent's own files have to stay as they are, so extract beside them and only add what's new
             var staging = extracted != null ? Path.Combine(path, ExtractStagingPrefix + Guid.NewGuid().ToString("N")) : null;
             var failed = new List<string>();
-            var archives = Directory.EnumerateFiles(path, "*.*", SearchOption.AllDirectories)
-                .Where(f => _archiveService.IsArchive(f))
-                .ToList();
+            var files = Directory.EnumerateFiles(path, "*.*", SearchOption.AllDirectories).ToList();
+            var archives = files.Where(f => _archiveService.IsArchive(f)).ToList();
 
             const int maxAttempts = 3;
 
@@ -193,8 +192,13 @@ namespace RetroArr.Core.Download
                     try
                     {
                         if (staging != null && Directory.Exists(staging)) Directory.Delete(staging, true);
-                        if (_archiveService.Extract(archivePath, target))
+                        var read = new List<string>();
+                        if (_archiveService.Extract(archivePath, target, read))
                         {
+                            // Only files the extractor really read on into, and only ones the download shipped.
+                            // Something merely named like a later volume stays and is imported as it is.
+                            var spanned = read.Select(Path.GetFullPath).ToHashSet();
+                            var volumes = files.Where(f => f != archivePath && spanned.Contains(Path.GetFullPath(f))).ToList();
                             if (keep != null && staging != null && extracted != null)
                             {
                                 var clashes = MergeExtracted(staging, path, extracted);
@@ -202,6 +206,7 @@ namespace RetroArr.Core.Download
                                 {
                                     _logger.Info($"[PostDownload] Extraction successful on attempt {attempt}. Keeping seeded archive: {archivePath}");
                                     keep.Add(archivePath);
+                                    keep.UnionWith(volumes);
                                 }
                                 else
                                 {
@@ -211,7 +216,10 @@ namespace RetroArr.Core.Download
                             else
                             {
                                 _logger.Info($"[PostDownload] Extraction successful on attempt {attempt}. Deleting archive: {archivePath}");
-                                try { File.Delete(archivePath); } catch { }
+                                foreach (var volume in volumes.Prepend(archivePath))
+                                {
+                                    try { File.Delete(volume); } catch { }
+                                }
                             }
                             success = true;
                         }
@@ -249,26 +257,14 @@ namespace RetroArr.Core.Download
             return failed;
         }
 
-        private bool IsMultiPartNotFirst(string path)
-        {
-            var fileName = Path.GetFileName(path).ToLower();
-            
-            // Standard RAR parts: .part01.rar, .part1.rar
-            if (fileName.Contains(".part"))
-            {
-                return !fileName.Contains(".part01.") && 
-                       !fileName.Contains(".part1.") && 
-                       !fileName.EndsWith(".part01.rar") && 
-                       !fileName.EndsWith(".part1.rar");
-            }
-            
-            // Numerical parts: .001, .002
-            if (System.Text.RegularExpressions.Regex.IsMatch(fileName, @"\.\d{3}$"))
-            {
-                return !fileName.EndsWith(".001");
-            }
+        // name.part2.rar and later (any padding) are read through name.part1.rar, not on their own.
+        // Old style .r00/.s00 and split .001 volumes aren't archive extensions, so they never get here.
+        private static readonly Regex _rarPart = new(@"^.+\.part(\d+)\.rar$", RegexOptions.IgnoreCase);
 
-            return false;
+        private static bool IsMultiPartNotFirst(string path)
+        {
+            var m = _rarPart.Match(Path.GetFileName(path));
+            return m.Success && m.Groups[1].Value.TrimStart('0') != "1";
         }
 
         private void DeepClean(string path, List<string> unwantedExtensions, HashSet<string>? keep)

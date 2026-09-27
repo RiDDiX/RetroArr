@@ -142,13 +142,13 @@ namespace RetroArr.Core.Test.Download
             Assert.That(Directory.GetFiles(library, "*", SearchOption.AllDirectories).Select(Path.GetFileName), Does.Contain("game.zip"));
         }
 
-        private async Task<(PostDownloadProcessor Processor, string Library, string Source)> TorrentSetup(PostDownloadSettings settings, IFileMoverService? mover = null)
+        private async Task<(PostDownloadProcessor Processor, string Library, string Source)> TorrentSetup(PostDownloadSettings settings, IFileMoverService? mover = null, string implementation = "Transmission")
         {
             var config = new ConfigurationService(_root);
             var library = Directory.CreateDirectory(Path.Combine(_root, "library", "Test Game")).FullName;
             config.SaveMediaSettings(new MediaSettings { FolderPath = Path.Combine(_root, "library") });
             config.SavePostDownloadSettings(settings);
-            config.SaveDownloadClients(new List<DownloadClient> { new DownloadClient { Id = 1, Name = "client", Implementation = "Transmission" } });
+            config.SaveDownloadClients(new List<DownloadClient> { new DownloadClient { Id = 1, Name = "client", Implementation = implementation } });
             var source = Directory.CreateDirectory(Path.Combine(_root, "downloads", "Test.Game-GRP")).FullName;
 
             var dbOptions = new DbContextOptionsBuilder<RetroArrDbContext>()
@@ -417,6 +417,234 @@ namespace RetroArr.Core.Test.Download
 
             Assert.That(File.Exists(Path.Combine(library, "disc1.iso")), Is.True);
             Assert.That(File.Exists(Path.Combine(source, "disc2.iso")), Is.True, "the only copy of disc2 was deleted");
+        }
+
+        // No rar tool ships with the tests, so this writes stored (uncompressed) RAR 4 volumes by hand; unrar t accepts them
+        private static void RarVolumes(string entry, string content, params string[] volumes)
+        {
+            var data = System.Text.Encoding.ASCII.GetBytes(content);
+            var name = System.Text.Encoding.ASCII.GetBytes(entry);
+            var chunk = (data.Length + volumes.Length - 1) / volumes.Length;
+            for (var i = 0; i < volumes.Length; i++)
+            {
+                var part = data.Skip(i * chunk).Take(chunk).ToArray();
+                var last = i == volumes.Length - 1;
+                using var w = new BinaryWriter(File.Create(volumes[i]));
+                w.Write(new byte[] { 0x52, 0x61, 0x72, 0x21, 0x1A, 0x07, 0x00 });
+                // volume, first volume, name.partN.rar numbering
+                RarBlock(w, 0x73, (ushort)(0x0001 | (i == 0 ? 0x0100 : 0) | (volumes[0].Contains(".part") ? 0x0010 : 0)), new byte[6]);
+                using var header = new MemoryStream();
+                using (var h = new BinaryWriter(header))
+                {
+                    h.Write((uint)part.Length);
+                    h.Write((uint)data.Length);
+                    h.Write((byte)2); // Windows
+                    h.Write(Crc32(last ? data : part));
+                    h.Write(0x50210000u); // 2020-01-01
+                    h.Write((byte)29);
+                    h.Write((byte)0x30); // stored
+                    h.Write((ushort)name.Length);
+                    h.Write(0x20u);
+                    h.Write(name);
+                }
+                // continued from the previous volume / continues in the next one
+                RarBlock(w, 0x74, (ushort)(0x8000 | (i > 0 ? 0x01 : 0) | (last ? 0 : 0x02)), header.ToArray());
+                w.Write(part);
+                RarBlock(w, 0x7B, (ushort)(last ? 0 : 0x0001), Array.Empty<byte>());
+            }
+        }
+
+        private static void RarBlock(BinaryWriter w, byte type, ushort flags, byte[] body)
+        {
+            var head = new byte[5 + body.Length];
+            head[0] = type;
+            BitConverter.GetBytes(flags).CopyTo(head, 1);
+            BitConverter.GetBytes((ushort)(head.Length + 2)).CopyTo(head, 3);
+            body.CopyTo(head, 5);
+            w.Write((ushort)Crc32(head));
+            w.Write(head);
+        }
+
+        private static uint Crc32(byte[] bytes)
+        {
+            var crc = 0xFFFFFFFFu;
+            foreach (var b in bytes)
+            {
+                crc ^= b;
+                for (var k = 0; k < 8; k++) crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1)));
+            }
+            return ~crc;
+        }
+
+        private static readonly string[][] VolumeSets =
+        {
+            new[] { "game.part1.rar", "game.part2.rar", "game.part3.rar" },
+            new[] { "game.part01.rar", "game.part02.rar", "game.part03.rar" },
+            new[] { "game.part001.rar", "game.part002.rar", "game.part003.rar" },
+            new[] { "game.rar", "game.r00", "game.r01" },
+        };
+
+        [Test]
+        public async Task UsenetVolumeSet_IsDeleted_OnceExtracted([ValueSource(nameof(VolumeSets))] string[] volumes)
+        {
+            var (processor, library, source) = await TorrentSetup(new PostDownloadSettings { EnableAutoMove = true, EnableAutoExtract = true }, implementation: "SABnzbd");
+            RarVolumes("game.iso", "a game image spread over three volumes", volumes.Select(v => Path.Combine(source, v)).ToArray());
+            // an N64 dump, not a volume
+            File.WriteAllText(Path.Combine(source, "game.v64"), "rom");
+
+            var result = await processor.ProcessCompletedDownloadAsync(Torrent(source));
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            var imported = Directory.GetFiles(library, "*", SearchOption.AllDirectories).Select(Path.GetFileName).ToArray();
+            Assert.That(imported, Is.EquivalentTo(new[] { "game.iso", "game.v64" }));
+            Assert.That(File.ReadAllText(Path.Combine(library, "game.iso")), Is.EqualTo("a game image spread over three volumes"));
+        }
+
+        [Test]
+        public async Task TorrentVolumeSet_IsKept_AndNotImported([ValueSource(nameof(VolumeSets))] string[] volumes)
+        {
+            var (processor, library, source) = await TorrentSetup(new PostDownloadSettings { EnableAutoMove = true, EnableAutoExtract = true });
+            RarVolumes("game.iso", "a game image spread over three volumes", volumes.Select(v => Path.Combine(source, v)).ToArray());
+
+            var result = await processor.ProcessCompletedDownloadAsync(Torrent(source));
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            var imported = Directory.GetFiles(library, "*", SearchOption.AllDirectories).Select(Path.GetFileName).ToArray();
+            Assert.That(imported, Is.EqualTo(new[] { "Test Game.iso" }));
+            Assert.That(Directory.GetFileSystemEntries(source).Select(Path.GetFileName), Is.EquivalentTo(volumes));
+        }
+
+        [Test]
+        public async Task UsenetVolumeSet_MissingAVolume_DeletesNothing()
+        {
+            var (processor, _, source) = await TorrentSetup(new PostDownloadSettings { EnableAutoMove = false, EnableAutoExtract = true }, implementation: "SABnzbd");
+            RarVolumes("game.iso", "a game image spread over three volumes", Path.Combine(source, "game.part1.rar"), Path.Combine(source, "game.part2.rar"), Path.Combine(source, "game.part3.rar"));
+            File.Delete(Path.Combine(source, "game.part2.rar"));
+
+            var result = await processor.ProcessCompletedDownloadAsync(Torrent(source));
+
+            Assert.That(result.Reason, Does.Contain("Extraction failed"));
+            Assert.That(Directory.GetFiles(source).Select(Path.GetFileName), Is.SupersetOf(new[] { "game.part1.rar", "game.part3.rar" }));
+        }
+
+        [TestCase("SABnzbd")]
+        [TestCase("Transmission")]
+        public async Task ArchiveNamedWithPart_IsNotMistakenForALaterVolume(string implementation)
+        {
+            var (processor, library, _) = await TorrentSetup(new PostDownloadSettings { EnableAutoMove = true, EnableAutoExtract = true }, implementation: implementation);
+            var source = Directory.CreateDirectory(Path.Combine(_root, "downloads", "Mario.Party.NSW-GRP")).FullName;
+            Zip(Path.Combine(source, "Mario.Party.zip"), ("mario.nsp", "nsp"));
+
+            var result = await processor.ProcessCompletedDownloadAsync(Torrent(source));
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            var imported = Directory.GetFiles(library, "*", SearchOption.AllDirectories).Select(Path.GetFileName).ToArray();
+            Assert.That(imported, Is.EqualTo(new[] { "Test Game.nsp" }));
+        }
+
+        // Real RAR 5 archives from rar 7.23: "rar a -m0 -tl discN.rar discN.iso" and "rar a -m0 -v1k game.rar game.iso"
+        private static readonly byte[] Disc1Rar = Convert.FromBase64String(
+            "UmFyIRoHAQAzkrXlCgEFBgAFAQGAgABwtaGBJwIDC4MABIMApIMC8YZseoAAAQlkaXNjMS5pc28KAxP1SrlqGTY6Mm9uZR13VlEDBQQA");
+        private static readonly byte[] Disc2Rar = Convert.FromBase64String(
+            "UmFyIRoHAQAzkrXlCgEFBgAFAQGAgACIRSk+JwIDC4MABIMApIMCZorKEYAAAQlkaXNjMi5pc28KAxP1SrlqGTY6MnR3bx13VlEDBQQA");
+        private static readonly string GameIso = string.Concat(Enumerable.Repeat("a game image spread over two volumes. ", 30));
+        private static readonly byte[][] GameRarVolumes =
+        {
+            Convert.FromBase64String(
+                "UmFyIRoHAQBt4SgnCwEFBwEGAQGAgIAAtPHzFiYCEwvlBgT0CKSDAgTB876AAAEIZ2FtZS5pc28KAxP1SrlqSUq0MmEgZ2Ft" +
+                "ZSBpbWFnZSBzcHJlYWQgb3ZlciB0d28gdm9sdW1lcy4gYSBnYW1lIGltYWdlIHNwcmVhZCBvdmVyIHR3byB2b2x1bWVzLiBh" +
+                "IGdhbWUgaW1hZ2Ugc3ByZWFkIG92ZXIgdHdvIHZvbHVtZXMuIGEgZ2FtZSBpbWFnZSBzcHJlYWQgb3ZlciB0d28gdm9sdW1l" +
+                "cy4gYSBnYW1lIGltYWdlIHNwcmVhZCBvdmVyIHR3byB2b2x1bWVzLiBhIGdhbWUgaW1hZ2Ugc3ByZWFkIG92ZXIgdHdvIHZv" +
+                "bHVtZXMuIGEgZ2FtZSBpbWFnZSBzcHJlYWQgb3ZlciB0d28gdm9sdW1lcy4gYSBnYW1lIGltYWdlIHNwcmVhZCBvdmVyIHR3" +
+                "byB2b2x1bWVzLiBhIGdhbWUgaW1hZ2Ugc3ByZWFkIG92ZXIgdHdvIHZvbHVtZXMuIGEgZ2FtZSBpbWFnZSBzcHJlYWQgb3Zl" +
+                "ciB0d28gdm9sdW1lcy4gYSBnYW1lIGltYWdlIHNwcmVhZCBvdmVyIHR3byB2b2x1bWVzLiBhIGdhbWUgaW1hZ2Ugc3ByZWFk" +
+                "IG92ZXIgdHdvIHZvbHVtZXMuIGEgZ2FtZSBpbWFnZSBzcHJlYWQgb3ZlciB0d28gdm9sdW1lcy4gYSBnYW1lIGltYWdlIHNw" +
+                "cmVhZCBvdmVyIHR3byB2b2x1bWVzLiBhIGdhbWUgaW1hZ2Ugc3ByZWFkIG92ZXIgdHdvIHZvbHVtZXMuIGEgZ2FtZSBpbWFn" +
+                "ZSBzcHJlYWQgb3ZlciB0d28gdm9sdW1lcy4gYSBnYW1lIGltYWdlIHNwcmVhZCBvdmVyIHR3byB2b2x1bWVzLiBhIGdhbWUg" +
+                "aW1hZ2Ugc3ByZWFkIG92ZXIgdHdvIHZvbHVtZXMuIGEgZ2FtZSBpbWFnZSBzcHJlYWQgb3ZlciB0d28gdm9sdW1lcy4gYSBn" +
+                "YW1lIGltYWdlIHNwcmVhZCBvdmVyIHR3byB2b2x1bWVzLiBhIGdhbWUgaW1hZ2Ugc3ByZWFkIG92ZXIgdHdvIHZvbHVtZXMu" +
+                "IGEgZ2FtZSBpbWFnZSBzcHJlYWQgb3ZlciB0d28gdm9sdW1lcy4gYSBnYW1lIGltYWdlIHNwcmVhZCBvdmVyIHR3byB2b2x1" +
+                "i0dRJgMFBAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
+                "AAAAAAAAAAAAAAAAAAAAAA=="),
+            Convert.FromBase64String(
+                "UmFyIRoHAQCpwsTKDAEFBwMBBgEBgICAAE03ZQkmAgsLjwIE9AikgwKIJm1xgAABCGdhbWUuaXNvCgMT9Uq5aklKtDJtZXMu" +
+                "IGEgZ2FtZSBpbWFnZSBzcHJlYWQgb3ZlciB0d28gdm9sdW1lcy4gYSBnYW1lIGltYWdlIHNwcmVhZCBvdmVyIHR3byB2b2x1" +
+                "bWVzLiBhIGdhbWUgaW1hZ2Ugc3ByZWFkIG92ZXIgdHdvIHZvbHVtZXMuIGEgZ2FtZSBpbWFnZSBzcHJlYWQgb3ZlciB0d28g" +
+                "dm9sdW1lcy4gYSBnYW1lIGltYWdlIHNwcmVhZCBvdmVyIHR3byB2b2x1bWVzLiBhIGdhbWUgaW1hZ2Ugc3ByZWFkIG92ZXIg" +
+                "dHdvIHZvbHVtZXMuIGEgZ2FtZSBpbWFnZSBzcHJlYWQgb3ZlciB0d28gdm9sdW1lcy4gHXdWUQMFBAA="),
+        };
+
+        [TestCase("SABnzbd")]
+        [TestCase("Transmission")]
+        public async Task Rar5VolumeSet_IsExtractedAsOneArchive(string implementation)
+        {
+            var (processor, library, source) = await TorrentSetup(new PostDownloadSettings { EnableAutoMove = true, EnableAutoExtract = true }, implementation: implementation);
+            File.WriteAllBytes(Path.Combine(source, "game.part1.rar"), GameRarVolumes[0]);
+            File.WriteAllBytes(Path.Combine(source, "game.part2.rar"), GameRarVolumes[1]);
+
+            var result = await processor.ProcessCompletedDownloadAsync(Torrent(source));
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            var imported = Directory.GetFiles(library, "*", SearchOption.AllDirectories).Select(Path.GetFileName).ToArray();
+            Assert.That(imported, Is.EqualTo(new[] { "Test Game.iso" }));
+            Assert.That(File.ReadAllText(Path.Combine(library, "Test Game.iso")), Is.EqualTo(GameIso));
+        }
+
+        // SharpCompress reads on into name.part2.rar or name.r00 whether or not they are real volumes, and extracts both
+        [TestCase("SABnzbd", "Game.part1.rar", "Game.part2.rar")]
+        [TestCase("SABnzbd", "Game.rar", "Game.r00")]
+        [TestCase("Transmission", "Game.part1.rar", "Game.part2.rar")]
+        public async Task SeparateArchivesNamedLikeVolumes_AreBothExtracted(string implementation, string first, string second)
+        {
+            var (processor, library, source) = await TorrentSetup(new PostDownloadSettings { EnableAutoMove = true, EnableAutoExtract = true }, implementation: implementation);
+            File.WriteAllBytes(Path.Combine(source, first), Disc1Rar);
+            File.WriteAllBytes(Path.Combine(source, second), Disc2Rar);
+
+            var result = await processor.ProcessCompletedDownloadAsync(Torrent(source));
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            var imported = Directory.GetFiles(library, "*", SearchOption.AllDirectories).Select(Path.GetFileName).ToArray();
+            Assert.That(imported, Is.EquivalentTo(new[] { "disc1.iso", "disc2.iso" }));
+        }
+
+        // Names SharpCompress doesn't follow from the first archive, and a zip it can't read as a RAR volume
+        [TestCase("SABnzbd", "Game.part1.rar", "Game.part02.rar", false)]
+        [TestCase("SABnzbd", "Game.part1.rar", "Game.part3.rar", false)]
+        [TestCase("SABnzbd", "Game.rar", "Game.r01", false)]
+        [TestCase("SABnzbd", "Game.part1.rar", "Game.part2.rar", true)]
+        [TestCase("Transmission", "Game.part1.rar", "Game.part02.rar", false)]
+        [TestCase("Transmission", "Game.rar", "Game.r01", false)]
+        public async Task FileNamedLikeAVolume_ButNotRead_IsImportedAsItIs(string implementation, string first, string second, bool secondIsZip)
+        {
+            var (processor, library, source) = await TorrentSetup(new PostDownloadSettings { EnableAutoMove = true, EnableAutoExtract = true }, implementation: implementation);
+            File.WriteAllBytes(Path.Combine(source, first), Disc1Rar);
+            if (secondIsZip) Zip(Path.Combine(source, second), ("disc2.iso", "two"));
+            else File.WriteAllBytes(Path.Combine(source, second), Disc2Rar);
+            var secondBytes = File.ReadAllBytes(Path.Combine(source, second));
+
+            var result = await processor.ProcessCompletedDownloadAsync(Torrent(source));
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            var imported = Directory.GetFiles(library, "*", SearchOption.AllDirectories).Select(Path.GetFileName).ToArray();
+            Assert.That(imported, Is.EquivalentTo(new[] { "disc1.iso", second }), $"{second} was never extracted, so it has to be imported as it is");
+            Assert.That(File.ReadAllBytes(Path.Combine(library, second)), Is.EqualTo(secondBytes));
+        }
+
+        [Test]
+        public async Task UsenetVolumeSets_InSeparateFolders_AreEachExtracted()
+        {
+            var (processor, library, source) = await TorrentSetup(new PostDownloadSettings { EnableAutoMove = true, EnableAutoExtract = true }, implementation: "SABnzbd");
+            var cd1 = Directory.CreateDirectory(Path.Combine(source, "CD1")).FullName;
+            var cd2 = Directory.CreateDirectory(Path.Combine(source, "CD2")).FullName;
+            RarVolumes("disc1.iso", "the first disc", Path.Combine(cd1, "Game.rar"), Path.Combine(cd1, "Game.r00"));
+            RarVolumes("disc2.iso", "the second disc", Path.Combine(cd2, "Game.rar"), Path.Combine(cd2, "Game.r00"));
+
+            var result = await processor.ProcessCompletedDownloadAsync(Torrent(source));
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            var imported = Directory.GetFiles(library, "*", SearchOption.AllDirectories).Select(Path.GetFileName).ToArray();
+            Assert.That(imported, Is.EquivalentTo(new[] { "disc1.iso", "disc2.iso" }));
+            Assert.That(File.ReadAllText(Path.Combine(library, "disc2.iso")), Is.EqualTo("the second disc"));
         }
 
         private sealed class TestDbContextFactory : IDbContextFactory<RetroArrDbContext>

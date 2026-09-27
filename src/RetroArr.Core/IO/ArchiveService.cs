@@ -11,7 +11,8 @@ namespace RetroArr.Core.IO
 {
     public interface IArchiveService
     {
-        bool Extract(string sourceFile, string destinationDirectory);
+        // volumes, if given, collects every file a multi-volume archive was read from
+        bool Extract(string sourceFile, string destinationDirectory, ICollection<string>? volumes = null);
         bool IsArchive(string path);
     }
 
@@ -27,7 +28,7 @@ namespace RetroArr.Core.IO
             return _supportedExtensions.Contains(ext);
         }
 
-        public bool Extract(string sourceFile, string destinationDirectory)
+        public bool Extract(string sourceFile, string destinationDirectory, ICollection<string>? volumes = null)
         {
             try
             {
@@ -57,6 +58,11 @@ namespace RetroArr.Core.IO
                                 ExtractFullPath = true,
                                 Overwrite = true
                             });
+                        }
+                        // a single file comes back without a name
+                        foreach (var volume in archive.Volumes)
+                        {
+                            if (!string.IsNullOrEmpty(volume.FileName)) volumes?.Add(volume.FileName);
                         }
                     }
                     return true;
