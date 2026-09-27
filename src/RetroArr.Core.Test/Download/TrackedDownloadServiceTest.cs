@@ -62,6 +62,19 @@ namespace RetroArr.Core.Test.Download
         }
 
         // tracked_downloads.json as the earlier builds wrote it
+        [TestCase(TrackedDownloadState.Downloading, null)]
+        [TestCase(TrackedDownloadState.Imported, "snes")]
+        public void Load_OldNzbgetJobName_ForgetsItsGuessedPlatform(TrackedDownloadState state, string? expectedPlatform)
+        {
+            File.WriteAllText(Path.Combine(_root, "tracked_downloads.json"),
+                "[{\"DownloadId\":\"7\",\"DownloadClientId\":1,\"Title\":\"RetroArr_download\",\"PlatformFolder\":\"snes\",\"GameId\":42,\"State\":" + (int)state + "}]");
+
+            var loaded = new TrackedDownloadService(_root).Find(1, "7");
+
+            Assert.That(loaded!.PlatformFolder, Is.EqualTo(expectedPlatform));
+            Assert.That(loaded.GameId, expectedPlatform == null ? Is.Null : Is.EqualTo(42));
+        }
+
         [Test]
         public void Load_EarlierFile_KeepsEachEntryUnderItsClient()
         {

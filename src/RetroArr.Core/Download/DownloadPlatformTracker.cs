@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Web;
 using System.Diagnostics.CodeAnalysis;
 
 namespace RetroArr.Core.Download
@@ -14,6 +15,7 @@ namespace RetroArr.Core.Download
         private readonly string _trackingFile;
         private readonly object _lock = new();
         private List<TrackedDownload> _entries = new();
+        private static readonly HashSet<string> GenericWords = new() { "retroarr", "download", "api", "get", "getnzb", "dl", "nzb", "torrent" };
 
         public DownloadPlatformTracker(string configDirectory)
         {
@@ -43,100 +45,34 @@ namespace RetroArr.Core.Download
 
         public string? LookupByName(string downloadName)
         {
-            if (string.IsNullOrEmpty(downloadName)) return null;
-
-            lock (_lock)
-            {
-                // Try exact URL match first (some clients preserve the URL as name)
-                var entry = _entries.FirstOrDefault(e =>
-                    e.Url.Contains(downloadName, StringComparison.OrdinalIgnoreCase) ||
-                    downloadName.Contains(Path.GetFileNameWithoutExtension(e.Url), StringComparison.OrdinalIgnoreCase));
-
-                if (entry != null) return entry.PlatformFolder;
-
-                // Try fuzzy: compare cleaned names
-                var cleanDownload = CleanName(downloadName);
-                entry = _entries
-                    .Where(e => !string.IsNullOrEmpty(e.Url))
-                    .FirstOrDefault(e =>
-                    {
-                        var cleanEntry = CleanName(ExtractName(e.Url));
-                        return cleanEntry.Contains(cleanDownload, StringComparison.OrdinalIgnoreCase) ||
-                               cleanDownload.Contains(cleanEntry, StringComparison.OrdinalIgnoreCase);
-                    });
-
-                return entry?.PlatformFolder;
-            }
+            lock (_lock) { return Find(downloadName, _ => true)?.PlatformFolder; }
         }
 
         public int? LookupGameId(string downloadName)
         {
-            if (string.IsNullOrEmpty(downloadName)) return null;
-
-            lock (_lock)
-            {
-                var entry = _entries.FirstOrDefault(e =>
-                    e.GameId.HasValue && (
-                        e.Url.Contains(downloadName, StringComparison.OrdinalIgnoreCase) ||
-                        downloadName.Contains(Path.GetFileNameWithoutExtension(e.Url), StringComparison.OrdinalIgnoreCase)));
-
-                if (entry != null) return entry.GameId;
-
-                var cleanDownload = CleanName(downloadName);
-                entry = _entries
-                    .Where(e => e.GameId.HasValue && !string.IsNullOrEmpty(e.Url))
-                    .FirstOrDefault(e =>
-                    {
-                        var cleanEntry = CleanName(ExtractName(e.Url));
-                        return cleanEntry.Contains(cleanDownload, StringComparison.OrdinalIgnoreCase) ||
-                               cleanDownload.Contains(cleanEntry, StringComparison.OrdinalIgnoreCase);
-                    });
-
-                return entry?.GameId;
-            }
+            lock (_lock) { return Find(downloadName, e => e.GameId.HasValue)?.GameId; }
         }
 
         public string? LookupImportSubfolder(string downloadName)
         {
-            if (string.IsNullOrEmpty(downloadName)) return null;
-
-            lock (_lock)
-            {
-                var entry = _entries.FirstOrDefault(e =>
-                    !string.IsNullOrEmpty(e.ImportSubfolder) && (
-                        e.Url.Contains(downloadName, StringComparison.OrdinalIgnoreCase) ||
-                        downloadName.Contains(Path.GetFileNameWithoutExtension(e.Url), StringComparison.OrdinalIgnoreCase)));
-
-                if (entry != null) return entry.ImportSubfolder;
-
-                var cleanDownload = CleanName(downloadName);
-                entry = _entries
-                    .Where(e => !string.IsNullOrEmpty(e.ImportSubfolder) && !string.IsNullOrEmpty(e.Url))
-                    .FirstOrDefault(e =>
-                    {
-                        var cleanEntry = CleanName(ExtractName(e.Url));
-                        return cleanEntry.Contains(cleanDownload, StringComparison.OrdinalIgnoreCase) ||
-                               cleanDownload.Contains(cleanEntry, StringComparison.OrdinalIgnoreCase);
-                    });
-
-                return entry?.ImportSubfolder;
-            }
+            lock (_lock) { return Find(downloadName, e => !string.IsNullOrEmpty(e.ImportSubfolder))?.ImportSubfolder; }
         }
 
         public void MarkProcessed(string downloadName)
         {
             lock (_lock)
             {
-                // Remove entries older than 7 days or matching this download
+                // Remove entries older than 7 days and the ones the lookups resolved for this download.
+                // Mappings for other, similar names stay.
                 _entries.RemoveAll(e => e.AddedAt < DateTime.UtcNow.AddDays(-7));
 
-                var cleanDownload = CleanName(downloadName);
-                _entries.RemoveAll(e =>
+                var matched = new[]
                 {
-                    var cleanEntry = CleanName(ExtractName(e.Url));
-                    return cleanEntry.Contains(cleanDownload, StringComparison.OrdinalIgnoreCase) ||
-                           cleanDownload.Contains(cleanEntry, StringComparison.OrdinalIgnoreCase);
-                });
+                    Find(downloadName, _ => true),
+                    Find(downloadName, e => e.GameId.HasValue),
+                    Find(downloadName, e => !string.IsNullOrEmpty(e.ImportSubfolder)),
+                };
+                _entries.RemoveAll(e => matched.Contains(e));
 
                 Save();
             }
@@ -195,23 +131,63 @@ namespace RetroArr.Core.Download
             }
         }
 
+        // The entry mapped under this exact name, else one for the same release name, else one whose name
+        // contains the other. Generic names (URL endpoints, the old NZBGet 'RetroArr_download') never match
+        // by name, and a name needs 4 meaningful characters to match inside a longer one.
+        private TrackedDownload? Find(string downloadName, Func<TrackedDownload, bool> filter)
+        {
+            if (string.IsNullOrEmpty(downloadName)) return null;
+
+            var candidates = _entries.Where(filter).ToList();
+            var exact = candidates.FirstOrDefault(e => e.Url.Equals(downloadName, StringComparison.OrdinalIgnoreCase));
+            if (exact != null) return exact;
+
+            var name = CleanName(downloadName);
+            var nameLength = MeaningfulLength(name);
+            if (nameLength == 0) return null;
+
+            TrackedDownload? partial = null;
+            foreach (var entry in candidates)
+            {
+                var entryName = CleanName(ExtractName(entry.Url));
+                var entryLength = MeaningfulLength(entryName);
+                if (entryLength == 0) continue;
+                if (entryName == name) return entry;
+                if (partial == null && ((entryLength >= 4 && name.Contains(entryName, StringComparison.Ordinal)) ||
+                                        (nameLength >= 4 && entryName.Contains(name, StringComparison.Ordinal))))
+                {
+                    partial = entry;
+                }
+            }
+            return partial;
+        }
+
         private static string ExtractName(string input)
         {
-            if (string.IsNullOrEmpty(input)) return string.Empty;
-            // If it's an absolute URL, extract the filename from the path
-            if (Uri.TryCreate(input, UriKind.Absolute, out var uri) && (uri.Scheme == "http" || uri.Scheme == "https"))
-            {
-                return Path.GetFileNameWithoutExtension(uri.AbsolutePath);
-            }
-            // Otherwise treat it as a plain name
-            return Path.GetFileNameWithoutExtension(input);
+            if (!Uri.TryCreate(input, UriKind.Absolute, out var uri) || (uri.Scheme != "http" && uri.Scheme != "https" && uri.Scheme != "magnet"))
+                return input;
+
+            // Prowlarr and Jackett put the release name in file=, magnet links in dn=. Without dn= a torrent
+            // client shows the info hash until it has the metadata.
+            var query = HttpUtility.ParseQueryString(uri.Query);
+            return query["file"] ?? query["dn"] ?? query["xt"]?.Split(':')[^1] ??
+                   (uri.Segments.Length > 0 ? Uri.UnescapeDataString(uri.Segments[^1]) : string.Empty);
         }
 
         private static string CleanName(string input)
         {
             if (string.IsNullOrEmpty(input)) return string.Empty;
+            foreach (var extension in new[] { ".torrent", ".nzb" })
+            {
+                if (input.EndsWith(extension, StringComparison.OrdinalIgnoreCase)) input = input[..^extension.Length];
+            }
             return input.Replace(".", " ").Replace("-", " ").Replace("_", " ").Trim().ToLowerInvariant();
         }
+
+        private static int MeaningfulLength(string cleanName) =>
+            cleanName.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Where(word => !GenericWords.Contains(word))
+                .Sum(word => word.Count(char.IsLetterOrDigit));
     }
 
     public class TrackedDownload

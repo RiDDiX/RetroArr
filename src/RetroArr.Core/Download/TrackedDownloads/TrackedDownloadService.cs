@@ -229,6 +229,16 @@ namespace RetroArr.Core.Download.TrackedDownloads
                         continue;
                     }
 
+                    // Older builds added every NZBGet job as "RetroArr_download" and guessed its platform and
+                    // game from an unrelated grab. Drop that guess so the job is mapped again or lands in Unmapped.
+                    if (entry.Title.Equals("RetroArr_download", StringComparison.OrdinalIgnoreCase)
+                        && entry.State != TrackedDownloadState.Imported && entry.State != TrackedDownloadState.Ignored)
+                    {
+                        entry.PlatformFolder = null;
+                        entry.GameId = null;
+                        entry.ImportSubfolder = null;
+                    }
+
                     _cache.TryAdd(Key(entry), entry);
                 }
             }

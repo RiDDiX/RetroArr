@@ -7,8 +7,14 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using NUnit.Framework;
+using RetroArr.Core.Data;
 using RetroArr.Core.Download;
+using RetroArr.Core.Download.History;
+using RetroArr.Core.Download.TrackedDownloads;
+using TrackedDownload = RetroArr.Core.Download.TrackedDownloads.TrackedDownload;
 
 namespace RetroArr.Core.Test.Download
 {
@@ -16,7 +22,8 @@ namespace RetroArr.Core.Test.Download
     public class NzbgetClientTest
     {
         // Parses editqueue like NZBGet's XmlRpc.cpp: command, optional int offset, required string param, ids.
-        // Also serves the NZB file itself, with a Content-Disposition header taken from the cd= query parameter.
+        // Also serves the NZB file itself, with a Content-Disposition header taken from the cd= query parameter
+        // and the status code from status=.
         private sealed class FakeNzbget : IDisposable
         {
             private readonly HttpListener _listener = new();
@@ -57,6 +64,7 @@ namespace RetroArr.Core.Test.Download
                     {
                         var cd = ctx.Request.QueryString["cd"];
                         if (cd != null) ctx.Response.AddHeader("Content-Disposition", cd);
+                        if (int.TryParse(ctx.Request.QueryString["status"], out var status)) ctx.Response.StatusCode = status;
                         body = "<?xml version=\"1.0\"?><nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\"></nzb>";
                     }
                     else
@@ -243,6 +251,72 @@ namespace RetroArr.Core.Test.Download
             Assert.That(nzbget.Appended[3], Is.Not.EqualTo(nzbget.Appended[4]));
         }
 
+        [TestCase(404)]
+        [TestCase(500)]
+        public async Task Add_WhenTheIndexerFails_ReturnsFalseAndAppendsNothing(int status)
+        {
+            using var nzbget = new FakeNzbget();
+
+            Assert.That(await Client(nzbget).AddNzbAsync(nzbget.Url($"/1/download?status={status}&file=Some.Game"), "retroarr"), Is.False);
+            Assert.That(nzbget.Calls, Has.None.StartsWith("append"));
+        }
+
+        // Upgrade: NZBGet history still holds jobs from before release names, all called RetroArr_download
+        [Test]
+        public async Task History_LegacyJobName_IsLeftUnmapped_ReleaseNamesStillMap()
+        {
+            using var nzbget = new FakeNzbget();
+            nzbget.Queue.Clear();
+            var root = System.IO.Directory.CreateDirectory(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "retroarr_nzbget_" + Guid.NewGuid().ToString("N"))).FullName;
+            try
+            {
+                var dest = JsonSerializer.Serialize(root);
+                nzbget.HistoryJson = $"[{{\"NZBID\":7,\"NZBName\":\"RetroArr_download\",\"FileSizeLo\":1,\"FileSizeHi\":0,\"Status\":\"SUCCESS/ALL\",\"Category\":\"retroarr\",\"DestDir\":{dest}}}," +
+                                     $"{{\"NZBID\":8,\"NZBName\":\"Chrono Trigger (USA)\",\"FileSizeLo\":1,\"FileSizeHi\":0,\"Status\":\"SUCCESS/ALL\",\"Category\":\"retroarr\",\"DestDir\":{dest}}}]";
+                var tracker = new DownloadPlatformTracker(root);
+                tracker.Track("http://prowlarr:9696/3/download?apikey=x&link=abc&file=Chrono+Trigger+(USA)", "snes", 42);
+                var db = new DbContextOptionsBuilder<RetroArrDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+                var trackedService = new TrackedDownloadService(root);
+                var completed = new CompletedDownloadService(null!, tracker, trackedService, new DownloadHistoryRepository(new DbFactory(db)),
+                    new DownloadBlacklistRepository(new DbFactory(db)), null!, NullLogger<CompletedDownloadService>.Instance);
+
+                var tracked = new Dictionary<string, TrackedDownload>();
+                foreach (var download in await Client(nzbget).GetDownloadsAsync())
+                {
+                    // as DownloadMonitorService resolves them
+                    download.PlatformFolder = tracker.LookupByName(download.Name);
+                    download.GameId = tracker.LookupGameId(download.Name);
+                    var item = trackedService.TrackDownload(download, 1, "NZBGet");
+                    item.PlatformFolder ??= download.PlatformFolder;
+                    item.GameId ??= download.GameId;
+                    await completed.CheckAsync(item, new DownloadClient());
+                    tracked[download.Name] = item;
+                }
+
+                var legacy = tracked["RetroArr_download"];
+                Assert.That(legacy.PlatformFolder, Is.Null);
+                Assert.That(legacy.GameId, Is.Null);
+                Assert.That(legacy.IsUnmapped, Is.True);
+                Assert.That(legacy.State, Is.EqualTo(TrackedDownloadState.ImportBlocked));
+
+                var release = tracked["Chrono Trigger (USA)"];
+                Assert.That(release.PlatformFolder, Is.EqualTo("snes"));
+                Assert.That(release.GameId, Is.EqualTo(42));
+                Assert.That(release.State, Is.EqualTo(TrackedDownloadState.ImportPending));
+            }
+            finally
+            {
+                System.IO.Directory.Delete(root, true);
+            }
+        }
+
+        private sealed class DbFactory : IDbContextFactory<RetroArrDbContext>
+        {
+            private readonly DbContextOptions<RetroArrDbContext> _options;
+            public DbFactory(DbContextOptions<RetroArrDbContext> options) => _options = options;
+            public RetroArrDbContext CreateDbContext() => new RetroArrDbContext(_options);
+        }
+
         [Test]
         public async Task Requests_AreNotUnicodeEscaped()
         {
@@ -261,6 +335,7 @@ namespace RetroArr.Core.Test.Download
         [TestCase("attachment; filename=\"C:\\\\x\\\\Win.Game\"", "Win.Game.nzb")]
         [TestCase("attachment; filename*=UTF-8''Pok%C3%A9mon%20Red.NZB", "Pokémon Red.nzb")]
         [TestCase("attachment; filename=\"   \"", "RetroArr_")]
+        [TestCase("attachment; filename*=UTF-8''Evil%0A%0DGame%07%1B%00.nzb", "EvilGame.nzb")]
         public void Filename_IsSanitised(string header, string expected)
         {
             var name = NzbgetClient.BuildNzbFilename("http://x/api?t=get", ContentDispositionHeaderValue.Parse(header));
