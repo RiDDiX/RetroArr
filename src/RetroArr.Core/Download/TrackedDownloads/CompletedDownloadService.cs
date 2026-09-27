@@ -135,7 +135,7 @@ namespace RetroArr.Core.Download.TrackedDownloads
 
             if (string.IsNullOrEmpty(trackedDownload.OutputPath))
             {
-                trackedDownload.Warn("Download path is empty, cannot import.");
+                trackedDownload.Warn(trackedDownload.ClientMessage ?? "Download path is empty, cannot import.");
                 trackedDownload.State = TrackedDownloadState.ImportBlocked;
                 return;
             }
@@ -260,7 +260,7 @@ namespace RetroArr.Core.Download.TrackedDownloads
             // Check if path is empty - client may still be post-processing
             if (string.IsNullOrEmpty(trackedDownload.OutputPath))
             {
-                trackedDownload.Warn("Download path is empty. The download client may still be post-processing. Will retry.");
+                trackedDownload.Warn(trackedDownload.ClientMessage ?? "Download path is empty. The download client may still be post-processing. Will retry.");
                 trackedDownload.State = TrackedDownloadState.ImportBlocked;
                 return false;
             }

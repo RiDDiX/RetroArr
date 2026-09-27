@@ -125,7 +125,10 @@ namespace RetroArr.Api.V3.Search
                         MagnetUrl = j.MagnetUri,
                         InfoUrl = j.Guid,
                         Protocol = j.Protocol,
-                        Provider = "Jackett"
+                        Provider = "Jackett",
+                        Categories = (j.Category ?? new List<int>())
+                            .Select(id => new ProwlarrCategory { Id = id, Name = id.ToString(System.Globalization.CultureInfo.InvariantCulture) })
+                            .ToList()
                     }).ToList();
                 })));
             }

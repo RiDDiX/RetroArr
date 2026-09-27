@@ -577,7 +577,7 @@ namespace RetroArr.Core.Download
                 "error" => DownloadState.Error,
                 "active" => DownloadState.Downloading,
                 "allocating" => DownloadState.Downloading,
-                "moving" => DownloadState.Completed,
+                "moving" => DownloadState.Checking,
                 _ => DownloadState.Unknown
             };
         }

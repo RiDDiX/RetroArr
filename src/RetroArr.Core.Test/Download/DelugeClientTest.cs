@@ -286,11 +286,13 @@ namespace RetroArr.Core.Test.Download
         {
             using var deluge = new FakeDeluge
             {
+                Torrents = new[] { ("aaa", ""), ("bbb", ""), ("ccc", ""), ("ddd", "") },
                 States = new()
                 {
                     ["aaa"] = ("Queued", 0),
                     ["bbb"] = ("Queued", 100),
                     ["ccc"] = ("Paused", 100),
+                    ["ddd"] = ("Moving", 100),
                 }
             };
             var states = (await new DelugeClient("127.0.0.1", deluge.Port, "pw").GetDownloadsAsync()).ToDictionary(d => d.Id, d => d.State);
@@ -298,6 +300,8 @@ namespace RetroArr.Core.Test.Download
             Assert.That(states["aaa"], Is.EqualTo(DownloadState.Queued));
             Assert.That(states["bbb"], Is.EqualTo(DownloadState.Completed));
             Assert.That(states["ccc"], Is.EqualTo(DownloadState.Completed));
+            // not importable while Deluge still moves the files
+            Assert.That(states["ddd"], Is.EqualTo(DownloadState.Checking));
         }
     }
 }

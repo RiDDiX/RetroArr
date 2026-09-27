@@ -214,8 +214,10 @@ namespace RetroArr.Api.V3.Games
             {
                 try
                 {
-                    game.Platform.Name = _metadataServiceFactory.CreateService()
-                        .LocalizePlatform(game.Platform.Name, lang);
+                    // a copy: the entry from PlatformDefinitions is shared by every request
+                    var localized = game.Platform.Clone();
+                    localized.Name = _metadataServiceFactory.CreateService().LocalizePlatform(localized.Name, lang);
+                    game.Platform = localized;
                 }
                 catch { /* keep stored platform name */ }
             }

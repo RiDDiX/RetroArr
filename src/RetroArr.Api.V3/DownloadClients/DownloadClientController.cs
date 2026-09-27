@@ -297,6 +297,12 @@ namespace RetroArr.Api.V3.DownloadClients
                 var downloads = await client.GetDownloadsAsync();
                 var decodedId = Uri.UnescapeDataString(downloadId);
                 var download = downloads.FirstOrDefault(d => d.Id == decodedId);
+                // The queue lists the category-scoped view, which can hold items the plain list doesn't
+                // (SABnzbd's history window counts only that category there)
+                if (download == null && !string.IsNullOrEmpty(config.Category) && CreateClient(config, config.Category) is { } scoped)
+                {
+                    download = (await scoped.GetDownloadsAsync()).FirstOrDefault(d => d.Id == decodedId);
+                }
                 if (download == null) return NotFound($"Download '{decodedId}' not found in client");
 
                 // Resolve platform, gameId, importSubfolder from tracker
@@ -357,18 +363,18 @@ namespace RetroArr.Api.V3.DownloadClients
             }
         }
 
-        private IDownloadClient? CreateClient(DownloadClient config)
+        private IDownloadClient? CreateClient(DownloadClient config, string? category = null)
         {
             if (config.Implementation.Equals("qBittorrent", StringComparison.OrdinalIgnoreCase))
-                return new QBittorrentClient(config.Host, config.Port, config.Username ?? "", config.Password ?? "", config.UrlBase);
+                return new QBittorrentClient(config.Host, config.Port, config.Username ?? "", config.Password ?? "", config.UrlBase, category);
             if (config.Implementation.Equals("Transmission", StringComparison.OrdinalIgnoreCase))
-                return new TransmissionClient(config.Host, config.Port, config.Username ?? "", config.Password ?? "");
+                return new TransmissionClient(config.Host, config.Port, config.Username ?? "", config.Password ?? "", category);
             if (config.Implementation.Equals("SABnzbd", StringComparison.OrdinalIgnoreCase))
-                return new SabnzbdClient(config.Host, config.Port, config.ApiKey ?? "", config.UrlBase);
+                return new SabnzbdClient(config.Host, config.Port, config.ApiKey ?? "", config.UrlBase, category);
             if (config.Implementation.Equals("NZBGet", StringComparison.OrdinalIgnoreCase))
                 return new NzbgetClient(config.Host, config.Port, config.Username ?? "", config.Password ?? "", config.UrlBase);
             if (config.Implementation.Equals("Deluge", StringComparison.OrdinalIgnoreCase))
-                return new DelugeClient(config.Host, config.Port, config.Password ?? "", config.UseSsl);
+                return new DelugeClient(config.Host, config.Port, config.Password ?? "", config.UseSsl, category);
             return null;
         }
 

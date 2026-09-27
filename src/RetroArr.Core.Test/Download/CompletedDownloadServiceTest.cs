@@ -65,6 +65,21 @@ namespace RetroArr.Core.Test.Download
             Assert.That(tracked.StatusMessages, Is.Empty);
         }
 
+        [Test]
+        public async Task Check_EmptyPath_ShowsTheClientsReason()
+        {
+            var trackedService = new TrackedDownloadService(_root);
+            var status = new DownloadStatus { Id = "qb_hash", Name = "Some Game", State = DownloadState.Completed, DownloadPath = null };
+            status.StatusMessages.Add("qBittorrent saved this torrent straight into '/downloads' without a folder of its own.");
+            var tracked = trackedService.TrackDownload(status, 1, "qBittorrent");
+            tracked.PlatformFolder = "snes";
+
+            await _service.CheckAsync(tracked, new DownloadClient());
+
+            Assert.That(tracked.State, Is.EqualTo(TrackedDownloadState.ImportBlocked));
+            Assert.That(tracked.StatusMessages, Does.Contain(status.StatusMessages[0]));
+        }
+
         // Only a finished import skips: failed, dismissed or unknown ids still go ahead
         [TestCase(null)]
         [TestCase(DownloadHistoryState.ImportFailed)]

@@ -44,6 +44,7 @@ namespace RetroArr.Core.Download.TrackedDownloads
                 existing.Progress = downloadItem.Progress;
                 existing.Category = downloadItem.Category;
                 existing.DownloadClientName = clientName;
+                existing.ClientMessage = downloadItem.StatusMessages.FirstOrDefault();
                 if (downloadItem.GameId.HasValue && !existing.GameId.HasValue)
                     existing.GameId = downloadItem.GameId;
                 if (!string.IsNullOrEmpty(downloadItem.ImportSubfolder) && string.IsNullOrEmpty(existing.ImportSubfolder))
@@ -71,6 +72,7 @@ namespace RetroArr.Core.Download.TrackedDownloads
                 ImportSubfolder = downloadItem.ImportSubfolder,
                 Size = downloadItem.Size,
                 Progress = downloadItem.Progress,
+                ClientMessage = downloadItem.StatusMessages.FirstOrDefault(),
                 State = downloadItem.State == DownloadState.Completed
                     ? TrackedDownloadState.ImportPending
                     : TrackedDownloadState.Downloading,
