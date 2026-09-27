@@ -231,9 +231,10 @@ namespace RetroArr.Core.Download.TrackedDownloads
                     }
 
                     // Older builds added every NZBGet job as "RetroArr_download" and guessed its platform and
-                    // game from an unrelated grab. Drop that guess so the job is mapped again or lands in Unmapped.
+                    // game from an unrelated grab. Those jobs were never importable, so they are still Downloading;
+                    // drop the guess so the job is mapped again or lands in Unmapped. Later states carry a user's mapping.
                     if (string.Equals(entry.Title, "RetroArr_download", StringComparison.OrdinalIgnoreCase)
-                        && entry.State != TrackedDownloadState.Imported && entry.State != TrackedDownloadState.Ignored)
+                        && entry.State == TrackedDownloadState.Downloading)
                     {
                         entry.PlatformFolder = null;
                         entry.GameId = null;

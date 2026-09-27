@@ -162,10 +162,22 @@ namespace RetroArr.Core.Download
             var sameName = candidates.Where(e => CleanName(ExtractName(e.Url)) == name).ToList();
             if (sameName.Count > 0) return OneTarget(sameName);
 
+            // Same title, and one name only adds tags to the other: 'Chrono Trigger (USA) [!].sfc' is
+            // 'Chrono Trigger (USA)', but 'Chrono Trigger (Japan)' is a different release
             var baseName = CleanName(StripTags(downloadName));
             if (MeaningfulLength(baseName) == 0) return null;
-            return OneTarget(candidates.Where(e => CleanName(StripTags(ExtractName(e.Url))) == baseName).ToList());
+            var tags = Tags(downloadName);
+            return OneTarget(candidates.Where(e =>
+            {
+                var entryName = ExtractName(e.Url);
+                if (CleanName(StripTags(entryName)) != baseName) return false;
+                var entryTags = Tags(entryName);
+                return entryTags.IsSubsetOf(tags) || tags.IsSubsetOf(entryTags);
+            }).ToList());
         }
+
+        private static HashSet<string> Tags(string name) =>
+            BracketedTag.Matches(name).Select(m => Regex.Replace(m.Value.ToLowerInvariant(), @"\s+", " ")).ToHashSet();
 
         private static TrackedDownload? OneTarget(List<TrackedDownload> matches) =>
             matches.Select(e => (e.PlatformFolder, e.GameId)).Distinct().Count() == 1 ? matches[0] : null;

@@ -141,6 +141,17 @@ namespace RetroArr.Core.Test.Download
         }
 
         [Test]
+        public void OtherRegionOrRelease_DoesNotMatch()
+        {
+            _tracker.SetPlatformForDownload("Chrono Trigger (USA)", "snes", gameId: 42);
+            _tracker.SetPlatformForDownload("Tetris (USA)", "nes", gameId: 5);
+
+            Assert.That(_tracker.LookupGameId("Chrono Trigger (Japan)"), Is.Null);
+            Assert.That(_tracker.LookupByName("Tetris (World)"), Is.Null);
+            Assert.That(_tracker.LookupGameId("Chrono Trigger (USA) [!].sfc"), Is.EqualTo(42));
+        }
+
+        [Test]
         public void OldNzbgetNameMapping_IsDroppedOnLoad()
         {
             _tracker.SetPlatformForDownload("RetroArr_download", "n64", gameId: 7);
@@ -286,7 +297,8 @@ namespace RetroArr.Core.Test.Download
             Assert.That(_tracker.LookupByName("Sonic The Hedgehog (USA, Europe)"), Is.Null);
             Assert.That(_tracker.LookupGameId("Sonic The Hedgehog (USA, Europe).gg"), Is.Null);
             Assert.That(_tracker.LookupGameId("Chrono Trigger (USA)"), Is.EqualTo(42));
-            Assert.That(_tracker.LookupGameId("Chrono Trigger (USA) [!].sfc"), Is.Null);
+            // only the (USA) grab is the same release plus tags
+            Assert.That(_tracker.LookupGameId("Chrono Trigger (USA) [!].sfc"), Is.EqualTo(42));
             Assert.That(_tracker.LookupByName("Tetris (World)"), Is.Null);
         }
 

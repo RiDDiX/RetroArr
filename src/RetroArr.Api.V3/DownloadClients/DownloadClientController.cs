@@ -169,6 +169,9 @@ namespace RetroArr.Api.V3.DownloadClients
                             var tracked = _trackedDownloadService.Find(config.Id, d.Id);
                             if (tracked != null)
                             {
+                                // a mapping made for this download wins over the name lookup
+                                if (!string.IsNullOrEmpty(tracked.PlatformFolder))
+                                    d.PlatformFolder = tracked.PlatformFolder;
                                 d.TrackedState = tracked.State.ToString();
                                 d.StatusMessages = tracked.StatusMessages;
                                 if (tracked.GameId.HasValue && !d.GameId.HasValue)
@@ -332,12 +335,12 @@ namespace RetroArr.Api.V3.DownloadClients
                 // Track via TrackedDownloadService (creates or updates)
                 var tracked = _trackedDownloadService.TrackDownload(download, clientId, config.Name ?? config.Implementation);
 
-                // Propagate platform, gameId, importSubfolder
-                if (!string.IsNullOrEmpty(download.PlatformFolder))
+                // Fill in platform, gameId, importSubfolder from the name lookup, but keep a mapping made for this download
+                if (!string.IsNullOrEmpty(download.PlatformFolder) && string.IsNullOrEmpty(tracked.PlatformFolder))
                     tracked.PlatformFolder = download.PlatformFolder;
-                if (trackedGameId.HasValue)
+                if (trackedGameId.HasValue && !tracked.GameId.HasValue)
                     tracked.GameId = trackedGameId;
-                if (!string.IsNullOrEmpty(trackedSubfolder))
+                if (!string.IsNullOrEmpty(trackedSubfolder) && string.IsNullOrEmpty(tracked.ImportSubfolder))
                     tracked.ImportSubfolder = trackedSubfolder;
 
                 // Force state to ImportPending for manual import

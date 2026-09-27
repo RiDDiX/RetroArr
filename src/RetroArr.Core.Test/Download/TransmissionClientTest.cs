@@ -92,8 +92,20 @@ namespace RetroArr.Core.Test.Download
             var logs = await Logs(async () => added = await new TransmissionClient("127.0.0.1", tr.Port, "u", "p").AddTorrentAsync(Magnet, "RetroArr"));
 
             Assert.That(added, Is.True);
-            Assert.That(tr.Requests, Is.EqualTo(new[] { $"torrent-add {{\"filename\":\"{Magnet}\",\"labels\":[\"RetroArr\"]}}" }));
+            Assert.That(tr.Requests[0], Is.EqualTo($"torrent-add {{\"filename\":\"{Magnet}\",\"labels\":[\"RetroArr\"]}}"));
+            Assert.That(tr.Requests, Has.None.StartsWith("torrent-set"));
             Assert.That(logs, Has.Some.StartsWith("Warn|[Transmission] 'Some.Game-GRP' is already in Transmission and was not labelled 'RetroArr'"));
+        }
+
+        [Test]
+        public async Task Add_DuplicateThatAlreadyHasTheLabel_DoesNotWarn()
+        {
+            using var tr = new FakeTransmission { AddedKey = "torrent-duplicate", Torrents = "[{\"labels\":[\"retroarr\"]}]" };
+
+            var logs = await Logs(() => new TransmissionClient("127.0.0.1", tr.Port, "u", "p").AddTorrentAsync(Magnet, "RetroArr"));
+
+            Assert.That(logs, Has.None.Contains("was not labelled"));
+            Assert.That(tr.Requests, Has.None.StartsWith("torrent-set"));
         }
 
         private static async Task<IList<string>> Logs(Func<Task> action)

@@ -205,6 +205,8 @@ namespace RetroArr.Core.Download
                 if (added.TryGetProperty("torrent-duplicate", out var duplicate))
                 {
                     var name = duplicate.TryGetProperty("name", out var n) ? n.GetString() : null;
+                    var existing = duplicate.TryGetProperty("hashString", out var h) ? h.GetString() : null;
+                    if (!string.IsNullOrEmpty(existing) && (await GetLabelsAsync(existing)).Contains(label, StringComparer.OrdinalIgnoreCase)) return;
                     _logger.Warn($"[Transmission] '{name}' is already in Transmission and was not labelled '{label}'. RetroArr won't show or import it unless you add the label in Transmission.");
                     return;
                 }
@@ -212,9 +214,7 @@ namespace RetroArr.Core.Download
                 var hash = torrent.GetProperty("hashString").GetString();
                 if (string.IsNullOrEmpty(hash)) return;
 
-                var response = await SendRequestAsync("torrent-get", new { ids = new[] { hash }, fields = new[] { "labels" } });
-                using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-                var labels = doc.RootElement.GetProperty("arguments").GetProperty("torrents").EnumerateArray().SelectMany(ReadLabels).ToList();
+                var labels = await GetLabelsAsync(hash);
                 if (labels.Contains(label, StringComparer.OrdinalIgnoreCase)) return;
 
                 labels.Add(label);
@@ -225,6 +225,13 @@ namespace RetroArr.Core.Download
             {
                 _logger.Warn($"[Transmission] Could not set label '{label}': {ex.Message}");
             }
+        }
+
+        private async Task<List<string>> GetLabelsAsync(string hash)
+        {
+            var response = await SendRequestAsync("torrent-get", new { ids = new[] { hash }, fields = new[] { "labels" } });
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            return doc.RootElement.GetProperty("arguments").GetProperty("torrents").EnumerateArray().SelectMany(ReadLabels).ToList();
         }
 
         // 3.00 answers unknown fields with 0, so only an array counts

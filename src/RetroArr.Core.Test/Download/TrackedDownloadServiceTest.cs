@@ -64,9 +64,9 @@ namespace RetroArr.Core.Test.Download
 
         // tracked_downloads.json as the earlier builds wrote it
         [TestCase(TrackedDownloadState.Downloading, null)]
-        [TestCase(TrackedDownloadState.ImportPending, null)]
-        [TestCase(TrackedDownloadState.ImportBlocked, null)]
-        [TestCase(TrackedDownloadState.ImportFailed, null)]
+        [TestCase(TrackedDownloadState.ImportPending, "snes")]
+        [TestCase(TrackedDownloadState.ImportBlocked, "snes")]
+        [TestCase(TrackedDownloadState.ImportFailed, "snes")]
         [TestCase(TrackedDownloadState.Imported, "snes")]
         [TestCase(TrackedDownloadState.Ignored, "snes")]
         public void Load_OldNzbgetJobName_ForgetsItsGuessedPlatform(TrackedDownloadState state, string? expectedPlatform)
