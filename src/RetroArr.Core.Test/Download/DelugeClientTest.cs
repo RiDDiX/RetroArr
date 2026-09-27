@@ -81,8 +81,8 @@ namespace RetroArr.Core.Test.Download
                         result = Torrents
                             .Where(t => wanted == null || (LabelPlugin && wanted.Contains(t.Label)))
                             .ToDictionary(t => t.Hash, t => LabelPlugin
-                                ? (object)new { name = t.Hash, state = "Paused", label = t.Label }
-                                : new { name = t.Hash, state = "Paused" });
+                                ? (object)new { name = t.Hash, state = "Paused", save_path = "/downloads", label = t.Label }
+                                : new { name = t.Hash, state = "Paused", save_path = "/downloads" });
                     }
 
                     var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { result, error, id = 1 }));
@@ -105,6 +105,15 @@ namespace RetroArr.Core.Test.Download
             Assert.That(await Ids(new DelugeClient("127.0.0.1", deluge.Port, "pw")), Is.EqualTo(new[] { "aaa", "bbb", "ccc" }));
             Assert.That(deluge.Requests, Has.Some.StartsWith("core.get_torrents_status [{},"));
             Assert.That(deluge.Requests, Has.None.StartsWith("core.get_enabled_plugins"));
+        }
+
+        [Test]
+        public async Task DownloadPath_IsTheTorrentsOwnFolder()
+        {
+            using var deluge = new FakeDeluge();
+            var downloads = await new DelugeClient("127.0.0.1", deluge.Port, "pw").GetDownloadsAsync();
+
+            Assert.That(downloads.Single(d => d.Id == "aaa").DownloadPath, Is.EqualTo(Path.Combine("/downloads", "aaa")));
         }
 
         [Test]

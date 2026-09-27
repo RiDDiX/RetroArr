@@ -9,7 +9,7 @@ namespace RetroArr.Core.Download
         Task<string> GetVersionAsync();
         Task<bool> AddTorrentAsync(string url, string? category = null);
         Task<bool> AddNzbAsync(string url, string? category = null);
-        Task<bool> RemoveDownloadAsync(string id);
+        Task<bool> RemoveDownloadAsync(string id, bool deleteFiles);
         Task<bool> PauseDownloadAsync(string id);
         Task<bool> ResumeDownloadAsync(string id);
         Task<List<DownloadStatus>> GetDownloadsAsync();

@@ -172,7 +172,7 @@ namespace RetroArr.Core.Download
             throw new NotSupportedException("qBittorrent does not handle NZB downloads. Configure SABnzbd or NZBGet as a Usenet client.");
         }
 
-        public async Task<bool> RemoveDownloadAsync(string id)
+        public async Task<bool> RemoveDownloadAsync(string id, bool deleteFiles)
         {
             await EnsureAuthenticatedAsync();
             
@@ -180,7 +180,7 @@ namespace RetroArr.Core.Download
             var content = new FormUrlEncodedContent(new[]
             {
                 new KeyValuePair<string, string>("hashes", id),
-                new KeyValuePair<string, string>("deleteFiles", "true")
+                new KeyValuePair<string, string>("deleteFiles", deleteFiles ? "true" : "false")
             });
 
             var response = await _httpClient.PostAsync($"{_baseUrl}/torrents/delete", content);

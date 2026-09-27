@@ -106,6 +106,16 @@ namespace RetroArr.Core.Test.Download
             Assert.That(sab.Requests, Has.Some.StartsWith("/api?mode=history&apikey="));
         }
 
+        [TestCase(false, "del_files=0")]
+        [TestCase(true, "del_files=1")]
+        public async Task Remove_PassesDeleteFiles(bool deleteFiles, string expected)
+        {
+            using var sab = new FakeSabnzbd();
+            await new SabnzbdClient("127.0.0.1", sab.Port, "key").RemoveDownloadAsync("q1", deleteFiles);
+
+            Assert.That(sab.Requests.Where(r => r.Contains("name=delete")), Has.All.Contains(expected).And.Not.Empty);
+        }
+
         [TestCase(null, null)]
         [TestCase("", null)]
         [TestCase("retroarr", "retroarr")]

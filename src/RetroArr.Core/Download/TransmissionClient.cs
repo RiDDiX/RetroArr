@@ -194,12 +194,12 @@ namespace RetroArr.Core.Download
             throw new NotSupportedException("Transmission does not handle NZB downloads. Configure SABnzbd or NZBGet as a Usenet client.");
         }
 
-        public async Task<bool> RemoveDownloadAsync(string id)
+        public async Task<bool> RemoveDownloadAsync(string id, bool deleteFiles)
         {
             var args = new Dictionary<string, object>
             {
                 { "ids", new[] { id } },
-                { "delete-local-data", true }
+                { "delete-local-data", deleteFiles }
             };
 
             var response = await SendRequestAsync("torrent-remove", args);
@@ -246,13 +246,17 @@ namespace RetroArr.Core.Download
                         Size = torrent.GetProperty("totalSize").GetInt64(),
                         Progress = (float)torrent.GetProperty("percentDone").GetDouble() * 100,
                         State = MapState(torrent.GetProperty("status").GetInt32()),
-                        DownloadPath = torrent.GetProperty("downloadDir").GetString()
+                        DownloadPath = CombinePath(torrent.GetProperty("downloadDir").GetString(), torrent.GetProperty("name").GetString())
                     });
                 }
             }
 
             return statusList;
         }
+
+        // downloadDir is the folder shared by all torrents, the torrent itself lives below it
+        private static string? CombinePath(string? dir, string? name) =>
+            string.IsNullOrEmpty(dir) || string.IsNullOrEmpty(name) ? dir : System.IO.Path.Combine(dir, name);
 
         private DownloadState MapState(int status)
         {

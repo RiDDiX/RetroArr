@@ -154,6 +154,9 @@ const Status: React.FC = () => {
   // Activity state
   const [downloads, setDownloads] = useState<DownloadStatus[]>([]);
   const [editingPlatform, setEditingPlatform] = useState<string | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<DownloadStatus | null>(null);
+  const [removeFiles, setRemoveFiles] = useState(true);
+  const [removing, setRemoving] = useState(false);
 
   // GOG download state
   const [gogDownloads, setGogDownloads] = useState<GogDownloadStatus[]>([]);
@@ -381,8 +384,18 @@ const Status: React.FC = () => {
     await fetch(`${API_BASE}/queue/${clientId}/${encodeURIComponent(downloadId)}/resume`, { method: 'POST' });
   };
 
-  const handleDelete = async (clientId: number, downloadId: string) => {
-    await fetch(`${API_BASE}/queue/${clientId}/${encodeURIComponent(downloadId)}`, { method: 'DELETE' });
+  const handleDelete = async () => {
+    const target = removeTarget;
+    if (!target || removing) return;
+    setRemoving(true);
+    try {
+      await fetch(`${API_BASE}/queue/${target.clientId}/${encodeURIComponent(target.id)}?deleteFiles=${removeFiles}`, { method: 'DELETE' });
+    } catch {
+      // the next queue poll shows whether it went through
+    } finally {
+      setRemoving(false);
+      setRemoveTarget(current => (current === target ? null : current));
+    }
   };
 
   const handleImport = async (clientId: number, downloadId: string) => {
@@ -697,7 +710,7 @@ const Status: React.FC = () => {
                         {(String(d.state ?? '').toLowerCase() === 'completed' || String(d.trackedState ?? '').toLowerCase().includes('pending')) && (
                           <button className="control-btn import-btn" onClick={() => handleImport(d.clientId, d.id)} title="Import">📥</button>
                         )}
-                        <button className="delete-btn" onClick={() => handleDelete(d.clientId, d.id)} title="Delete">✕</button>
+                        <button className="delete-btn" onClick={() => { setRemoveFiles(true); setRemoveTarget(d); }} title="Delete">✕</button>
                       </div>
                     </td>
                   </tr>
@@ -1071,6 +1084,27 @@ const Status: React.FC = () => {
               <button className="btn-primary" disabled={!mapPlatform} onClick={handleMapAndImport}>
                 Import Now
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {removeTarget && (
+        <div className="modal-overlay" onClick={() => { if (!removing) setRemoveTarget(null); }}>
+          <div className="modal-content map-modal" onClick={e => e.stopPropagation()}>
+            <h2>{t('deleteDownload')}</h2>
+            <div className="modal-field">
+              <label>{removeTarget.clientName}</label>
+              <div className="modal-value">{removeTarget.name}</div>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <input type="checkbox" checked={removeFiles} onChange={e => setRemoveFiles(e.target.checked)} />
+              Also delete the downloaded files
+            </label>
+            <div className="modal-value small">Files already imported into the library are not affected.</div>
+            <div className="modal-actions">
+              <button className="btn-secondary" onClick={() => setRemoveTarget(null)} disabled={removing}>Cancel</button>
+              <button className="btn-primary" onClick={handleDelete} disabled={removing}>Remove</button>
             </div>
           </div>
         </div>

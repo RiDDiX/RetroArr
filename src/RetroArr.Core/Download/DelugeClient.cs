@@ -451,10 +451,10 @@ namespace RetroArr.Core.Download
             throw new NotSupportedException("Deluge does not handle NZB downloads. Configure SABnzbd or NZBGet as a Usenet client.");
         }
 
-        public async Task<bool> RemoveDownloadAsync(string id)
+        public async Task<bool> RemoveDownloadAsync(string id, bool deleteFiles)
         {
             await EnsureAuthenticatedAsync();
-            bool result = await CallJsonRpcAsync<bool>("core.remove_torrent", new object[] { id, true });
+            bool result = await CallJsonRpcAsync<bool>("core.remove_torrent", new object[] { id, deleteFiles });
             return result;
         }
 
@@ -513,7 +513,8 @@ namespace RetroArr.Core.Download
                     Progress = d.Progress,
                     State = MapState(d.State),
                     Category = d.Label,
-                    DownloadPath = d.SavePath
+                    // save_path is the folder shared by all torrents, the torrent itself lives below it
+                    DownloadPath = string.IsNullOrEmpty(d.SavePath) ? d.SavePath : Path.Combine(d.SavePath, d.Name)
                 });
             }
 

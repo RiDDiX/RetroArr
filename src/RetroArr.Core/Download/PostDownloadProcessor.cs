@@ -126,11 +126,21 @@ namespace RetroArr.Core.Download
             var settings = _configService.LoadPostDownloadSettings();
             _logger.Info($"[PostDownload] Processing completed download: {download.Name} at {download.DownloadPath}");
 
+            // A torrent client keeps seeding from the download folder, so nothing in it
+            // gets deleted. Files the cleanup would have removed are skipped on import instead.
+            var keep = IsTorrentDownload(download) ? new HashSet<string>() : null;
+
             // 1. Auto-Extract
             List<string>? extractionFailures = null;
+            HashSet<string>? extracted = null;
             if (settings.EnableAutoExtract && Directory.Exists(download.DownloadPath))
             {
-                extractionFailures = ExtractArchives(download.DownloadPath);
+                if (keep != null)
+                {
+                    extracted = new HashSet<string>(StringComparer.Ordinal);
+                    RemoveStaleStaging(download.DownloadPath);
+                }
+                extractionFailures = ExtractArchives(download.DownloadPath, keep, extracted);
                 if (extractionFailures.Count > 0 && !settings.EnableAutoMove)
                 {
                     var failedList = string.Join(", ", extractionFailures.Select(Path.GetFileName));
@@ -141,20 +151,30 @@ namespace RetroArr.Core.Download
             // 2. Deep Clean
             if (settings.EnableDeepClean && Directory.Exists(download.DownloadPath))
             {
-                DeepClean(download.DownloadPath, settings.UnwantedExtensions);
+                DeepClean(download.DownloadPath, settings.UnwantedExtensions, keep);
             }
 
             // 3. Auto-Move / Import
             if (settings.EnableAutoMove)
             {
-                return await AutoMoveToLibrary(download);
+                var result = await AutoMoveToLibrary(download, keep);
+                if (extracted?.Count > 0)
+                {
+                    try { RemoveExtracted(extracted); }
+                    catch (Exception ex) { _logger.Warn($"[PostDownload] Could not clean up extracted files in {download.DownloadPath}: {ex.Message}"); }
+                }
+                return result;
             }
 
             return PostDownloadResult.Fail("Auto-move is disabled in post-download settings.");
         }
 
-        private List<string> ExtractArchives(string path)
+        private const string ExtractStagingPrefix = ".retroarr-extract-";
+
+        private List<string> ExtractArchives(string path, HashSet<string>? keep, HashSet<string>? extracted)
         {
+            // A torrent's own files have to stay as they are, so extract beside them and only add what's new
+            var staging = extracted != null ? Path.Combine(path, ExtractStagingPrefix + Guid.NewGuid().ToString("N")) : null;
             var failed = new List<string>();
             var archives = Directory.EnumerateFiles(path, "*.*", SearchOption.AllDirectories)
                 .Where(f => _archiveService.IsArchive(f))
@@ -169,12 +189,30 @@ namespace RetroArr.Core.Download
                 bool success = false;
                 for (int attempt = 1; attempt <= maxAttempts && !success; attempt++)
                 {
+                    var target = staging ?? path;
                     try
                     {
-                        if (_archiveService.Extract(archivePath, path))
+                        if (staging != null && Directory.Exists(staging)) Directory.Delete(staging, true);
+                        if (_archiveService.Extract(archivePath, target))
                         {
-                            _logger.Info($"[PostDownload] Extraction successful on attempt {attempt}. Deleting archive: {archivePath}");
-                            try { File.Delete(archivePath); } catch { }
+                            if (keep != null && staging != null && extracted != null)
+                            {
+                                var clashes = MergeExtracted(staging, path, extracted);
+                                if (clashes == 0)
+                                {
+                                    _logger.Info($"[PostDownload] Extraction successful on attempt {attempt}. Keeping seeded archive: {archivePath}");
+                                    keep.Add(archivePath);
+                                }
+                                else
+                                {
+                                    _logger.Warn($"[PostDownload] {archivePath} holds {clashes} file(s) named like files already in the download, left those alone and import the archive as it is");
+                                }
+                            }
+                            else
+                            {
+                                _logger.Info($"[PostDownload] Extraction successful on attempt {attempt}. Deleting archive: {archivePath}");
+                                try { File.Delete(archivePath); } catch { }
+                            }
                             success = true;
                         }
                         else
@@ -185,6 +223,13 @@ namespace RetroArr.Core.Download
                     catch (Exception ex)
                     {
                         _logger.Warn($"[PostDownload] Extract attempt {attempt}/{maxAttempts} failed for {archivePath}: {ex.Message}");
+                    }
+                    finally
+                    {
+                        if (staging != null)
+                        {
+                            try { if (Directory.Exists(staging)) Directory.Delete(staging, true); } catch { }
+                        }
                     }
 
                     if (!success && attempt < maxAttempts)
@@ -226,7 +271,7 @@ namespace RetroArr.Core.Download
             return false;
         }
 
-        private void DeepClean(string path, List<string> unwantedExtensions)
+        private void DeepClean(string path, List<string> unwantedExtensions, HashSet<string>? keep)
         {
             var files = Directory.EnumerateFiles(path, "*.*", SearchOption.AllDirectories);
             foreach (var file in files)
@@ -234,6 +279,11 @@ namespace RetroArr.Core.Download
                 var ext = Path.GetExtension(file).ToLower();
                 if (unwantedExtensions.Contains(ext))
                 {
+                    if (keep != null)
+                    {
+                        keep.Add(file);
+                        continue;
+                    }
                     try
                     {
                         _logger.Info($"[PostDownload] Deleting unwanted file: {file}");
@@ -244,7 +294,7 @@ namespace RetroArr.Core.Download
             }
         }
 
-        private async System.Threading.Tasks.Task<PostDownloadResult> AutoMoveToLibrary(DownloadStatus download)
+        private async System.Threading.Tasks.Task<PostDownloadResult> AutoMoveToLibrary(DownloadStatus download, HashSet<string>? keep)
         {
             var mediaSettings = _configService.LoadMediaSettings();
             // Match ResolveGameFolder: any rooted path is good enough, mkdir does the rest.
@@ -265,7 +315,7 @@ namespace RetroArr.Core.Download
             // Game-targeted import: if download is linked to a specific game, import directly to its folder
             if (download.GameId.HasValue)
             {
-                return await ImportToGameFolder(download, mediaSettings, libraryRoot);
+                return await ImportToGameFolder(download, mediaSettings, libraryRoot, keep);
             }
 
             var platformFolder = ResolvePlatformFolderName(download.PlatformFolder, mediaSettings.FolderNamingMode);
@@ -326,7 +376,7 @@ namespace RetroArr.Core.Download
 
             if (isDirectory)
             {
-                var files = Directory.GetFiles(download.DownloadPath!, "*.*", SearchOption.AllDirectories);
+                var files = GetImportFiles(download.DownloadPath!, keep);
                 bool hasGameFile = files.Any(f => validExtensions.Contains(Path.GetExtension(f).ToLower()));
 
                 if (!hasGameFile)
@@ -343,6 +393,7 @@ namespace RetroArr.Core.Download
 
                 var originalFolderName = new DirectoryInfo(download.DownloadPath!).Name;
                 bool gameAdded = false;
+                int failedCount = 0;
 
                 foreach (var file in files)
                 {
@@ -374,6 +425,10 @@ namespace RetroArr.Core.Download
                             gameAdded = true;
                         }
                     }
+                    else
+                    {
+                        failedCount++;
+                    }
                 }
 
                 // If no game was added yet (no setup/install exe found), add the first valid game file
@@ -394,22 +449,14 @@ namespace RetroArr.Core.Download
                     }
                 }
 
-                // Cleanup source directory after successful import
-                if (!IsCriticalPath(download.DownloadPath))
+                // Anything that failed to import only exists in the download folder
+                if (failedCount == 0)
                 {
-                    try
-                    {
-                        _logger.Info($"[PostDownload] Cleaning up source directory: {download.DownloadPath}");
-                        Directory.Delete(download.DownloadPath, true);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.Warn($"[PostDownload] Warning: Could not delete source directory {download.DownloadPath}: {ex.Message}");
-                    }
+                    DeleteSource(download.DownloadPath, keep);
                 }
                 else
                 {
-                    _logger.Info($"[PostDownload] BLOCKED: Refusing to delete critical path: {download.DownloadPath}");
+                    _logger.Warn($"[PostDownload] {failedCount} file(s) failed to import, keeping source: {download.DownloadPath}");
                 }
 
                 return PostDownloadResult.Ok(gameFolder);
@@ -429,15 +476,7 @@ namespace RetroArr.Core.Download
                         var metadataSvc = _metadataFactory.CreateService();
                         await AddMovedGameToLibraryAsync(containerName, destPath, metadataSvc, download.PlatformFolder);
 
-                        // Cleanup source file
-                        if (!IsCriticalPath(file))
-                        {
-                            try { File.Delete(file); } catch { }
-                        }
-                        else
-                        {
-                            _logger.Info($"[PostDownload] BLOCKED: Refusing to delete critical path: {file}");
-                        }
+                        DeleteSource(file, keep);
 
                         return PostDownloadResult.Ok(destPath);
                     }
@@ -455,7 +494,7 @@ namespace RetroArr.Core.Download
         /// Import downloaded files directly into an existing game's folder.
         /// Resolves the game's canonical folder from its Path or MediaSettings pattern.
         /// </summary>
-        private async System.Threading.Tasks.Task<PostDownloadResult> ImportToGameFolder(DownloadStatus download, MediaSettings mediaSettings, string libraryRoot)
+        private async System.Threading.Tasks.Task<PostDownloadResult> ImportToGameFolder(DownloadStatus download, MediaSettings mediaSettings, string libraryRoot, HashSet<string>? keep)
         {
             var allGames = await _gameRepository.GetAllLightAsync();
             var game = allGames.FirstOrDefault(g => g.Id == download.GameId);
@@ -463,7 +502,7 @@ namespace RetroArr.Core.Download
             {
                 _logger.Info($"[PostDownload] GameId {download.GameId} not found in DB. Falling back to generic import.");
                 download.GameId = null;
-                return await AutoMoveToLibrary(download);
+                return await AutoMoveToLibrary(download, keep);
             }
 
             // Determine effective platform: the user-selected download platform takes priority
@@ -588,7 +627,7 @@ namespace RetroArr.Core.Download
 
             if (isDirectory)
             {
-                var files = Directory.GetFiles(download.DownloadPath!, "*.*", SearchOption.AllDirectories);
+                var files = GetImportFiles(download.DownloadPath!, keep);
                 foreach (var file in files)
                 {
                     var relativePath = Path.GetRelativePath(download.DownloadPath!, file);
@@ -631,11 +670,13 @@ namespace RetroArr.Core.Download
                     }
                 }
 
-                // Cleanup source directory
-                if (movedCount > 0 && !IsCriticalPath(download.DownloadPath))
+                if (movedCount > 0 && lastMoveError == null)
                 {
-                    try { Directory.Delete(download.DownloadPath, true); }
-                    catch (Exception ex) { _logger.Warn($"[PostDownload] Warning: Could not delete source: {ex.Message}"); }
+                    DeleteSource(download.DownloadPath, keep);
+                }
+                else if (movedCount > 0)
+                {
+                    _logger.Warn($"[PostDownload] Some files failed to import ({lastMoveError}), keeping source: {download.DownloadPath}");
                 }
             }
             else if (File.Exists(download.DownloadPath))
@@ -657,10 +698,7 @@ namespace RetroArr.Core.Download
                     firstMovedFile = finalPath;
                     _logger.Info($"[PostDownload] Moved: {Path.GetFileName(download.DownloadPath)} -> {finalPath}");
 
-                    if (!IsCriticalPath(download.DownloadPath))
-                    {
-                        try { File.Delete(download.DownloadPath!); } catch { }
-                    }
+                    DeleteSource(download.DownloadPath, keep);
                 }
                 else
                 {
@@ -906,6 +944,114 @@ namespace RetroArr.Core.Download
         {
             var namePart = !string.IsNullOrEmpty(dlcName) ? $"-{dlcName}" : "";
             return RetroArr.Core.IO.FileNameSanitizer.Sanitize($"{gameTitle}-DLC{namePart}", "unknown") + extension;
+        }
+
+        private static readonly string[] TorrentClients = { "qBittorrent", "Transmission", "Deluge" };
+
+        private bool IsTorrentDownload(DownloadStatus download)
+        {
+            var implementation = _configService.LoadDownloadClients().FirstOrDefault(c => c.Id == download.ClientId)?.Implementation;
+            return TorrentClients.Contains(implementation, StringComparer.OrdinalIgnoreCase);
+        }
+
+        // Moves nothing if any file would land on something that isn't ours (only files an earlier
+        // archive of the same run put there may be replaced). 'extracted' collects the files and folders it creates.
+        private static int MergeExtracted(string staging, string path, HashSet<string> extracted)
+        {
+            var moves = Directory.EnumerateFiles(staging, "*", SearchOption.AllDirectories)
+                .Select(file => (File: file, Dest: Path.Combine(path, Path.GetRelativePath(staging, file))))
+                .ToList();
+            var clashes = moves.Count(m => Directory.Exists(m.Dest) || (File.Exists(m.Dest) && !extracted.Contains(m.Dest)) || ParentIsFile(m.Dest, path));
+            if (clashes > 0) return clashes;
+
+            foreach (var (file, dest) in moves)
+            {
+                var missing = new List<string>();
+                for (var dir = Path.GetDirectoryName(dest); dir != null && !Directory.Exists(dir); dir = Path.GetDirectoryName(dir))
+                {
+                    missing.Add(dir);
+                }
+                Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                extracted.UnionWith(missing);
+                // throws instead of replacing a file that showed up since the check
+                File.Move(file, dest, overwrite: extracted.Contains(dest));
+                extracted.Add(dest);
+            }
+            return 0;
+        }
+
+        private static bool ParentIsFile(string dest, string path)
+        {
+            // GetDirectoryName normalises separators, so compare against the download folder the same way
+            var root = Path.GetDirectoryName(Path.Combine(path, "x"))!;
+            for (var dir = Path.GetDirectoryName(dest); dir != null && dir.Length > root.Length; dir = Path.GetDirectoryName(dir))
+            {
+                if (File.Exists(dir)) return true;
+            }
+            return false;
+        }
+
+        // Extracted files aren't part of the torrent and the library has its own copy by now
+        private static void RemoveExtracted(HashSet<string> extracted)
+        {
+            // deepest first, so a folder is empty once its files are gone
+            foreach (var entry in extracted.OrderByDescending(e => e.Count(c => c == '/' || c == '\\')).ThenByDescending(e => e.Length))
+            {
+                try
+                {
+                    if (File.Exists(entry)) File.Delete(entry);
+                    else if (Directory.Exists(entry) && !Directory.EnumerateFileSystemEntries(entry).Any()) Directory.Delete(entry);
+                }
+                catch (Exception ex) { _logger.Warn($"[PostDownload] Could not remove extracted {entry}: {ex.Message}"); }
+            }
+        }
+
+        // Left behind if RetroArr stopped mid-extraction. Only names RetroArr generates, never a folder the torrent ships.
+        private static void RemoveStaleStaging(string path)
+        {
+            try
+            {
+                foreach (var dir in Directory.EnumerateDirectories(path, ExtractStagingPrefix + "*").ToList())
+                {
+                    var suffix = Path.GetFileName(dir).Substring(ExtractStagingPrefix.Length);
+                    if (suffix.Length != 32 || !suffix.All(Uri.IsHexDigit)) continue;
+                    Directory.Delete(dir, true);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn($"[PostDownload] Could not remove leftover extraction folder in {path}: {ex.Message}");
+            }
+        }
+
+        private static string[] GetImportFiles(string path, HashSet<string>? keep)
+        {
+            var files = Directory.GetFiles(path, "*.*", SearchOption.AllDirectories);
+            return keep == null ? files : files.Where(f => !keep.Contains(f)).ToArray();
+        }
+
+        private static void DeleteSource(string? path, HashSet<string>? keep)
+        {
+            if (keep != null)
+            {
+                _logger.Info($"[PostDownload] Leaving source in place, the torrent client still seeds from it: {path}");
+                return;
+            }
+            if (IsCriticalPath(path))
+            {
+                _logger.Info($"[PostDownload] BLOCKED: Refusing to delete critical path: {path}");
+                return;
+            }
+            try
+            {
+                _logger.Info($"[PostDownload] Cleaning up source: {path}");
+                if (Directory.Exists(path)) Directory.Delete(path, true);
+                else File.Delete(path!);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn($"[PostDownload] Warning: Could not delete source {path}: {ex.Message}");
+            }
         }
 
         private static bool IsCriticalPath(string? path)

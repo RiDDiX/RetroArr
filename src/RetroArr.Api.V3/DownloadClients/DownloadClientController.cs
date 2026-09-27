@@ -215,7 +215,7 @@ namespace RetroArr.Api.V3.DownloadClients
         }
 
         [HttpDelete("queue/{clientId}/{downloadId}")]
-        public async Task<ActionResult> DeleteDownload(int clientId, string downloadId)
+        public async Task<ActionResult> DeleteDownload(int clientId, string downloadId, [FromQuery] bool deleteFiles = true)
         {
             var config = _clients.FirstOrDefault(c => c.Id == clientId);
             if (config == null) return NotFound("Client not found");
@@ -246,7 +246,7 @@ namespace RetroArr.Api.V3.DownloadClients
             {
                 // Decode URL encoded ID (especially for SABnzbd/Transmission which might have funky chars, although unlikely for IDs)
                 var decodedId = Uri.UnescapeDataString(downloadId);
-                var result = await client.RemoveDownloadAsync(decodedId);
+                var result = await client.RemoveDownloadAsync(decodedId, deleteFiles);
                 if (result) return Ok();
                 return BadRequest("Failed to delete download from client.");
             }

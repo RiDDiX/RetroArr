@@ -110,16 +110,17 @@ namespace RetroArr.Core.Download
             }
         }
 
-        public async Task<bool> RemoveDownloadAsync(string id)
+        public async Task<bool> RemoveDownloadAsync(string id, bool deleteFiles)
         {
             try
             {
                 // Try deleting from Queue (Active)
-                var queueUrl = $"{_baseUrl}?mode=queue&name=delete&value={Uri.EscapeDataString(id)}&apikey={_apiKey}&output=json";
+                var delFiles = deleteFiles ? 1 : 0;
+                var queueUrl = $"{_baseUrl}?mode=queue&name=delete&value={Uri.EscapeDataString(id)}&del_files={delFiles}&apikey={_apiKey}&output=json";
                 await _httpClient.GetAsync(queueUrl);
 
                 // Try deleting from History (Completed/Failed)
-                var historyUrl = $"{_baseUrl}?mode=history&name=delete&value={Uri.EscapeDataString(id)}&apikey={_apiKey}&output=json";
+                var historyUrl = $"{_baseUrl}?mode=history&name=delete&value={Uri.EscapeDataString(id)}&del_files={delFiles}&apikey={_apiKey}&output=json";
                 await _httpClient.GetAsync(historyUrl);
 
                 return true;

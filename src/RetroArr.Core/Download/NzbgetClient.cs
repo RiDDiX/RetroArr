@@ -163,14 +163,14 @@ namespace RetroArr.Core.Download
             }
         }
 
-        public async Task<bool> RemoveDownloadAsync(string id)
+        public async Task<bool> RemoveDownloadAsync(string id, bool deleteFiles)
         {
             try
             {
                 int nzbId;
                 if (!int.TryParse(id, out nzbId)) return false;
 
-                // Try deleting from Queue
+                // Try deleting from Queue. Files go either way: HistoryDelete below also removes a parked job's files
                 var queueReq = new 
                 { 
                     method = "editqueue", 
