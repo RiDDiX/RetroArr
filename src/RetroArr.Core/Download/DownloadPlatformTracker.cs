@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Web;
 using System.Diagnostics.CodeAnalysis;
 
@@ -16,6 +17,9 @@ namespace RetroArr.Core.Download
         private readonly object _lock = new();
         private List<TrackedDownload> _entries = new();
         private static readonly HashSet<string> GenericWords = new() { "retroarr", "download", "api", "get", "getnzb", "dl", "nzb", "torrent" };
+        // A file extension after a name with spaces ('Doom 64 (USA).z64'). Dotted release names keep their last part.
+        private static readonly Regex FileExtension = new(@"(?<=\s.*)\.(?=\d*[a-z])[a-z0-9]{1,4}$", RegexOptions.IgnoreCase);
+        private static readonly Regex BracketedTag = new(@"\([^)]*\)|\[[^\]]*\]|\{[^}]*\}");
 
         public DownloadPlatformTracker(string configDirectory)
         {
@@ -64,7 +68,7 @@ namespace RetroArr.Core.Download
             {
                 // Remove entries older than 7 days and the ones the lookups resolved for this download.
                 // Mappings for other, similar names stay.
-                _entries.RemoveAll(e => e.AddedAt < DateTime.UtcNow.AddDays(-7));
+                _entries.RemoveAll(IsExpired);
 
                 var matched = new[]
                 {
@@ -109,6 +113,13 @@ namespace RetroArr.Core.Download
                     var json = File.ReadAllText(_trackingFile);
                     _entries = JsonSerializer.Deserialize<List<TrackedDownload>>(json,
                         new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new List<TrackedDownload>();
+
+                    // Older builds added every NZBGet job as "RetroArr_download", so a mapping stored under that
+                    // name would hand one job's platform and game to all of them
+                    if (_entries.RemoveAll(e => string.Equals(e.Url, "RetroArr_download", StringComparison.OrdinalIgnoreCase)) > 0)
+                    {
+                        Save();
+                    }
                 }
             }
             catch (Exception ex)
@@ -131,36 +142,33 @@ namespace RetroArr.Core.Download
             }
         }
 
-        // The entry mapped under this exact name, else one for the same release name, else one whose name
-        // contains the other. Generic names (URL endpoints, the old NZBGet 'RetroArr_download') never match
-        // by name, and a name needs 4 meaningful characters to match inside a longer one.
+        private static bool IsExpired(TrackedDownload entry) => entry.AddedAt < DateTime.UtcNow.AddDays(-7);
+
+        // The newest live entry mapped under this exact name, else the newest for the same release name, else the
+        // newest that is the same once bracketed tags and a file extension are dropped on both sides. Names are
+        // never matched by containment, and generic names (URL endpoints, the old NZBGet 'RetroArr_download')
+        // never match by name. No match, or names that point to different platforms or games, leave the
+        // download for manual mapping.
         private TrackedDownload? Find(string downloadName, Func<TrackedDownload, bool> filter)
         {
             if (string.IsNullOrEmpty(downloadName)) return null;
 
-            var candidates = _entries.Where(filter).ToList();
+            var candidates = _entries.Where(e => !IsExpired(e) && filter(e)).Reverse().ToList();
             var exact = candidates.FirstOrDefault(e => e.Url.Equals(downloadName, StringComparison.OrdinalIgnoreCase));
             if (exact != null) return exact;
 
             var name = CleanName(downloadName);
-            var nameLength = MeaningfulLength(name);
-            if (nameLength == 0) return null;
+            if (MeaningfulLength(name) == 0) return null;
+            var sameName = candidates.Where(e => CleanName(ExtractName(e.Url)) == name).ToList();
+            if (sameName.Count > 0) return OneTarget(sameName);
 
-            TrackedDownload? partial = null;
-            foreach (var entry in candidates)
-            {
-                var entryName = CleanName(ExtractName(entry.Url));
-                var entryLength = MeaningfulLength(entryName);
-                if (entryLength == 0) continue;
-                if (entryName == name) return entry;
-                if (partial == null && ((entryLength >= 4 && name.Contains(entryName, StringComparison.Ordinal)) ||
-                                        (nameLength >= 4 && entryName.Contains(name, StringComparison.Ordinal))))
-                {
-                    partial = entry;
-                }
-            }
-            return partial;
+            var baseName = CleanName(StripTags(downloadName));
+            if (MeaningfulLength(baseName) == 0) return null;
+            return OneTarget(candidates.Where(e => CleanName(StripTags(ExtractName(e.Url))) == baseName).ToList());
         }
+
+        private static TrackedDownload? OneTarget(List<TrackedDownload> matches) =>
+            matches.Select(e => (e.PlatformFolder, e.GameId)).Distinct().Count() == 1 ? matches[0] : null;
 
         private static string ExtractName(string input)
         {
@@ -170,7 +178,9 @@ namespace RetroArr.Core.Download
             // Prowlarr and Jackett put the release name in file=, magnet links in dn=. Without dn= a torrent
             // client shows the info hash until it has the metadata.
             var query = HttpUtility.ParseQueryString(uri.Query);
-            return query["file"] ?? query["dn"] ?? query["xt"]?.Split(':')[^1] ??
+            // Hybrid magnets carry a btmh multihash too; a base32 btih never equals the hex name.
+            return query["file"] ?? query["dn"] ??
+                   query.GetValues("xt")?.FirstOrDefault(x => x.StartsWith("urn:btih:", StringComparison.OrdinalIgnoreCase))?["urn:btih:".Length..] ??
                    (uri.Segments.Length > 0 ? Uri.UnescapeDataString(uri.Segments[^1]) : string.Empty);
         }
 
@@ -183,6 +193,9 @@ namespace RetroArr.Core.Download
             }
             return input.Replace(".", " ").Replace("-", " ").Replace("_", " ").Trim().ToLowerInvariant();
         }
+
+        // 'Chrono Trigger (USA) [!].sfc' -> 'Chrono Trigger'
+        private static string StripTags(string name) => BracketedTag.Replace(FileExtension.Replace(name, string.Empty), " ");
 
         private static int MeaningfulLength(string cleanName) =>
             cleanName.Split(' ', StringSplitOptions.RemoveEmptyEntries)
