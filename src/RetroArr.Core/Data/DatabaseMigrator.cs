@@ -65,6 +65,7 @@ namespace RetroArr.Core.Data
                 EnsureTablesSafe(connection, dbType);
                 EnsureColumns(connection, "GameFiles", GameFilesColumns, dbType);
                 EnsureDownloadTablesSafe(connection, dbType);
+                EnsureDownloadHistoryIndexSafe(connection, dbType);
                 EnsureDiscoveryTablesSafe(connection, dbType);
                 EnsureWishlistTablesSafe(connection, dbType);
                 EnsureIndexesSafe(connection, dbType);
@@ -203,7 +204,6 @@ namespace RetroArr.Core.Data
                         Reason TEXT, SourcePath TEXT, DestinationPath TEXT,
                         ImportedAt TEXT NOT NULL, AddedAt TEXT NOT NULL, GameId INTEGER
                     );
-                    CREATE UNIQUE INDEX IF NOT EXISTS IX_DownloadHistory_DownloadId ON DownloadHistory(DownloadId);
                     CREATE INDEX IF NOT EXISTS IX_DownloadHistory_State ON DownloadHistory(State);
                     CREATE INDEX IF NOT EXISTS IX_DownloadHistory_Platform ON DownloadHistory(Platform);
                     CREATE INDEX IF NOT EXISTS IX_DownloadHistory_ImportedAt ON DownloadHistory(ImportedAt);";
@@ -231,6 +231,50 @@ namespace RetroArr.Core.Data
             catch (Exception ex)
             {
                 _logger.Info($"[Database] DownloadBlacklist table skipped: {ex.Message}");
+            }
+        }
+
+        // NZBGet ids are numbers every client counts on its own, so a download id is unique per client.
+        // Earlier builds made DownloadId unique by itself, which refused a second client's row.
+        private static void EnsureDownloadHistoryIndexSafe(DbConnection connection, DatabaseType dbType)
+        {
+            string? create = "CREATE UNIQUE INDEX IF NOT EXISTS IX_DownloadHistory_DownloadId_ClientId ON DownloadHistory (DownloadId, ClientId);";
+            string? drop = "DROP INDEX IF EXISTS IX_DownloadHistory_DownloadId;";
+            try
+            {
+                if (dbType == DatabaseType.PostgreSQL)
+                {
+                    create = @"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_DownloadHistory_DownloadId_ClientId"" ON ""DownloadHistory"" (""DownloadId"", ""ClientId"");";
+                    drop = @"DROP INDEX IF EXISTS ""IX_DownloadHistory_DownloadId"";";
+                }
+                else if (dbType == DatabaseType.MariaDB)
+                {
+                    // MySQL has neither CREATE INDEX IF NOT EXISTS nor DROP INDEX IF EXISTS
+                    var indexes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    using (var cmd = connection.CreateCommand())
+                    {
+                        cmd.CommandText = "SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_NAME = 'DownloadHistory' AND TABLE_SCHEMA = DATABASE();";
+                        using var reader = cmd.ExecuteReader();
+                        while (reader.Read()) indexes.Add(reader[0]?.ToString() ?? string.Empty);
+                    }
+                    if (indexes.Count == 0) return; // no table
+                    create = indexes.Contains("IX_DownloadHistory_DownloadId_ClientId") ? null
+                        : "CREATE UNIQUE INDEX IX_DownloadHistory_DownloadId_ClientId ON DownloadHistory (DownloadId, ClientId);";
+                    drop = indexes.Contains("IX_DownloadHistory_DownloadId") ? "DROP INDEX IX_DownloadHistory_DownloadId ON DownloadHistory;" : null;
+                }
+
+                // the new index first, so a failure leaves the old one in place
+                foreach (var sql in new[] { create, drop })
+                {
+                    if (sql == null) continue;
+                    using var cmd = connection.CreateCommand();
+                    cmd.CommandText = sql;
+                    cmd.ExecuteNonQuery();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Info($"[Database] DownloadHistory index skipped: {ex.Message}");
             }
         }
 

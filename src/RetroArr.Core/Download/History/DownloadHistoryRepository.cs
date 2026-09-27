@@ -28,7 +28,7 @@ namespace RetroArr.Core.Download.History
             return history.Where(h => h.DownloadId == downloadId && (!perClient || h.ClientId == clientId));
         }
 
-        public async Task<DownloadHistoryEntry?> FindByDownloadIdAsync(string downloadId, int clientId, string title)
+        public async Task<DownloadHistoryEntry?> FindByDownloadIdAsync(string downloadId, int clientId, string title, long size)
         {
             using var context = await _contextFactory.CreateDbContextAsync();
             var entry = await ForDownload(context.DownloadHistory, downloadId, clientId).FirstOrDefaultAsync();
@@ -36,9 +36,10 @@ namespace RetroArr.Core.Download.History
                 return entry;
 
             // Transmission ids were its per-session torrent numbers before they became the hash. An import
-            // recorded under the old number is taken over once, so the torrent isn't imported again.
+            // recorded under the old number is taken over once, so the torrent isn't imported again. The size
+            // tells it apart from another release with the same name.
             var legacy = (await context.DownloadHistory
-                    .Where(h => h.ClientId == clientId && h.Title == title && h.State == DownloadHistoryState.Imported)
+                    .Where(h => h.ClientId == clientId && h.Title == title && h.Size == size && h.State == DownloadHistoryState.Imported)
                     .ToListAsync())
                 .FirstOrDefault(h => TrackedDownloadService.IsNumericId(h.DownloadId));
             if (legacy == null) return null;
@@ -48,8 +49,6 @@ namespace RetroArr.Core.Download.History
             return legacy;
         }
 
-        // The unique index on DownloadId refuses a second client's row for the same numeric id; that
-        // flush fails and the first client's row stays as it was.
         public async Task UpsertAsync(DownloadHistoryEntry entry)
         {
             using var context = await _contextFactory.CreateDbContextAsync();

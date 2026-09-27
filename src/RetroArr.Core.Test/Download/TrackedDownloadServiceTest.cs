@@ -21,12 +21,13 @@ namespace RetroArr.Core.Test.Download
         [TearDown]
         public void TearDown() => Directory.Delete(_root, true);
 
-        private static DownloadStatus Status(string id, string name, DownloadState state = DownloadState.Completed) => new()
+        private static DownloadStatus Status(string id, string name, DownloadState state = DownloadState.Completed, long size = 0) => new()
         {
             Id = id,
             Name = name,
             DownloadPath = "/downloads/" + name,
             State = state,
+            Size = size,
         };
 
         // NZBGet and other clients count their ids from 1: the same number from two clients is two downloads
@@ -63,16 +64,30 @@ namespace RetroArr.Core.Test.Download
 
         // tracked_downloads.json as the earlier builds wrote it
         [TestCase(TrackedDownloadState.Downloading, null)]
+        [TestCase(TrackedDownloadState.ImportPending, null)]
+        [TestCase(TrackedDownloadState.ImportBlocked, null)]
+        [TestCase(TrackedDownloadState.ImportFailed, null)]
         [TestCase(TrackedDownloadState.Imported, "snes")]
+        [TestCase(TrackedDownloadState.Ignored, "snes")]
         public void Load_OldNzbgetJobName_ForgetsItsGuessedPlatform(TrackedDownloadState state, string? expectedPlatform)
         {
             File.WriteAllText(Path.Combine(_root, "tracked_downloads.json"),
-                "[{\"DownloadId\":\"7\",\"DownloadClientId\":1,\"Title\":\"RetroArr_download\",\"PlatformFolder\":\"snes\",\"GameId\":42,\"State\":" + (int)state + "}]");
+                "[{\"DownloadId\":\"7\",\"DownloadClientId\":1,\"Title\":\"RetroArr_download\",\"PlatformFolder\":\"snes\",\"GameId\":42,\"ImportSubfolder\":\"DLC\",\"State\":" + (int)state + "}]");
 
             var loaded = new TrackedDownloadService(_root).Find(1, "7");
 
             Assert.That(loaded!.PlatformFolder, Is.EqualTo(expectedPlatform));
             Assert.That(loaded.GameId, expectedPlatform == null ? Is.Null : Is.EqualTo(42));
+            Assert.That(loaded.ImportSubfolder, expectedPlatform == null ? Is.Null : Is.EqualTo("DLC"));
+        }
+
+        [Test]
+        public void Load_EntryWithoutTitle_KeepsLoadingTheRest()
+        {
+            File.WriteAllText(Path.Combine(_root, "tracked_downloads.json"),
+                "[{\"DownloadId\":\"1\",\"DownloadClientId\":1,\"Title\":null},{\"DownloadId\":\"2\",\"DownloadClientId\":1,\"Title\":\"Game\"}]");
+
+            Assert.That(new TrackedDownloadService(_root).GetTrackedDownloads(), Has.Count.EqualTo(2));
         }
 
         [Test]
@@ -113,10 +128,11 @@ namespace RetroArr.Core.Test.Download
         }
 
         private const string Hash = "0123456789abcdef0123456789abcdef01234567";
+        private const string OtherHash = "fedcba9876543210fedcba9876543210fedcba98";
 
-        private void WriteEntry(string id, int clientId, string title, TrackedDownloadState state) =>
+        private void WriteEntry(string id, int clientId, string title, TrackedDownloadState state, long size = 0) =>
             File.WriteAllText(Path.Combine(_root, "tracked_downloads.json"),
-                $"[{{\"DownloadId\":\"{id}\",\"DownloadClientId\":{clientId},\"Title\":\"{title}\",\"State\":{(int)state}," +
+                $"[{{\"DownloadId\":\"{id}\",\"DownloadClientId\":{clientId},\"Title\":\"{title}\",\"Size\":{size},\"State\":{(int)state}," +
                 "\"PlatformFolder\":\"snes\",\"StatusMessages\":[\"Import failed: disk full\"],\"Added\":\"2026-09-27T10:00:00Z\"}]");
 
         // Transmission entries from before its ids became the hash carry its per-session number
@@ -140,15 +156,37 @@ namespace RetroArr.Core.Test.Download
         [TestCase("1", 3, "Game A", Hash)]
         [TestCase("SABnzbd_nzo_x", 2, "Game A", Hash)]
         [TestCase("1", 2, "Game A", "7")]
-        public void Track_OtherEntries_StayWhereTheyAre(string oldId, int oldClient, string oldTitle, string newId)
+        [TestCase("1", 2, "Game A", Hash, 999999)]
+        public void Track_OtherEntries_StayWhereTheyAre(string oldId, int oldClient, string oldTitle, string newId, long oldSize = 0)
         {
-            WriteEntry(oldId, oldClient, oldTitle, TrackedDownloadState.ImportFailed);
+            WriteEntry(oldId, oldClient, oldTitle, TrackedDownloadState.ImportFailed, oldSize);
             var service = new TrackedDownloadService(_root);
 
             var tracked = service.TrackDownload(Status(newId, "Game A"), 2, "Transmission");
 
             Assert.That(tracked.State, Is.EqualTo(TrackedDownloadState.ImportPending));
             Assert.That(service.Find(oldClient, oldId)?.DownloadId, Is.EqualTo(oldId));
+            Assert.That(service.GetTrackedDownloads(), Has.Count.EqualTo(2));
+        }
+
+        // Two torrents with the same name from before the upgrade: each hash takes over the entry of its size
+        [TestCase(true)]
+        [TestCase(false)]
+        public void Track_TwoOldEntriesWithTheSameName_EachHashTakesOverItsOwn(bool seedingFirst)
+        {
+            File.WriteAllText(Path.Combine(_root, "tracked_downloads.json"),
+                $"[{{\"DownloadId\":\"1\",\"DownloadClientId\":2,\"Title\":\"Game X\",\"Size\":100,\"State\":{(int)TrackedDownloadState.Imported}}}," +
+                $"{{\"DownloadId\":\"2\",\"DownloadClientId\":2,\"Title\":\"Game X\",\"Size\":200,\"State\":{(int)TrackedDownloadState.Downloading}}}]");
+            var service = new TrackedDownloadService(_root);
+            var seeding = Status(Hash, "Game X", DownloadState.Completed, 100);
+            var downloading = Status(OtherHash, "Game X", DownloadState.Downloading, 200);
+
+            if (seedingFirst) service.TrackDownload(seeding, 2, "Transmission");
+            service.TrackDownload(downloading, 2, "Transmission");
+            if (!seedingFirst) service.TrackDownload(seeding, 2, "Transmission");
+
+            Assert.That(service.Find(2, Hash)?.State, Is.EqualTo(TrackedDownloadState.Imported));
+            Assert.That(service.Find(2, OtherHash)?.State, Is.EqualTo(TrackedDownloadState.Downloading));
             Assert.That(service.GetTrackedDownloads(), Has.Count.EqualTo(2));
         }
 

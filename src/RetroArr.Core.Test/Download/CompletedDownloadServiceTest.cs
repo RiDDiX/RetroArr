@@ -120,10 +120,10 @@ namespace RetroArr.Core.Test.Download
 
         private const string Hash = "0123456789abcdef0123456789abcdef01234567";
 
-        private async Task AddRow(string downloadId, int clientId, string title, DownloadHistoryState state)
+        private async Task AddRow(string downloadId, int clientId, string title, DownloadHistoryState state, long size = 0)
         {
             using var ctx = new RetroArrDbContext(_db);
-            ctx.DownloadHistory.Add(new DownloadHistoryEntry { DownloadId = downloadId, ClientId = clientId, Title = title, State = state });
+            ctx.DownloadHistory.Add(new DownloadHistoryEntry { DownloadId = downloadId, ClientId = clientId, Title = title, State = state, Size = size });
             await ctx.SaveChangesAsync();
         }
 
@@ -166,8 +166,9 @@ namespace RetroArr.Core.Test.Download
         [Test]
         public async Task Check_TransmissionImportRecordedUnderItsOldNumber_IsNotImportedAgain()
         {
-            await AddRow("15", 2, "Game A", DownloadHistoryState.Imported);
+            await AddRow("15", 2, "Game A", DownloadHistoryState.Imported, 100);
             var tracked = Ready(Hash, 2, "Game A");
+            tracked.Size = 100;
 
             await _service.CheckAsync(tracked, new DownloadClient());
 

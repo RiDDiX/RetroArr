@@ -81,14 +81,37 @@ namespace RetroArr.Core.Test.Download
             Assert.That(tr.Requests, Does.Contain($"torrent-set {{\"ids\":[\"abc123\"],\"labels\":{expectedLabels}}}"));
         }
 
-        // The torrent was already there and may belong to another app (Deluge leaves it alone too)
+        // The torrent was already there and may belong to another app (Deluge leaves it alone too). Without
+        // the label it never shows up in RetroArr, so the log says so.
         [Test]
         public async Task Add_Duplicate_IsNotLabelled()
         {
             using var tr = new FakeTransmission { AddedKey = "torrent-duplicate", Torrents = "[{\"labels\":[]}]" };
+            var added = false;
 
-            Assert.That(await new TransmissionClient("127.0.0.1", tr.Port, "u", "p").AddTorrentAsync(Magnet, "RetroArr"), Is.True);
+            var logs = await Logs(async () => added = await new TransmissionClient("127.0.0.1", tr.Port, "u", "p").AddTorrentAsync(Magnet, "RetroArr"));
+
+            Assert.That(added, Is.True);
             Assert.That(tr.Requests, Is.EqualTo(new[] { $"torrent-add {{\"filename\":\"{Magnet}\",\"labels\":[\"RetroArr\"]}}" }));
+            Assert.That(logs, Has.Some.StartsWith("Warn|[Transmission] 'Some.Game-GRP' is already in Transmission and was not labelled 'RetroArr'"));
+        }
+
+        private static async Task<IList<string>> Logs(Func<Task> action)
+        {
+            var target = new NLog.Targets.MemoryTarget { Layout = "${level}|${message}" };
+            var previous = NLog.LogManager.Configuration;
+            var config = new NLog.Config.LoggingConfiguration();
+            config.AddRuleForAllLevels(target);
+            NLog.LogManager.Configuration = config;
+            try
+            {
+                await action();
+                return target.Logs.ToList();
+            }
+            finally
+            {
+                NLog.LogManager.Configuration = previous;
+            }
         }
 
         [Test]

@@ -173,11 +173,12 @@ namespace RetroArr.Core.Download.TrackedDownloads
         internal static bool IsHashId(string id) => id.Length == 40 && id.All(char.IsAsciiHexDigit);
 
         // Transmission ids were its per-session torrent numbers before they became the hash. An entry an
-        // earlier build tracked under the number moves to the hash, so the torrent isn't tracked twice.
+        // earlier build tracked under the number moves to the hash, so the torrent isn't tracked twice. The
+        // size tells two torrents with the same name apart.
         private bool TryTakeOverNumericEntry(DownloadStatus downloadItem, int clientId, [NotNullWhen(true)] out TrackedDownload? tracked)
         {
             tracked = IsHashId(downloadItem.Id)
-                ? _cache.Values.FirstOrDefault(t => t.DownloadClientId == clientId && t.Title == downloadItem.Name && IsNumericId(t.DownloadId))
+                ? _cache.Values.FirstOrDefault(t => t.DownloadClientId == clientId && t.Title == downloadItem.Name && t.Size == downloadItem.Size && IsNumericId(t.DownloadId))
                 : null;
             if (tracked == null || !_cache.TryRemove(Key(tracked), out _)) return false;
 
@@ -231,7 +232,7 @@ namespace RetroArr.Core.Download.TrackedDownloads
 
                     // Older builds added every NZBGet job as "RetroArr_download" and guessed its platform and
                     // game from an unrelated grab. Drop that guess so the job is mapped again or lands in Unmapped.
-                    if (entry.Title.Equals("RetroArr_download", StringComparison.OrdinalIgnoreCase)
+                    if (string.Equals(entry.Title, "RetroArr_download", StringComparison.OrdinalIgnoreCase)
                         && entry.State != TrackedDownloadState.Imported && entry.State != TrackedDownloadState.Ignored)
                     {
                         entry.PlatformFolder = null;

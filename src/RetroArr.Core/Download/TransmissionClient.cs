@@ -202,6 +202,12 @@ namespace RetroArr.Core.Download
             try
             {
                 if (!addResult.TryGetProperty("arguments", out var added)) return;
+                if (added.TryGetProperty("torrent-duplicate", out var duplicate))
+                {
+                    var name = duplicate.TryGetProperty("name", out var n) ? n.GetString() : null;
+                    _logger.Warn($"[Transmission] '{name}' is already in Transmission and was not labelled '{label}'. RetroArr won't show or import it unless you add the label in Transmission.");
+                    return;
+                }
                 if (!added.TryGetProperty("torrent-added", out var torrent)) return;
                 var hash = torrent.GetProperty("hashString").GetString();
                 if (string.IsNullOrEmpty(hash)) return;

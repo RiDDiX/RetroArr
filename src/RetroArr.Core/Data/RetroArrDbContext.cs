@@ -209,9 +209,10 @@ namespace RetroArr.Core.Data
                 entity.Property(e => e.State)
                     .HasConversion<string>()
                     .HasMaxLength(20);
-                entity.HasIndex(e => e.DownloadId)
+                // NZBGet ids are numbers every client counts on its own
+                entity.HasIndex(e => new { e.DownloadId, e.ClientId })
                     .IsUnique()
-                    .HasDatabaseName("IX_DownloadHistory_DownloadId");
+                    .HasDatabaseName("IX_DownloadHistory_DownloadId_ClientId");
                 entity.HasIndex(e => e.State)
                     .HasDatabaseName("IX_DownloadHistory_State");
                 entity.HasIndex(e => e.Platform)
