@@ -220,7 +220,10 @@ namespace RetroArr.Core.Search
                         MagnetUrl = j.MagnetUri,
                         InfoUrl = j.Guid,
                         Protocol = j.Protocol,
-                        Provider = "Jackett"
+                        Provider = "Jackett",
+                        Categories = (j.Category ?? new List<int>())
+                            .Select(id => new ProwlarrCategory { Id = id, Name = id.ToString(System.Globalization.CultureInfo.InvariantCulture) })
+                            .ToList()
                     }).ToList();
                 }, ct, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default));
             }
@@ -302,7 +305,7 @@ namespace RetroArr.Core.Search
                             .AddTorrentAsync(url, client.Category ?? string.Empty).ConfigureAwait(false);
                         break;
                     case "deluge":
-                        sent = await new DelugeClient(client.Host, client.Port, client.Password ?? string.Empty)
+                        sent = await new DelugeClient(client.Host, client.Port, client.Password ?? string.Empty, client.UseSsl)
                             .AddTorrentAsync(url, client.Category ?? string.Empty).ConfigureAwait(false);
                         break;
                     case "sabnzbd":
