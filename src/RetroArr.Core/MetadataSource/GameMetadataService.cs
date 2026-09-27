@@ -622,9 +622,7 @@ namespace RetroArr.Core.MetadataSource
             {
                 foreach (var igdbPlat in igdbGame.Platforms)
                 {
-                    var match = PlatformDefinitions.AllPlatforms.FirstOrDefault(pd =>
-                        pd.Name.Equals(igdbPlat.Name, StringComparison.OrdinalIgnoreCase) ||
-                        (!string.IsNullOrEmpty(igdbPlat.Abbreviation) && pd.Slug.Equals(igdbPlat.Abbreviation, StringComparison.OrdinalIgnoreCase)));
+                    var match = PlatformDefinitions.AllPlatforms.FirstOrDefault(pd => MatchesIgdbPlatformName(pd, igdbPlat));
                     if (match != null) { resolvedPlatformId = match.Id; break; }
                 }
             }
@@ -652,6 +650,12 @@ namespace RetroArr.Core.MetadataSource
                 RatingCount = igdbGame.RatingCount,
                 Genres = igdbGame.Genres.Select(g => LocalizeGenre(g.Name, lang)).ToList(),
                 AvailablePlatforms = igdbGame.Platforms.Select(p => !string.IsNullOrEmpty(p.Abbreviation) ? p.Abbreviation : p.Name).ToList(),
+                // Steam/GOG/Epic share PC's IGDB id but are import sources, not platforms to pick
+                AvailablePlatformIds = PlatformDefinitions.AllPlatforms
+                    .Where(pd => pd.Category != "Special")
+                    .Where(pd => igdbGame.Platforms.Any(p => (p.Id > 0 && pd.IgdbPlatformId == p.Id) || MatchesIgdbPlatformName(pd, p)))
+                    .Select(pd => pd.Id)
+                    .ToList(),
                 Images = new GameImages()
             };
 
@@ -702,6 +706,10 @@ namespace RetroArr.Core.MetadataSource
 
             return game;
         }
+
+        private static bool MatchesIgdbPlatformName(Platform pd, IgdbPlatform igdbPlat) =>
+            pd.Name.Equals(igdbPlat.Name, StringComparison.OrdinalIgnoreCase) ||
+            (!string.IsNullOrEmpty(igdbPlat.Abbreviation) && pd.Slug.Equals(igdbPlat.Abbreviation, StringComparison.OrdinalIgnoreCase));
 
         private Game? MapScreenScraperGameToGame(ScreenScraperGame ssGame, int platformId, string? lang = null)
         {

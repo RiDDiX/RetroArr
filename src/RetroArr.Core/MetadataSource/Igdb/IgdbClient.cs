@@ -70,7 +70,7 @@ namespace RetroArr.Core.MetadataSource.Igdb
             request.Headers.Add("Authorization", $"Bearer {_accessToken}");
 
             // Basic fields to fetch
-            var fields = "name, summary, storyline, cover.image_id, screenshots.image_id, artworks.image_id, first_release_date, total_rating, total_rating_count, genres.name, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, external_games.category, external_games.uid, platforms.name, platforms.abbreviation, alternative_names.name, alternative_names.comment";
+            var fields = "name, summary, storyline, cover.image_id, screenshots.image_id, artworks.image_id, first_release_date, total_rating, total_rating_count, genres.name, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, external_games.category, external_games.uid, platforms.id, platforms.name, platforms.abbreviation, alternative_names.name, alternative_names.comment";
 
             // If lang provided, request localized names (not fully supported by IGDB API in search directly, post-filtering needed)
             // Note: IGDB doesn't have a simple "lang" parameter for search. We fetch data and filter logic in Service.
@@ -117,7 +117,7 @@ namespace RetroArr.Core.MetadataSource.Igdb
              request.Headers.Add("Client-ID", _clientId);
              request.Headers.Add("Authorization", $"Bearer {_accessToken}");
              
-             var fields = "name, summary, storyline, cover.image_id, screenshots.image_id, artworks.image_id, first_release_date, total_rating, total_rating_count, genres.name, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, external_games.category, external_games.uid, platforms.name, platforms.abbreviation, alternative_names.name, alternative_names.comment";
+             var fields = "name, summary, storyline, cover.image_id, screenshots.image_id, artworks.image_id, first_release_date, total_rating, total_rating_count, genres.name, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, external_games.category, external_games.uid, platforms.id, platforms.name, platforms.abbreviation, alternative_names.name, alternative_names.comment";
              
              var idString = string.Join(",", ids);
              var body = $"fields {fields}; where id = ({idString}); limit 50;";
@@ -286,6 +286,7 @@ namespace RetroArr.Core.MetadataSource.Igdb
 
     public class IgdbPlatform
     {
+        public int Id { get; set; }
         public string Name { get; set; } = string.Empty;
         public string Abbreviation { get; set; } = string.Empty;
     }

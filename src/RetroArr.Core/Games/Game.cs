@@ -26,6 +26,11 @@ namespace RetroArr.Core.Games
         [SuppressMessage("Microsoft.Design", "CA1002:DoNotExposeGenericLists")]
         [System.ComponentModel.DataAnnotations.Schema.NotMapped]
         public List<string> AvailablePlatforms { get; set; } = new();
+        // RetroArr platform ids matching the metadata result's platforms
+        [SuppressMessage("Microsoft.Usage", "CA2227:CollectionPropertiesShouldBeReadOnly")]
+        [SuppressMessage("Microsoft.Design", "CA1002:DoNotExposeGenericLists")]
+        [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+        public List<int> AvailablePlatformIds { get; set; } = new();
         public string? Developer { get; set; }
         public string? Publisher { get; set; }
         public DateTime? ReleaseDate { get; set; }

@@ -46,6 +46,7 @@ interface SearchResult {
   year?: number;
   igdbId?: number;
   availablePlatforms?: string[];
+  availablePlatformIds?: number[];
 }
 
 interface Platform {
@@ -418,17 +419,10 @@ const Library: React.FC = () => {
     }
   };
 
-  const handleAddGame = async (result: SearchResult) => {
-    // Show platform picker if game has multiple platforms
-    if (result.availablePlatforms && result.availablePlatforms.length > 0) {
-      setPendingGameToAdd(result);
-      setSelectedAddPlatform(null);
-      setShowPlatformPicker(true);
-      return;
-    }
-    
-    // Fallback to default platform if no platforms available
-    await addGameWithPlatform(result, 1);
+  const handleAddGame = (result: SearchResult) => {
+    setPendingGameToAdd(result);
+    setSelectedAddPlatform(null);
+    setShowPlatformPicker(true);
   };
 
   const addGameWithPlatform = async (result: SearchResult, platformId: number) => {
@@ -465,14 +459,9 @@ const Library: React.FC = () => {
     await addGameWithPlatform(pendingGameToAdd, selectedAddPlatform);
   };
 
-  const getMatchingPlatforms = (availablePlatformNames: string[]): Platform[] => {
-    return allPlatforms.filter(p => 
-      availablePlatformNames.some(name => 
-        p.name.toLowerCase().includes(name.toLowerCase()) ||
-        name.toLowerCase().includes(p.name.toLowerCase()) ||
-        p.slug.toLowerCase() === name.toLowerCase()
-      )
-    );
+  // ids are resolved by the backend from the metadata result's platforms
+  const getMatchingPlatforms = (availablePlatformIds: number[] = []): Platform[] => {
+    return allPlatforms.filter(p => availablePlatformIds.includes(p.id));
   };
 
   // platformGameCounts is now loaded from loadPlatformCounts() into state
@@ -1308,7 +1297,7 @@ const Library: React.FC = () => {
               overflowY: 'auto',
               padding: '0.5rem'
             }}>
-              {pendingGameToAdd.availablePlatforms && getMatchingPlatforms(pendingGameToAdd.availablePlatforms).map(platform => (
+              {getMatchingPlatforms(pendingGameToAdd.availablePlatformIds).map(platform => (
                 <button
                   key={platform.id}
                   className={`platform-picker-btn ${selectedAddPlatform === platform.id ? 'selected' : ''}`}
@@ -1333,31 +1322,32 @@ const Library: React.FC = () => {
                 </button>
               ))}
               
-              {pendingGameToAdd.availablePlatforms && getMatchingPlatforms(pendingGameToAdd.availablePlatforms).length === 0 && (
+              {getMatchingPlatforms(pendingGameToAdd.availablePlatformIds).length === 0 && (
                 <div style={{ gridColumn: '1 / -1', padding: '1rem', textAlign: 'center', color: 'var(--ctp-overlay0)' }}>
                   <p>{t('noPlatformsAvailable') || 'No matching platforms found. Enable more platforms in Settings.'}</p>
-                  <div style={{ marginTop: '1rem' }}>
-                    <label style={{ display: 'block', marginBottom: '0.5rem' }}>{t('selectManually') || 'Select manually:'}</label>
-                    <select 
-                      value={selectedAddPlatform || ''} 
-                      onChange={(e) => setSelectedAddPlatform(parseInt(e.target.value))}
-                      style={{
-                        width: '100%',
-                        padding: '0.5rem',
-                        backgroundColor: 'var(--ctp-surface0)',
-                        border: '1px solid var(--ctp-surface1)',
-                        borderRadius: '4px',
-                        color: 'var(--ctp-text)'
-                      }}
-                    >
-                      <option value="">{t('selectPlatform') || 'Select Platform...'}</option>
-                      {allPlatforms.map(p => (
-                        <option key={p.id} value={p.id}>{p.name}</option>
-                      ))}
-                    </select>
-                  </div>
                 </div>
               )}
+            </div>
+
+            <div style={{ marginTop: '1rem' }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem' }}>{t('selectManually') || 'Select manually:'}</label>
+              <select
+                value={selectedAddPlatform || ''}
+                onChange={(e) => setSelectedAddPlatform(parseInt(e.target.value))}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  backgroundColor: 'var(--ctp-surface0)',
+                  border: '1px solid var(--ctp-surface1)',
+                  borderRadius: '4px',
+                  color: 'var(--ctp-text)'
+                }}
+              >
+                <option value="">{t('selectPlatform') || 'Select Platform...'}</option>
+                {allPlatforms.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
             </div>
           </>
         )}
