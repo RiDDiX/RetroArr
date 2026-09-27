@@ -555,13 +555,16 @@ const GameDetails: React.FC = () => {
   // Open platform selection modal before download
   const handleDownloadWithPlatform = (url: string, protocol?: string, detectedPlatform?: string, platformFolder?: string, releaseTitle?: string) => {
     setPendingDownload({ url, protocol, detectedPlatform, platformFolder, releaseTitle });
-    setSelectedPlatform(platformFolder || 'windows');
+    // Only preselect a folder the select can show ('unknown', 'mobile' and disabled platforms are not options),
+    // otherwise the select displays one platform while the download is filed under another
+    const gameFolder = availablePlatforms.find(p => p.id === game?.platformId)?.folder;
+    setSelectedPlatform(platformFolder && availablePlatforms.some(p => p.folder === platformFolder) ? platformFolder : gameFolder || '');
     setShowPlatformModal(true);
   };
 
   // Confirm download with selected platform
   const confirmDownload = async () => {
-    if (!pendingDownload || downloadingUrl) return;
+    if (!pendingDownload || !selectedPlatform || downloadingUrl) return;
 
     setShowPlatformModal(false);
     setDownloadingUrl(pendingDownload.url);
@@ -3030,7 +3033,7 @@ const GameDetails: React.FC = () => {
             <button className="btn-secondary" onClick={() => { setShowPlatformModal(false); setPendingDownload(null); }}>
               {t('cancel')}
             </button>
-            <button className="btn-primary" onClick={confirmDownload} style={{ backgroundColor: 'var(--ctp-green)', color: 'var(--ctp-base)' }}>
+            <button className="btn-primary" onClick={confirmDownload} disabled={!selectedPlatform} style={{ backgroundColor: selectedPlatform ? 'var(--ctp-green)' : 'var(--ctp-surface1)', color: selectedPlatform ? 'var(--ctp-base)' : 'var(--ctp-overlay0)' }}>
               <FontAwesomeIcon icon={faDownload} style={{ marginRight: '8px' }} />
               {t('startDownload') || 'Start Download'}
             </button>
@@ -3081,6 +3084,7 @@ const GameDetails: React.FC = () => {
             marginBottom: '20px'
           }}
         >
+          <option value="" disabled>{t('selectPlatform') || 'Select Platform...'}</option>
           {availablePlatforms.map(platform => (
             <option key={platform.id} value={platform.folder}>
               {platform.name} ({platform.folder})

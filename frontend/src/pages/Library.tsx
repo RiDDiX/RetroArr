@@ -431,7 +431,8 @@ const Library: React.FC = () => {
         title: result.title,
         year: result.year ?? 0,
         overview: result.overview ?? '',
-        igdbId: result.igdbId ?? result.id,
+        // lookup results carry id 0, and ScreenScraper/TheGamesDB/Epic results have no igdbId at all
+        igdbId: result.igdbId || undefined,
         images: result.images,
         platformId,
         status: 5,
@@ -954,7 +955,7 @@ const Library: React.FC = () => {
                   const titleLower = result.title?.toLowerCase();
                   const existingGame = localResults.find(g =>
                     g.title?.toLowerCase() === titleLower ||
-                    (g.igdbId && result.id && g.igdbId === result.id)
+                    (g.igdbId && result.igdbId && g.igdbId === result.igdbId)
                   ) ?? null;
                   const isExisting = !!existingGame;
 
