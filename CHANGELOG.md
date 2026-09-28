@@ -1,3 +1,8 @@
+## v1.0.222 (2026-09-28)
+
+### Changes
+- tighten api auth, the emulator player and secret handling (af7e5a4)
+
 ## v1.0.221 (2026-09-28)
 
 ### Changes
