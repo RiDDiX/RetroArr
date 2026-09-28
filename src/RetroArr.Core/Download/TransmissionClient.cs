@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using System.Diagnostics.CodeAnalysis;
+using RetroArr.Core.Logging;
 
 namespace RetroArr.Core.Download
 {
@@ -144,7 +145,7 @@ namespace RetroArr.Core.Download
                 try 
                 {
                     var cleanUrl = url.Trim();
-                    _logger.Info($"[Transmission] Manually downloading torrent from: {cleanUrl}");
+                    _logger.Info($"[Transmission] Manually downloading torrent from: {LogRedactor.DescribeDownloadUrl(cleanUrl)}");
                     
                     // Use a fresh client to avoid sending Transmission headers (Auth, SessionId) to Prowlarr
                     using var downloadClient = new HttpClient();

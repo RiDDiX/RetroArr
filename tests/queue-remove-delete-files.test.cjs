@@ -21,8 +21,8 @@ assert(
 
 const controller = read('src', 'RetroArr.Api.V3', 'DownloadClients', 'DownloadClientController.cs');
 assert(
-  controller.includes('[FromQuery] bool deleteFiles = true') &&
-  controller.includes('client.RemoveDownloadAsync(decodedId, deleteFiles)'),
+  controller.includes('[FromQuery] bool deleteFiles = false') &&
+  controller.includes('client.RemoveDownloadAsync(managedId, deleteFiles)'),
   'DELETE queue/{clientId}/{downloadId} must pass deleteFiles through to the client'
 );
 

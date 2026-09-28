@@ -9,6 +9,7 @@ using System.Xml.Linq;
 using RetroArr.Core.Indexers;
 using System.Diagnostics.CodeAnalysis;
 using System.Buffers;
+using RetroArr.Core.Logging;
 
 namespace RetroArr.Core.Prowlarr
 {
@@ -109,7 +110,8 @@ namespace RetroArr.Core.Prowlarr
             // Always log response preview for debugging
             var preview = content.Length > 500 ? content.Substring(0, 500) + "..." : content;
             _logger.Info($"[Prowlarr] Raw Content Length: {content.Length}");
-            _logger.Info($"[Prowlarr] Response Preview: {preview}");
+            // results carry download links with the Prowlarr API key in them
+            _logger.Info($"[Prowlarr] Response Preview: {LogRedactor.Redact(preview)}");
 
             try 
             {
@@ -232,7 +234,7 @@ namespace RetroArr.Core.Prowlarr
                         int endBrace = content.IndexOf("},", StringComparison.Ordinal);
                         if (firstBrace >= 0 && endBrace > firstBrace)
                         {
-                            _logger.Info($"[Prowlarr] First Object Raw: {content.Substring(firstBrace, Math.Min(endBrace - firstBrace + 1, 500))}");
+                            _logger.Info($"[Prowlarr] First Object Raw: {LogRedactor.Redact(content.Substring(firstBrace, Math.Min(endBrace - firstBrace + 1, 500)))}");
                         }
                     }
                     resultsJson = JsonSerializer.Deserialize<List<SearchResult>>(content, _jsonOptions) ?? new List<SearchResult>();

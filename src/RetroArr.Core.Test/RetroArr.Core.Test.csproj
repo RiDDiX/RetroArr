@@ -13,5 +13,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\RetroArr.Core\RetroArr.Core.csproj" />
+    <ProjectReference Include="..\RetroArr.Api.V3\RetroArr.Api.V3.csproj" />
   </ItemGroup>
 </Project>

@@ -7,6 +7,7 @@ using RetroArr.Core.Download;
 using RetroArr.Core.Download.TrackedDownloads;
 using RetroArr.Core.Configuration;
 using RetroArr.Core.Download.History;
+using RetroArr.Core.Logging;
 using System.Diagnostics.CodeAnalysis;
 
 namespace RetroArr.Api.V3.DownloadClients
@@ -53,7 +54,7 @@ namespace RetroArr.Api.V3.DownloadClients
         [HttpGet]
         public ActionResult<List<DownloadClient>> GetAll()
         {
-            return Ok(_clients);
+            return Ok(_clients.Select(WithoutSecrets).ToList());
         }
 
         [HttpGet("{id}")]
@@ -64,16 +65,18 @@ namespace RetroArr.Api.V3.DownloadClients
             {
                 return NotFound();
             }
-            return Ok(client);
+            return Ok(WithoutSecrets(client));
         }
 
         [HttpPost]
         public ActionResult<DownloadClient> Create([FromBody] DownloadClient client)
         {
             client.Id = _clients.Any() ? _clients.Max(c => c.Id) + 1 : 1;
+            client.Password = KeepSecret(client.Password, null);
+            client.ApiKey = KeepSecret(client.ApiKey, null);
             _clients.Add(client);
             _configService.SaveDownloadClients(_clients);
-            return CreatedAtAction(nameof(GetById), new { id = client.Id }, client);
+            return CreatedAtAction(nameof(GetById), new { id = client.Id }, WithoutSecrets(client));
         }
 
         [HttpPut("{id}")]
@@ -90,10 +93,10 @@ namespace RetroArr.Api.V3.DownloadClients
             existingClient.Host = client.Host;
             existingClient.Port = client.Port;
             existingClient.Username = client.Username;
-            existingClient.Password = client.Password;
+            existingClient.Password = KeepSecret(client.Password, existingClient.Password);
             existingClient.Category = client.Category;
             existingClient.UrlBase = client.UrlBase;
-            existingClient.ApiKey = client.ApiKey;
+            existingClient.ApiKey = KeepSecret(client.ApiKey, existingClient.ApiKey);
             existingClient.Enable = client.Enable;
             existingClient.Priority = client.Priority;
             existingClient.RemotePathMapping = client.RemotePathMapping;
@@ -101,8 +104,22 @@ namespace RetroArr.Api.V3.DownloadClients
 
             _configService.SaveDownloadClients(_clients);
 
-            return Ok(existingClient);
+            return Ok(WithoutSecrets(existingClient));
         }
+
+        // The stored password and API key never go back to the browser. The form gets a
+        // placeholder and sends it back unchanged when the secret wasn't edited.
+        public const string SecretPlaceholder = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
+
+        public static DownloadClient WithoutSecrets(DownloadClient client)
+        {
+            var copy = client.Clone();
+            if (!string.IsNullOrEmpty(copy.Password)) copy.Password = SecretPlaceholder;
+            if (!string.IsNullOrEmpty(copy.ApiKey)) copy.ApiKey = SecretPlaceholder;
+            return copy;
+        }
+
+        public static string? KeepSecret(string? sent, string? stored) => sent == SecretPlaceholder ? stored : sent;
 
         [HttpDelete("{id}")]
         public ActionResult Delete(int id)
@@ -218,38 +235,22 @@ namespace RetroArr.Api.V3.DownloadClients
         }
 
         [HttpDelete("queue/{clientId}/{downloadId}")]
-        public async Task<ActionResult> DeleteDownload(int clientId, string downloadId, [FromQuery] bool deleteFiles = true)
+        public async Task<ActionResult> DeleteDownload(int clientId, string downloadId, [FromQuery] bool deleteFiles = false)
         {
             var config = _clients.FirstOrDefault(c => c.Id == clientId);
             if (config == null) return NotFound("Client not found");
 
-            IDownloadClient? client = null;
-            if (config.Implementation.Equals("qBittorrent", StringComparison.OrdinalIgnoreCase))
-            {
-                client = new QBittorrentClient(config.Host, config.Port, config.Username ?? "", config.Password ?? "", config.UrlBase);
-            }
-            else if (config.Implementation.Equals("Transmission", StringComparison.OrdinalIgnoreCase))
-            {
-                client = new TransmissionClient(config.Host, config.Port, config.Username ?? "", config.Password ?? "");
-            }
-            else if (config.Implementation.Equals("SABnzbd", StringComparison.OrdinalIgnoreCase))
-            {
-                client = new SabnzbdClient(config.Host, config.Port, config.ApiKey ?? "", config.UrlBase);
-            }
-            else if (config.Implementation.Equals("NZBGet", StringComparison.OrdinalIgnoreCase))
-            {
-                client = new NzbgetClient(config.Host, config.Port, config.Username ?? "", config.Password ?? "", config.UrlBase);
-            }
-            else if (config.Implementation.Equals("Deluge", StringComparison.OrdinalIgnoreCase))
-                client = new DelugeClient(config.Host, config.Port, config.Password ?? "", config.UseSsl);
-
+            var client = CreateClient(config, config.Category);
             if (client == null) return BadRequest("Unsupported client implementation");
 
             try 
             {
                 // Decode URL encoded ID (especially for SABnzbd/Transmission which might have funky chars, although unlikely for IDs)
                 var decodedId = Uri.UnescapeDataString(downloadId);
-                var result = await client.RemoveDownloadAsync(decodedId, deleteFiles);
+                var managedId = await FindManagedIdAsync(config, client, decodedId);
+                if (managedId == null)
+                    return NotFound($"Download '{decodedId}' is not in the queue of this client");
+                var result = await client.RemoveDownloadAsync(managedId, deleteFiles);
                 if (result) return Ok();
                 return BadRequest("Failed to delete download from client.");
             }
@@ -325,7 +326,7 @@ namespace RetroArr.Api.V3.DownloadClients
                 {
                     download = (await scoped.GetDownloadsAsync()).FirstOrDefault(d => d.Id == decodedId);
                 }
-                if (download == null) return NotFound($"Download '{decodedId}' not found in client");
+                if (download == null || !InCategory(config, download)) return NotFound($"Download '{decodedId}' not found in client");
 
                 // Resolve platform, gameId, importSubfolder from tracker
                 download.PlatformFolder = _platformTracker.LookupByName(download.Name);
@@ -405,27 +406,33 @@ namespace RetroArr.Api.V3.DownloadClients
             var config = _clients.FirstOrDefault(c => c.Id == clientId);
             if (config == null) return false;
 
-            IDownloadClient? client = null;
-            if (config.Implementation.Equals("qBittorrent", StringComparison.OrdinalIgnoreCase))
-                client = new QBittorrentClient(config.Host, config.Port, config.Username ?? "", config.Password ?? "", config.UrlBase);
-            else if (config.Implementation.Equals("Transmission", StringComparison.OrdinalIgnoreCase))
-                client = new TransmissionClient(config.Host, config.Port, config.Username ?? "", config.Password ?? "");
-            else if (config.Implementation.Equals("SABnzbd", StringComparison.OrdinalIgnoreCase))
-                client = new SabnzbdClient(config.Host, config.Port, config.ApiKey ?? "", config.UrlBase);
-            else if (config.Implementation.Equals("NZBGet", StringComparison.OrdinalIgnoreCase))
-                client = new NzbgetClient(config.Host, config.Port, config.Username ?? "", config.Password ?? "", config.UrlBase);
-            else if (config.Implementation.Equals("Deluge", StringComparison.OrdinalIgnoreCase))
-                client = new DelugeClient(config.Host, config.Port, config.Password ?? "", config.UseSsl);
-
+            var client = CreateClient(config, config.Category);
             if (client == null) return false;
 
             try 
             {
-                var decodedId = Uri.UnescapeDataString(downloadId);
-                return await action(client, decodedId);
+                var managedId = await FindManagedIdAsync(config, client, Uri.UnescapeDataString(downloadId));
+                if (managedId == null) return false;
+                return await action(client, managedId);
             }
             catch { return false; }
         }
+
+        // The queue only lists the configured category, and only those downloads can be paused,
+        // resumed or removed through it; the rest of a shared client belongs to other apps.
+        // Returns the client's own id for it, so values like qBittorrent's "all" or "a|b" never
+        // reach the client.
+        public static async Task<string?> FindManagedIdAsync(DownloadClient config, IDownloadClient client, string downloadId)
+        {
+            var downloads = await client.GetDownloadsAsync();
+            return downloads.FirstOrDefault(d => d.Id.Equals(downloadId, StringComparison.OrdinalIgnoreCase)
+                && (string.IsNullOrEmpty(config.Category)
+                    || (!string.IsNullOrEmpty(d.Category) && d.Category.Equals(config.Category, StringComparison.OrdinalIgnoreCase))))?.Id;
+        }
+
+        private static bool InCategory(DownloadClient config, DownloadStatus download) =>
+            string.IsNullOrEmpty(config.Category)
+            || (!string.IsNullOrEmpty(download.Category) && download.Category.Equals(config.Category, StringComparison.OrdinalIgnoreCase));
 
         [HttpPost("test")]
         public async Task<ActionResult> TestConnection([FromBody] TestDownloadClientRequest request)
@@ -436,6 +443,11 @@ namespace RetroArr.Api.V3.DownloadClients
                 string version = string.Empty;
 
                 _logger.Info($"[DownloadClient] Testing {request.Implementation} at {request.Host}:{request.Port}");
+
+                // Testing a saved client from its edit form sends the placeholders back
+                var stored = request.Id.HasValue ? _clients.FirstOrDefault(c => c.Id == request.Id.Value) : null;
+                request.Password = KeepSecret(request.Password, stored?.Password);
+                request.ApiKey = KeepSecret(request.ApiKey, stored?.ApiKey);
 
                 if (request.Implementation.Equals("qBittorrent", StringComparison.OrdinalIgnoreCase))
                 {
@@ -540,7 +552,8 @@ namespace RetroArr.Api.V3.DownloadClients
         {
             try
             {
-                _logger.Info($"[DownloadClient] Attempting to add torrent: {request.Url} (Platform: {request.PlatformFolder ?? "unset"}, GameId: {request.GameId?.ToString() ?? "none"})");
+                // The URL carries the indexer's API key (Prowlarr/Jackett apikey=, tracker passkeys)
+                _logger.Info($"[DownloadClient] Attempting to add torrent: {LogRedactor.DescribeDownloadUrl(request.Url)} (Platform: {request.PlatformFolder ?? "unset"}, GameId: {request.GameId?.ToString() ?? "none"})");
                 
                 // Track platform folder, game ID and patch flag for post-download processing
                 if (!string.IsNullOrEmpty(request.PlatformFolder) || request.GameId.HasValue)
@@ -997,6 +1010,7 @@ namespace RetroArr.Api.V3.DownloadClients
     [SuppressMessage("Microsoft.Design", "CA1056:UriPropertiesShouldNotBeStrings")]
     public class TestDownloadClientRequest
     {
+        public int? Id { get; set; }
         public string Implementation { get; set; } = string.Empty;
         public string Host { get; set; } = string.Empty;
         public int Port { get; set; }

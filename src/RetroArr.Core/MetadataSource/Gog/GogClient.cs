@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using System.Diagnostics.CodeAnalysis;
+using RetroArr.Core.Logging;
 
 namespace RetroArr.Core.MetadataSource.Gog
 {
@@ -294,7 +295,7 @@ namespace RetroArr.Core.MetadataSource.Gog
             if ((int)response.StatusCode >= 300 && (int)response.StatusCode < 400)
             {
                 var location = response.Headers.Location?.ToString();
-                _logger.Info($"[GOG] Redirect to: {location?.Substring(0, Math.Min(120, location?.Length ?? 0))}...");
+                _logger.Info($"[GOG] Redirect to: {LogRedactor.DescribeDownloadUrl(location)}");
                 return location;
             }
 
@@ -306,14 +307,14 @@ namespace RetroArr.Core.MetadataSource.Gog
 
             // 200 response - expect JSON with downlink
             var content = await response.Content.ReadAsStringAsync();
-            _logger.Info($"[GOG] Download URL response body: {content.Substring(0, Math.Min(200, content.Length))}...");
+            _logger.Info($"[GOG] Download URL response body: {content.Length} chars");
 
             try
             {
                 var result = JsonSerializer.Deserialize<GogDownloadUrl>(content, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                 if (!string.IsNullOrEmpty(result?.Downlink))
                 {
-                    _logger.Info($"[GOG] Resolved downlink: {result.Downlink.Substring(0, Math.Min(120, result.Downlink.Length))}...");
+                    _logger.Info($"[GOG] Resolved downlink: {LogRedactor.DescribeDownloadUrl(result.Downlink)}");
                     return result.Downlink;
                 }
             }

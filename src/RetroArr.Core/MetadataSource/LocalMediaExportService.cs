@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using NLog;
 using RetroArr.Core.Games;
+using RetroArr.Core.Logging;
 
 namespace RetroArr.Core.MetadataSource
 {
@@ -141,7 +142,7 @@ namespace RetroArr.Core.MetadataSource
                 using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
                 if (!response.IsSuccessStatusCode)
                 {
-                    _logger.Info($"[LocalMediaExport] HTTP {(int)response.StatusCode} for {url}");
+                    _logger.Info($"[LocalMediaExport] HTTP {(int)response.StatusCode} for {LogRedactor.RedactUrl(url)}");
                     return false;
                 }
 
@@ -154,7 +155,7 @@ namespace RetroArr.Core.MetadataSource
             }
             catch (Exception ex)
             {
-                _logger.Error($"[LocalMediaExport] Failed to download {url}: {ex.Message}");
+                _logger.Error($"[LocalMediaExport] Failed to download {LogRedactor.RedactUrl(url)}: {LogRedactor.Redact(ex.Message)}");
                 return false;
             }
         }

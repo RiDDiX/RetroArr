@@ -91,7 +91,9 @@ const DownloadersTab: React.FC<DownloadersTabProps> = ({ language, t }) => {
     setClientTesting(true);
     setClientTestResult(null);
     try {
+      // id lets the server use the saved password/API key when the form still shows the placeholder
       const response = await apiClient.post('/downloadclient/test', {
+        id: editingClient?.id,
         implementation: clientForm.implementation, host: clientForm.host, port: clientForm.port,
         username: clientForm.username, password: clientForm.password, urlBase: clientForm.urlBase, apiKey: clientForm.apiKey
       });

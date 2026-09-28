@@ -55,6 +55,8 @@ module.exports = {
       directory: path.join(__dirname, '../../_output/UI')
     },
     historyApiFallback: true,
+    // the proxy below reaches the API over loopback, which counts as a local request
+    host: 'localhost',
     port: 7878,
     hot: true,
     proxy: [

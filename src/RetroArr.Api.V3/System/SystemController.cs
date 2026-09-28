@@ -1,9 +1,9 @@
 using System;
 using System.IO;
-using System.Net;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using Microsoft.AspNetCore.Mvc;
+using RetroArr.Api.V3.Auth;
 using RetroArr.Core.Configuration;
 
 namespace RetroArr.Api.V3.SystemInfo
@@ -23,8 +23,7 @@ namespace RetroArr.Api.V3.SystemInfo
         [HttpGet("apikey/bootstrap")]
         public ActionResult BootstrapApiKey()
         {
-            var ip = HttpContext.Connection.RemoteIpAddress;
-            if (ip != null && !IPAddress.IsLoopback(ip))
+            if (!LocalRequest.IsLocal(HttpContext))
             {
                 return NotFound();
             }
@@ -41,6 +40,12 @@ namespace RetroArr.Api.V3.SystemInfo
         [HttpGet("status")]
         public ActionResult GetStatus()
         {
+            // Anonymous callers (the Docker healthcheck) only need to know it's up
+            if (!HttpContext.Items.ContainsKey(ApiKeyAuthMiddleware.AuthenticatedItem))
+            {
+                return Ok(new { status = "ok" });
+            }
+
             var assembly = Assembly.GetEntryAssembly();
             var version = assembly?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
                           ?? assembly?.GetName().Version?.ToString()

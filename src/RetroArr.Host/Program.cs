@@ -110,17 +110,6 @@ namespace RetroArr.Host
                 options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(new[] { "application/json" });
             });
 
-            // Add CORS for development
-            builder.Services.AddCors(options =>
-            {
-                options.AddDefaultPolicy(policy =>
-                {
-                    policy.AllowAnyOrigin()
-                          .AllowAnyMethod()
-                          .AllowAnyHeader();
-                });
-            });
-
             // Configuration service for persistence
             var configPath = Path.Combine(exePath, "config");
 
@@ -165,8 +154,27 @@ namespace RetroArr.Host
             
             // DataProtection-backed secret protector for credentials-at-rest.
             // Key material is kept in the same config directory so the same user/container owns it.
+            // RETROARR_KEYS_DIR moves it elsewhere, so a copy of the config folder alone can't
+            // decrypt the stored credentials.
             var bootstrapConfig = new ConfigurationService(exePath);
-            var keyDir = Path.Combine(bootstrapConfig.GetConfigDirectory(), "keys");
+            var defaultKeyDir = Path.Combine(bootstrapConfig.GetConfigDirectory(), "keys");
+            var keysEnv = Environment.GetEnvironmentVariable("RETROARR_KEYS_DIR");
+            var keyDir = string.IsNullOrWhiteSpace(keysEnv) ? defaultKeyDir : keysEnv;
+            // A new, empty key folder would make every stored credential unreadable (and the next
+            // save would overwrite them with blanks), so bring the existing keys along once.
+            try
+            {
+                if (keyDir != defaultKeyDir && Directory.Exists(defaultKeyDir)
+                    && Directory.GetFiles(defaultKeyDir, "*.xml").Length > 0
+                    && (!Directory.Exists(keyDir) || Directory.GetFiles(keyDir, "*.xml").Length == 0))
+                {
+                    Directory.CreateDirectory(keyDir);
+                    foreach (var keyFile in Directory.GetFiles(defaultKeyDir, "*.xml"))
+                        File.Copy(keyFile, Path.Combine(keyDir, Path.GetFileName(keyFile)));
+                    Log($"[Startup] Copied the credential keys from {defaultKeyDir} to {keyDir}; delete the old folder once RetroArr runs fine.");
+                }
+            }
+            catch (Exception ex) { Log($"[Startup] Warning: could not copy the credential keys to {keyDir}: {ex.Message}"); }
             SecretProtector? secretProtector = null;
             try { secretProtector = new SecretProtector(keyDir); }
             catch (Exception ex) { Log($"[Startup] Warning: could not initialize SecretProtector - secrets will stay plaintext: {ex.Message}"); }
@@ -380,11 +388,20 @@ namespace RetroArr.Host
 
             var app = builder.Build();
 
+            // Remember who actually opened the connection before the forwarded headers
+            // replace the remote address; the "local request" check relies on it.
+            app.Use((context, next) =>
+            {
+                RetroArr.Api.V3.Auth.LocalRequest.CaptureSocketPeer(context);
+                return next(context);
+            });
+
             // Read x-forwarded-* from swag/traefik/caddy/nginx so IsHttps and
             // the client ip come out right when a proxy terminates tls.
             // Trusts rfc1918 + loopback by default - override with
             // RETROARR_TRUSTED_PROXIES="172.20.0.0/16,10.1.2.3/32" if you
-            // need to tighten it.
+            // need to tighten it. This only affects the client ip, scheme and
+            // host, never the API key check.
             var forwardedOpts = new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions
             {
                 ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
@@ -392,37 +409,26 @@ namespace RetroArr.Host
                                  | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedHost,
                 ForwardLimit = null
             };
-            forwardedOpts.KnownNetworks.Clear();
-            forwardedOpts.KnownProxies.Clear();
-
-            var trustedEnv = Environment.GetEnvironmentVariable("RETROARR_TRUSTED_PROXIES");
-            var trustedRanges = !string.IsNullOrWhiteSpace(trustedEnv)
-                ? trustedEnv.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                : new[] { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "::1/128" };
-
-            foreach (var range in trustedRanges)
-            {
-                try
-                {
-                    var slash = range.IndexOf('/');
-                    var addr = slash > 0 ? range.Substring(0, slash) : range;
-                    var bits = slash > 0 ? int.Parse(range.Substring(slash + 1), System.Globalization.CultureInfo.InvariantCulture) : 32;
-                    forwardedOpts.KnownNetworks.Add(new Microsoft.AspNetCore.HttpOverrides.IPNetwork(System.Net.IPAddress.Parse(addr), bits));
-                }
-                catch (Exception ex)
-                {
-                    Log($"[ForwardedHeaders] ignoring bad proxy range '{range}': {ex.Message}");
-                }
-            }
+            RetroArr.Api.V3.Auth.TrustedProxies.Apply(forwardedOpts, Environment.GetEnvironmentVariable("RETROARR_TRUSTED_PROXIES"), Log);
             app.UseForwardedHeaders(forwardedOpts);
 
             // Configure middleware
             app.UseResponseCompression();
-            app.UseDeveloperExceptionPage(); // FORCE DEBUG
             if (app.Environment.IsDevelopment())
             {
+                app.UseDeveloperExceptionPage();
                 app.UseSwagger();
                 app.UseSwaggerUI();
+            }
+            else
+            {
+                // The exception still goes to the log; the caller only gets a plain 500
+                app.UseExceptionHandler(errorApp => errorApp.Run(async context =>
+                {
+                    context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+                    context.Response.ContentType = "application/json";
+                    await context.Response.WriteAsync("{\"error\":\"Internal server error\"}");
+                }));
             }
 
             // Initialize database
@@ -464,8 +470,6 @@ namespace RetroArr.Host
                 }
             }
 
-            app.UseCors();
-            
             // Configure static files - Look for _output/UI relative to the EXECUTABLE
             // In dev: AppContext.BaseDirectory is usually bin/Debug/net8.0/
             // In prod (single file): AppContext.BaseDirectory is where the .exe is.

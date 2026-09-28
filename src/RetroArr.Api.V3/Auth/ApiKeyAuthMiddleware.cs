@@ -11,6 +11,10 @@ namespace RetroArr.Api.V3.Auth
         public const string HeaderName = "X-Api-Key";
         public const string QueryName = "apiKey";
         public const string AccessTokenQueryName = "access_token";
+        // Set for requests that passed the key check (or came from this machine), also on the
+        // anonymous routes, so those can decide how much to show.
+        public const string AuthenticatedItem = "RetroArr.Authenticated";
+        public const string StatusPath = "/api/v3/system/status";
 
         private readonly RequestDelegate _next;
         private readonly ApiKeyService _apiKeyService;
@@ -23,7 +27,10 @@ namespace RetroArr.Api.V3.Auth
 
         public async Task Invoke(HttpContext context)
         {
-            if (!RequiresAuth(context))
+            var path = context.Request.Path.Value ?? string.Empty;
+            var isApi = path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase);
+            var isHub = path.StartsWith("/hubs/", StringComparison.OrdinalIgnoreCase);
+            if (!isApi && !isHub)
             {
                 await _next(context);
                 return;
@@ -31,8 +38,17 @@ namespace RetroArr.Api.V3.Auth
 
             var configured = _apiKeyService.GetApiKey();
             var presented = ResolvePresentedKey(context);
+            var keyValid = !string.IsNullOrEmpty(presented) && FixedTimeEquals(presented, configured);
 
-            if (!string.IsNullOrEmpty(presented) && FixedTimeEquals(presented, configured))
+            if (keyValid || LocalRequest.IsLocal(context) || HasValidSignature(context, configured))
+            {
+                context.Items[AuthenticatedItem] = true;
+                await _next(context);
+                return;
+            }
+
+            // A wrong key on the status route is refused, so the key check in the UI can tell
+            if (IsAnonymous(path) && !(presented != null && path.Equals(StatusPath, StringComparison.OrdinalIgnoreCase)))
             {
                 await _next(context);
                 return;
@@ -43,37 +59,27 @@ namespace RetroArr.Api.V3.Auth
             await context.Response.WriteAsync("{\"error\":\"Missing or invalid API key.\"}");
         }
 
-        private static bool RequiresAuth(HttpContext context)
+        private static bool IsAnonymous(string path)
         {
-            var path = context.Request.Path.Value ?? string.Empty;
+            // Docker healthcheck; it only gets a minimal answer without a key.
+            if (path.Equals(StatusPath, StringComparison.OrdinalIgnoreCase))
+                return true;
 
-            var isApi = path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase);
-            var isHub = path.StartsWith("/hubs/", StringComparison.OrdinalIgnoreCase);
-            if (!isApi && !isHub) return false;
-
-            // Bootstrap endpoint is only reachable from loopback; guarded inside the controller.
-            if (path.Equals("/api/v3/system/apikey/bootstrap", StringComparison.OrdinalIgnoreCase))
-                return false;
-
-            // Docker healthcheck hits this over loopback with no key.
-            if (path.Equals("/api/v3/system/status", StringComparison.OrdinalIgnoreCase))
-                return false;
-
-            // Emulator assets + player html + rom stream get loaded by
-            // <script>, iframe, and fetch - can't add an api key header
-            // on those, so let them through.
+            // EmulatorJS files and the player page are loaded by <script> and the iframe,
+            // which can't send the key. The player gets a signed ROM link from the app.
             if (path.StartsWith("/api/v3/emulator/assets/", StringComparison.OrdinalIgnoreCase))
-                return false;
-            if (path.StartsWith("/api/v3/emulator/player", StringComparison.OrdinalIgnoreCase))
-                return false;
-            if (path.StartsWith("/api/v3/emulator/", StringComparison.OrdinalIgnoreCase)
-                && path.EndsWith("/rom", StringComparison.OrdinalIgnoreCase))
-                return false;
+                return true;
+            if (path.Equals("/api/v3/emulator/player", StringComparison.OrdinalIgnoreCase))
+                return true;
 
-            if (IsLoopback(context))
-                return false;
+            return false;
+        }
 
-            return true;
+        private static bool HasValidSignature(HttpContext context, string apiKey)
+        {
+            var method = context.Request.Method;
+            if (!HttpMethods.IsGet(method) && !HttpMethods.IsHead(method)) return false;
+            return SignedUrl.IsValid(context.Request, apiKey, DateTimeOffset.UtcNow);
         }
 
         private static string? ResolvePresentedKey(HttpContext context)
@@ -82,7 +88,9 @@ namespace RetroArr.Api.V3.Auth
                 return header.ToString();
             if (context.Request.Query.TryGetValue(QueryName, out var query) && !string.IsNullOrEmpty(query))
                 return query.ToString();
-            if (context.Request.Query.TryGetValue(AccessTokenQueryName, out var accessToken) && !string.IsNullOrEmpty(accessToken))
+            // SignalR's websocket can only carry the key in the query; nothing else needs that name
+            if (context.Request.Path.StartsWithSegments("/hubs", StringComparison.OrdinalIgnoreCase)
+                && context.Request.Query.TryGetValue(AccessTokenQueryName, out var accessToken) && !string.IsNullOrEmpty(accessToken))
                 return accessToken.ToString();
             if (context.Request.Headers.TryGetValue("Authorization", out var auth) && !string.IsNullOrEmpty(auth))
             {
@@ -92,20 +100,6 @@ namespace RetroArr.Api.V3.Auth
                     return value.Substring(bearer.Length);
             }
             return null;
-        }
-
-        private static bool IsLoopback(HttpContext context)
-        {
-            // A proxy terminating on loopback would bypass auth entirely
-            // without this check - X-Forwarded-For means the real caller
-            // is remote, so treat it as such.
-            if (context.Request.Headers.ContainsKey("X-Forwarded-For")
-                || context.Request.Headers.ContainsKey("Forwarded"))
-                return false;
-
-            var ip = context.Connection.RemoteIpAddress;
-            if (ip == null) return true;
-            return IPAddress.IsLoopback(ip);
         }
 
         private static bool FixedTimeEquals(string a, string b)

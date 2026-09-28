@@ -20,6 +20,7 @@ namespace RetroArr.Core.Download
         // A file extension after a name with spaces ('Doom 64 (USA).z64'). Dotted release names keep their last part.
         private static readonly Regex FileExtension = new(@"(?<=\s.*)\.(?=\d*[a-z])[a-z0-9]{1,4}$", RegexOptions.IgnoreCase);
         private static readonly Regex BracketedTag = new(@"\([^)]*\)|\[[^\]]*\]|\{[^}]*\}");
+        private static readonly Regex TokenSegment = new(@"^[A-Za-z0-9_-]{20,}$");
 
         public DownloadPlatformTracker(string configDirectory)
         {
@@ -31,6 +32,7 @@ namespace RetroArr.Core.Download
         {
             if (string.IsNullOrEmpty(platformFolder) && !gameId.HasValue) return;
 
+            downloadUrl = StripCredentials(downloadUrl);
             lock (_lock)
             {
                 // Remove old entry with same URL if exists
@@ -116,7 +118,18 @@ namespace RetroArr.Core.Download
 
                     // Older builds added every NZBGet job as "RetroArr_download", so a mapping stored under that
                     // name would hand one job's platform and game to all of them
-                    if (_entries.RemoveAll(e => string.Equals(e.Url, "RetroArr_download", StringComparison.OrdinalIgnoreCase)) > 0)
+                    var changed = _entries.RemoveAll(e => string.Equals(e.Url, "RetroArr_download", StringComparison.OrdinalIgnoreCase)) > 0;
+
+                    // Older builds stored the whole download link, indexer API key included
+                    foreach (var entry in _entries)
+                    {
+                        var stripped = StripCredentials(entry.Url);
+                        if (stripped == entry.Url) continue;
+                        entry.Url = stripped;
+                        changed = true;
+                    }
+
+                    if (changed)
                     {
                         Save();
                     }
@@ -181,6 +194,41 @@ namespace RetroArr.Core.Download
 
         private static TrackedDownload? OneTarget(List<TrackedDownload> matches) =>
             matches.Select(e => (e.PlatformFolder, e.GameId)).Distinct().Count() == 1 ? matches[0] : null;
+
+        // Keeps what the name lookups read (host, last path segment, file=, dn=, xt=) and drops the
+        // rest of a download link: Prowlarr/Jackett put their API key in the query, private trackers
+        // their passkey in tr= or the path. ref= is a hash of the whole link, so links that only
+        // differ in the dropped parts (another indexer, another release id) stay separate entries.
+        internal static string StripCredentials(string url)
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || (uri.Scheme != "http" && uri.Scheme != "https" && uri.Scheme != "magnet"))
+                return url;
+
+            var query = HttpUtility.ParseQueryString(uri.Query);
+            var clean = query.AllKeys.All(k => k is "file" or "dn" or "xt" or "ref")
+                        && uri.Segments.Length <= 2 && string.IsNullOrEmpty(uri.UserInfo);
+            if (clean) return url;
+
+            var kept = new List<string>();
+            foreach (var key in new[] { "file", "dn" })
+            {
+                if (query[key] is { } value) kept.Add(key + "=" + Uri.EscapeDataString(value));
+            }
+            foreach (var xt in query.GetValues("xt") ?? Array.Empty<string>())
+            {
+                kept.Add("xt=" + Uri.EscapeDataString(xt));
+            }
+            var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(url)));
+            kept.Add("ref=" + hash[..16].ToLowerInvariant());
+            var keptQuery = "?" + string.Join("&", kept);
+
+            if (uri.Scheme == "magnet") return "magnet:" + keptQuery;
+            // nZEDb-style 'getnzb/<guid>.nzb&i=1&r=<key>' and DOGnzb-style '/fetch/<guid>/<key>'
+            // carry the key in the path; such segments never match a job name anyway
+            var lastSegment = uri.Segments.Length > 1 ? uri.Segments[^1].Split('&', ';')[0] : string.Empty;
+            if (TokenSegment.IsMatch(lastSegment)) lastSegment = string.Empty;
+            return $"{uri.Scheme}://{uri.Authority}/{lastSegment}{keptQuery}";
+        }
 
         private static string ExtractName(string input)
         {

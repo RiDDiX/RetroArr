@@ -24,5 +24,7 @@ namespace RetroArr.Core.Download
         // Remote Path Mapping
         public string? RemotePathMapping { get; set; }
         public string? LocalPathMapping { get; set; }
+
+        public DownloadClient Clone() => (DownloadClient)MemberwiseClone();
     }
 }

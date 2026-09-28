@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
-import apiClient, { getErrorMessage, isTimeoutError, isAxiosError, withApiKey, monitorApi } from '../api/client';
+import apiClient, { getErrorMessage, isTimeoutError, isAxiosError, monitorApi } from '../api/client';
 import { t, getLanguage, useTranslation } from '../i18n/translations';
 import GameCorrectionModal from '../components/GameCorrectionModal';
 import UninstallModal from '../components/UninstallModal';
@@ -263,8 +263,9 @@ const GameDetails: React.FC = () => {
         const response = await apiClient.get(`/emulator/${id}/playable`);
         setIsWebPlayable(response.data.playable);
         if (response.data.playable) {
+          // signed link: the emulator loads the ROM without the API key header
           setEmulatorConfig({
-            romUrl: `/api/v3/emulator/${id}/rom`,
+            romUrl: response.data.romUrl,
             core: response.data.core
           });
         }
@@ -374,11 +375,10 @@ const GameDetails: React.FC = () => {
       if (!id || activeTab !== 'media') return;
       setLocalMediaLoading(true);
       try {
+        // the item urls come back signed, <img>/<video> can't send the API key header
         const res = await apiClient.get(`/game/${id}/local-media`);
-        const stampUrl = <T extends { url: string }>(items: T[]): T[] =>
-          (items || []).map((it) => ({ ...it, url: withApiKey(it.url) }));
-        setLocalImages(stampUrl(res.data.images));
-        setLocalVideos(stampUrl(res.data.videos));
+        setLocalImages(res.data.images || []);
+        setLocalVideos(res.data.videos || []);
       } catch {
         setLocalImages([]);
         setLocalVideos([]);
@@ -406,9 +406,18 @@ const GameDetails: React.FC = () => {
     }
   };
 
-  const handleDownloadFile = (relativePath: string) => {
+  const handleDownloadFile = async (relativePath: string) => {
+    // a plain link can't send the API key header, so ask for a signed one
+    let url: string;
+    try {
+      const res = await apiClient.get<{ url: string }>(`/game/${id}/files/download-link`, { params: { path: relativePath } });
+      url = res.data.url;
+    } catch (err) {
+      setNotification({ message: getErrorMessage(err, 'Download failed'), type: 'error' });
+      return;
+    }
     const a = document.createElement('a');
-    a.href = withApiKey(`/api/v3/game/${id}/files/download?path=${encodeURIComponent(relativePath)}`);
+    a.href = url;
     a.download = relativePath.split('/').pop() || relativePath;
     document.body.appendChild(a);
     a.click();

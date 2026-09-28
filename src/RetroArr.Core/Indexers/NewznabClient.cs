@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using RetroArr.Core.Prowlarr; // Using existing models
+using RetroArr.Core.Logging;
 
 namespace RetroArr.Core.Indexers
 {
@@ -56,7 +57,7 @@ namespace RetroArr.Core.Indexers
                 // Use 'extended=1' to get more attributes
                 var url = $"{_proxyUrl}?t=search&q={Uri.EscapeDataString(query)}{catParam}&extended=1&apikey={_apiKey}";
                 
-                _logger.Info($"[NewznabClient] Requesting: {url}");
+                _logger.Info($"[NewznabClient] Requesting: {LogRedactor.RedactUrl(url)}");
                 
                 var response = await _httpClient.GetStringAsync(url);
                 

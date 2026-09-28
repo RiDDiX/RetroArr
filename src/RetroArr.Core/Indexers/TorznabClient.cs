@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using System.Text.Json;
 using System.Xml.Linq;
 using RetroArr.Core.Prowlarr;
+using RetroArr.Core.Logging;
 
 namespace RetroArr.Core.Indexers
 {
@@ -32,7 +33,7 @@ namespace RetroArr.Core.Indexers
                 // Standard Torznab URL; XML response expected, JSON fallback supported.
                 var url = $"{_proxyUrl}?t=search&q={Uri.EscapeDataString(query)}&cat={catString}&extended=1&apikey={_apiKey}";
 
-                _logger.Info($"[TorznabClient] Requesting: {url}");
+                _logger.Info($"[TorznabClient] Requesting: {LogRedactor.RedactUrl(url)}");
                 var content = await _httpClient.GetStringAsync(url);
                 
                 if (content.TrimStart().StartsWith("<"))

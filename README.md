@@ -102,8 +102,9 @@ If you only plan to proxy through SWAG with a real cert, drop the `2728` line fr
 
 **Security**
 - Every stored credential (IGDB, ScreenScraper, download clients, Steam, Prowlarr, Jackett, GOG) encrypted with ASP.NET Data Protection. Plaintext values from older installs get migrated on first save
-- API key gate: loopback requests are unauthenticated (for the Docker healthcheck), LAN and remote clients need `X-Api-Key`. Key is shown and rotatable in Settings → API access
-- EmulatorJS static assets and the `/emulator/player` page are exempt from auth, since browsers can't attach API keys to `<script src>` or iframe loads
+- API key gate: requests that really come from the same machine (loopback socket peer, a `localhost`/loopback `Host`, no proxy headers, not a cross-site browser request) are unauthenticated, LAN and remote clients need `X-Api-Key`. `X-Forwarded-For` never counts as "local". A proxy on the same host must send `X-Forwarded-For` (nginx `proxy_set_header`, SWAG and Traefik do by default), otherwise its clients count as local. Key is shown and rotatable in Settings → API access
+- EmulatorJS static assets and the `/emulator/player` page are exempt from auth, since browsers can't attach API keys to `<script src>` or iframe loads. ROMs, local media and file downloads use short-lived signed links instead of the API key, and rotating the key revokes them
+- Without a key, `/api/v3/system/status` (the Docker healthcheck) only answers `{"status":"ok"}`
 
 Deeper reads: [Linux Gaming](docs/LINUX_GAMING.md) · [Plugins](docs/PLUGIN_GUIDE.md) · [Scanner Logic](docs/SCANNING_LOGIC.md) · [Updates & DLC](docs/UPDATES_DLC_GUIDE.md) · [Launcher Specs](docs/LAUNCHER_SPECS.md) · [Installer Logic](docs/INSTALLER_LOGIC.md) · [LanCache & Prefill](docs/LANCACHE_PREFILL.md)
 
@@ -228,7 +229,8 @@ Everything lives under `config/` (Docker: `/app/config`) as JSON files. Nothing 
 | `RETROARR_HTTP_PORT` | `2727` | HTTP listen port |
 | `RETROARR_HTTPS_PORT` | unset | HTTPS listen port. If unset, HTTPS is disabled |
 | `RETROARR_CERT_SAN` | unset | Extra SAN entries (comma-separated) for the auto-generated HTTPS cert, e.g. `IP:192.168.1.10,DNS:retroarr.lan` |
-| `RETROARR_TRUSTED_PROXIES` | RFC1918 + loopback | Comma-separated CIDR ranges of reverse proxies whose `X-Forwarded-*` headers should be trusted |
+| `RETROARR_TRUSTED_PROXIES` | RFC1918 + loopback | Comma-separated CIDR ranges of reverse proxies whose `X-Forwarded-*` headers should be trusted. Affects the client IP, scheme and host only, never the API key check. Invalid entries are skipped; if none is valid, only loopback is trusted |
+| `RETROARR_KEYS_DIR` | `<config>/keys` | Where the Data Protection keys that encrypt stored credentials live. Point it at a separate volume so a copy of the config folder alone can't decrypt them. On first start the existing keys are copied there; delete `<config>/keys` afterwards |
 | `ASPNETCORE_ENVIRONMENT` | `Production` | Standard .NET environment flag |
 | `RETROARR_EMULATORJS_CDN` | `https://cdn.emulatorjs.org/latest/data` | Base URL EmulatorJS assets/cores are pulled from on cache-miss. Override to pin a version or use a mirror |
 | `RETROARR_STEAMPREFILL_BIN` / `RETROARR_BATTLENETPREFILL_BIN` / `RETROARR_EPICPREFILL_BIN` | bundled `/opt/*prefill/*` | Override the path to a prefill binary (advanced; the image bundles them by default) |

@@ -10,6 +10,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
+using RetroArr.Core.Logging;
 
 namespace RetroArr.Core.Download
 {
@@ -274,7 +275,7 @@ namespace RetroArr.Core.Download
             }
             url = sb.ToString().Trim();
             
-            _logger.Info($"[Deluge] Sanitized URL: '{url}'");
+            _logger.Info($"[Deluge] Sanitized URL: {LogRedactor.DescribeDownloadUrl(url)}");
 
             var options = new Dictionary<string, object>();
             options["add_paused"] = false; 
@@ -327,7 +328,7 @@ namespace RetroArr.Core.Download
                        if (location != null)
                        {
                            var locStr = location.OriginalString;
-                           _logger.Info($"[Deluge] Followed Redirect {i+1} -> {locStr}");
+                           _logger.Info($"[Deluge] Followed Redirect {i+1} -> {LogRedactor.DescribeDownloadUrl(locStr)}");
 
                            if (locStr.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase))
                            {
@@ -366,7 +367,7 @@ namespace RetroArr.Core.Download
                    }
                    
                    // If we are here, it's a non-success 200 and non-redirect (e.g. 404, 500)
-                   _logger.Error($"[Deluge] Request failed with {response.StatusCode} at {currentUrl}");
+                   _logger.Error($"[Deluge] Request failed with {response.StatusCode} at {LogRedactor.DescribeDownloadUrl(currentUrl)}");
                    break;
                 }
             }

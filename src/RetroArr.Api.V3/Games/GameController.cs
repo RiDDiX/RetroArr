@@ -33,8 +33,11 @@ namespace RetroArr.Api.V3.Games
         private readonly RetroArr.Core.Download.PostDownloadProcessor _postDownloadProcessor;
         private readonly IProgressNotifier? _progressNotifier;
 
-        public GameController(IGameRepository repository, IGameMetadataServiceFactory metadataServiceFactory, RetroArr.Core.IO.IArchiveService archiveService, ILauncherService launcherService, ConfigurationService configService, InstallerScannerService installerScanner, LocalMediaExportService localMediaExport, RetroArr.Core.MetadataSource.Gog.GogDownloadTracker gogDownloadTracker, TrashService trash, MediaScannerService scannerService, RetroArr.Core.Download.PostDownloadProcessor postDownloadProcessor, IProgressNotifier? progressNotifier = null)
+        private readonly ApiKeyService _apiKeyService;
+
+        public GameController(IGameRepository repository, IGameMetadataServiceFactory metadataServiceFactory, RetroArr.Core.IO.IArchiveService archiveService, ILauncherService launcherService, ConfigurationService configService, InstallerScannerService installerScanner, LocalMediaExportService localMediaExport, RetroArr.Core.MetadataSource.Gog.GogDownloadTracker gogDownloadTracker, TrashService trash, MediaScannerService scannerService, RetroArr.Core.Download.PostDownloadProcessor postDownloadProcessor, ApiKeyService apiKeyService, IProgressNotifier? progressNotifier = null)
         {
+            _apiKeyService = apiKeyService;
             _repository = repository;
             _metadataServiceFactory = metadataServiceFactory;
             _archiveService = archiveService;
@@ -1459,6 +1462,18 @@ namespace RetroArr.Api.V3.Games
             }
         }
 
+        // A plain download link can't carry the API key header, so the app asks for a signed one
+        [HttpGet("{id}/files/download-link")]
+        public ActionResult GetDownloadLink(int id, [FromQuery] string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                return BadRequest("Path parameter is required");
+            return Ok(new { url = SignedLink($"/api/v3/game/{id}/files/download?path={Uri.EscapeDataString(path)}") });
+        }
+
+        private string SignedLink(string url) =>
+            RetroArr.Api.V3.Auth.SignedUrl.Sign(url, _apiKeyService.GetApiKey(), DateTimeOffset.UtcNow);
+
         [HttpGet("{id}/files/download")]
         public async Task<ActionResult> DownloadGameFile(int id, [FromQuery] string path)
         {
@@ -1568,7 +1583,7 @@ namespace RetroArr.Api.V3.Games
                             type = imageType,
                             fileName = Path.GetFileName(file),
                             fullPath = file,
-                            url = $"/api/v3/game/{id}/local-media/file?path={Uri.EscapeDataString(Path.GetFileName(file))}&folder=images"
+                            url = SignedLink($"/api/v3/game/{id}/local-media/file?path={Uri.EscapeDataString(Path.GetFileName(file))}&folder=images")
                         });
                     }
                 }
@@ -1607,7 +1622,7 @@ namespace RetroArr.Api.V3.Games
                             fileName = Path.GetFileName(file),
                             fullPath = file,
                             size = new FileInfo(file).Length,
-                            url = $"/api/v3/game/{id}/local-media/file?path={Uri.EscapeDataString(Path.GetFileName(file))}&folder=videos"
+                            url = SignedLink($"/api/v3/game/{id}/local-media/file?path={Uri.EscapeDataString(Path.GetFileName(file))}&folder=videos")
                         });
                     }
                 }

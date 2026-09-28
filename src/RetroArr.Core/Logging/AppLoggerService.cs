@@ -84,13 +84,20 @@ namespace RetroArr.Core.Logging
                 return;
             }
 
+            // Last line of defence against keys in URLs, whatever a call site logs
+            LogManager.Setup().SetupExtensions(ext =>
+            {
+                ext.RegisterLayoutRenderer("redacted-message", logEvent => LogRedactor.Redact(logEvent.FormattedMessage));
+                ext.RegisterLayoutRenderer("redacted-exception", logEvent => logEvent.Exception == null ? string.Empty : LogRedactor.Redact(logEvent.Exception.ToString()));
+            });
+
             var config = new LoggingConfiguration();
             var minLevel = ParseLevel(_settings.LogLevel);
             var archiveSize = _settings.RotateSizeMb * 1024 * 1024;
 
             // Layout with correlation ID support
             var layout = new SimpleLayout(
-                "${longdate}|${level:uppercase=true:padding=-5}|${scopeproperty:item=RequestId:whenEmpty=-}|${logger}|${message}${onexception:inner=|${exception:format=tostring}}");
+                "${longdate}|${level:uppercase=true:padding=-5}|${scopeproperty:item=RequestId:whenEmpty=-}|${logger}|${redacted-message}${onexception:inner=|${redacted-exception}}");
 
             // App.log - catches everything from RetroArr loggers
             var appTarget = CreateFileTarget("app", "app", layout, archiveSize);
@@ -99,7 +106,7 @@ namespace RetroArr.Core.Logging
             // Console target (keep stdout working)
             var consoleTarget = new ConsoleTarget("console")
             {
-                Layout = new SimpleLayout("[${level:uppercase=true:padding=-3}][${logger:shortName=true}] ${message}")
+                Layout = new SimpleLayout("[${level:uppercase=true:padding=-3}][${logger:shortName=true}] ${redacted-message}")
             };
             config.AddTarget(consoleTarget);
 

@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using RetroArr.Api.V3.Auth;
 using RetroArr.Core.Configuration;
 using RetroArr.Core.Data;
 using RetroArr.Core.Games;
@@ -87,10 +88,13 @@ namespace RetroArr.Api.V3.Emulator
             "neogeo.zip", "pcfx.rom", "pce-cd-bios.bin"
         };
 
-        public EmulatorController(RetroArrDbContext context, ConfigurationService configService)
+        private readonly ApiKeyService _apiKeyService;
+
+        public EmulatorController(RetroArrDbContext context, ConfigurationService configService, ApiKeyService apiKeyService)
         {
             _context = context;
             _configService = configService;
+            _apiKeyService = apiKeyService;
         }
 
         [HttpGet("bios")]
@@ -171,6 +175,8 @@ namespace RetroArr.Api.V3.Emulator
                 core = core,
                 platformId = game.PlatformId,
                 romPath = game.Path,
+                // The emulator fetches the ROM without our headers, so it gets a signed link
+                romUrl = isPlayable ? SignedUrl.Sign($"/api/v3/emulator/{gameId}/rom", _apiKeyService.GetApiKey(), DateTimeOffset.UtcNow, TimeSpan.FromDays(1)) : null,
                 message = isPlayable ? "Game can be played in browser" : "Platform not supported for web emulation"
             });
         }
@@ -576,6 +582,11 @@ namespace RetroArr.Api.V3.Emulator
             "psp", "nds", "n64", "segaSaturn", "3do"
         };
 
+        private static readonly System.Text.RegularExpressions.Regex PlayerRom =
+            new(@"^/api/v3/emulator/[0-9]+/rom(\?[A-Za-z0-9._~%&=-]*)?\z");
+        private static readonly System.Text.RegularExpressions.Regex PlayerCore =
+            new(@"^[A-Za-z0-9_-]{1,32}\z");
+
         // COOP/COEP headers so SharedArrayBuffer works for threaded cores (PSP, NDS, etc.)
         [HttpGet("player")]
         public async Task<ActionResult> GetEmulatorPlayer(
@@ -592,15 +603,27 @@ namespace RetroArr.Api.V3.Emulator
             if (rom.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
                 || rom.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             {
-                var uri = new Uri(rom, UriKind.Absolute);
+                if (!Uri.TryCreate(rom, UriKind.Absolute, out var uri))
+                    return BadRequest(new { error = "invalid rom" });
                 rom = uri.PathAndQuery;
             }
             if (!rom.StartsWith('/')) rom = "/" + rom;
 
+            // The values end up inside a <script> block; only accept what the app sends
+            if (!PlayerRom.IsMatch(rom))
+                return BadRequest(new { error = "invalid rom" });
+            if (!PlayerCore.IsMatch(core))
+                return BadRequest(new { error = "invalid core" });
+            title ??= "Game";
+
             var needsThreads = ThreadedCores.Contains(core);
-            var safeTitle = title.Replace("'", "\\'").Replace("\"", "&quot;").Replace("<", "&lt;");
-            var safeRom = rom.Replace("'", "\\'");
-            var safeCore = core.Replace("'", "\\'");
+            var htmlTitle = System.Net.WebUtility.HtmlEncode(title);
+            var htmlCore = System.Net.WebUtility.HtmlEncode(core);
+            // JSON string literals; the default encoder also escapes < > & ' and non-ASCII
+            var jsTitle = JsonSerializer.Serialize(title);
+            var jsRom = JsonSerializer.Serialize(rom);
+            var jsCore = JsonSerializer.Serialize(core);
+            var nonce = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
 
             // Browsers only honour COOP/COEP (and expose SharedArrayBuffer) on
             // "secure contexts": HTTPS or localhost. Over plain http on a LAN
@@ -615,7 +638,7 @@ namespace RetroArr.Api.V3.Emulator
             if (needsThreads && !isSecure)
             {
                 var errorHtml = $@"<!DOCTYPE html>
-<html><head><meta charset=""UTF-8""><title>{safeTitle}</title>
+<html><head><meta charset=""UTF-8""><title>{htmlTitle}</title>
 <style>
 body {{ background:#1e1e2e; color:#cdd6f4; font-family:system-ui,sans-serif; padding:2rem; line-height:1.5; }}
 h1 {{ color:#f38ba8; margin-bottom:1rem; }}
@@ -623,7 +646,7 @@ code {{ background:#313244; padding:0.1rem 0.4rem; border-radius:3px; }}
 a {{ color:#89b4fa; }}
 </style></head><body>
 <h1>This core needs a secure connection</h1>
-<p>The <code>{safeCore}</code> core uses multi-threaded WebAssembly, which requires
+<p>The <code>{htmlCore}</code> core uses multi-threaded WebAssembly, which requires
 <code>SharedArrayBuffer</code>. Browsers only expose that on HTTPS or localhost.</p>
 <p>You're connected over plain HTTP on a LAN IP, so it can't run here. Options:</p>
 <ul>
@@ -632,12 +655,13 @@ a {{ color:#89b4fa; }}
 <li>Use a non-threaded platform for now (NES, SNES, GB/GBA, Genesis, PS1, etc.)</li>
 </ul>
 </body></html>";
+                Response.Headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'";
                 return Content(errorHtml, "text/html");
             }
 
             var threadsBlocker = needsThreads
                 ? @"
-    <script>
+    <script nonce=""" + nonce + @""">
         // If the browser didn't expose SharedArrayBuffer, EmulatorJS would
         // throw a cryptic console error. Show a readable banner instead.
         if (typeof SharedArrayBuffer === 'undefined' || !self.crossOriginIsolated) {
@@ -667,7 +691,7 @@ a {{ color:#89b4fa; }}
 <head>
     <meta charset=""UTF-8"">
     <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
-    <title>{safeTitle}</title>
+    <title>{htmlTitle}</title>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{ background: #1e1e2e; overflow: hidden; }}
@@ -676,11 +700,11 @@ a {{ color:#89b4fa; }}
 </head>
 <body>
     <div id=""game""></div>
-    <script>
+    <script nonce=""{nonce}"">
         EJS_player = '#game';
-        EJS_gameUrl = '{safeRom}';
-        EJS_core = '{safeCore}';
-        EJS_gameName = '{safeTitle}';
+        EJS_gameUrl = {jsRom};
+        EJS_core = {jsCore};
+        EJS_gameName = {jsTitle};
         EJS_pathtodata = '/api/v3/emulator/assets/';
         EJS_startOnLoaded = true;
         EJS_color = '#89b4fa';
@@ -689,7 +713,7 @@ a {{ color:#89b4fa; }}
         EJS_threads = {(needsThreads ? "true" : "false")};
         EJS_AdUrl = '';
     </script>{threadsBlocker}
-    <script src=""/api/v3/emulator/assets/loader.js""></script>
+    <script nonce=""{nonce}"" src=""/api/v3/emulator/assets/loader.js""></script>
 </body>
 </html>";
 
@@ -699,6 +723,12 @@ a {{ color:#89b4fa; }}
             Response.Headers["Cross-Origin-Embedder-Policy"] = "credentialless";
             Response.Headers["Cross-Origin-Resource-Policy"] = "cross-origin";
             Response.Headers["Cache-Control"] = "no-store";
+            // Only our own scripts run here: the inline config (nonce), EmulatorJS from
+            // /api/v3/emulator/assets, and the cores it unpacks into blob: URLs. EmulatorJS
+            // evaluates strings itself, so it needs 'unsafe-eval'; injected inline script
+            // still has no nonce and is blocked.
+            Response.Headers["Content-Security-Policy"] =
+                $"script-src 'self' 'nonce-{nonce}' blob: 'unsafe-eval' 'wasm-unsafe-eval'; object-src 'none'; base-uri 'none'";
             return Content(html, "text/html; charset=utf-8");
         }
 
@@ -715,8 +745,8 @@ a {{ color:#89b4fa; }}
             
             // Security: prevent directory traversal
             var fullPath = Path.GetFullPath(filePath);
-            var basePath = Path.GetFullPath(EmulatorJsPath);
-            if (!fullPath.StartsWith(basePath))
+            var basePath = Path.GetFullPath(EmulatorJsPath).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            if (!fullPath.StartsWith(basePath, StringComparison.Ordinal))
             {
                 return BadRequest(new { error = "Invalid path" });
             }
