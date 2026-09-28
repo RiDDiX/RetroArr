@@ -1,3 +1,10 @@
+## v1.0.221 (2026-09-28)
+
+### Changes
+- move to webpack-dev-server 6 (3e16af4)
+- move to react router 7 (ff7ef8b)
+- update vulnerable dev dependencies in the lockfile (549a32d)
+
 ## v1.0.220 (2026-09-27)
 
 ### Changes
