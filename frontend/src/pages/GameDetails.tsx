@@ -147,7 +147,7 @@ const GameDetails: React.FC = () => {
   const [hasSearched, setHasSearched] = useState(false);
   const [monitorBusy, setMonitorBusy] = useState(false);
   const [results, setResults] = useState<TorrentResult[]>([]);
-  const [searchDiagnostics, setSearchDiagnostics] = useState<{ providers: Array<{ name: string; status: string; count?: number; error?: string }>; diagnostics: { configured: boolean; message?: string } } | null>(null);
+  const [searchDiagnostics, setSearchDiagnostics] = useState<{ providers: Array<{ name: string; status: string; count?: number; error?: string }>; diagnostics: { configured: boolean; message?: string }; queries?: string[]; categories?: number[] } | null>(null);
   const [customSearchQuery, setCustomSearchQuery] = useState<string>('');
   const [sortField, setSortField] = useState<keyof TorrentResult | null>('seeders');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -571,6 +571,15 @@ const GameDetails: React.FC = () => {
     setShowPlatformModal(true);
   };
 
+  // Warns when the chosen folder is not the game's own platform (or that platform is not selectable):
+  // the import then lands in a separate game entry
+  const otherPlatformHint = (folder: string): string | null => {
+    const gameFolder = availablePlatforms.find(p => p.id === game?.platformId)?.folder;
+    if (!folder || folder === gameFolder) return null;
+    const name = availablePlatforms.find(p => p.folder === folder)?.name || folder;
+    return t('downloadOtherPlatformHint').replace('{platform}', name);
+  };
+
   // Confirm download with selected platform
   const confirmDownload = async () => {
     if (!pendingDownload || !selectedPlatform || downloadingUrl) return;
@@ -791,7 +800,9 @@ const GameDetails: React.FC = () => {
         indexerResults = response.data.results || [];
         setSearchDiagnostics({
           providers: response.data.providers || [],
-          diagnostics: response.data.diagnostics || { configured: true }
+          diagnostics: response.data.diagnostics || { configured: true },
+          queries: response.data.queries || [],
+          categories: response.data.categories || []
         });
         // Log provider diagnostics
         if (response.data.providers) {
@@ -1623,6 +1634,18 @@ const GameDetails: React.FC = () => {
             )}
 
             {error && <p className="error">{error}</p>}
+
+            {!searching && !error && searchDiagnostics?.queries && searchDiagnostics.queries.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', margin: '6px 0', fontSize: '12px', color: 'var(--ctp-overlay1)' }}>
+                <span>{t('searchQueriesSent').replace('{queries}', searchDiagnostics.queries.map(q => `"${q}"`).join(', '))}</span>
+                {searchDiagnostics.categories && searchDiagnostics.categories.length > 0 && (
+                  <span>{t('searchCategoriesSent').replace('{categories}', searchDiagnostics.categories.join(','))}</span>
+                )}
+                {results.length > 0 && searchDiagnostics.providers.filter(p => p.status === 'error' || p.status === 'timeout').map((p, idx) => (
+                  <span key={idx} style={{ color: 'var(--ctp-red)' }}>{p.name}: {p.error}</span>
+                ))}
+              </div>
+            )}
 
             {/* Show "no results" message with diagnostics when search completed but found nothing */}
             {!searching && !error && results.length === 0 && hasSearched && (
@@ -2910,6 +2933,11 @@ const GameDetails: React.FC = () => {
             </option>
           ))}
         </select>
+        {otherPlatformHint(selectedPlatform) && (
+          <p style={{ color: 'var(--ctp-peach)', margin: '-10px 0 0 0', fontSize: '0.9em' }}>
+            {otherPlatformHint(selectedPlatform)}
+          </p>
+        )}
       </Modal>
     </div >
   );

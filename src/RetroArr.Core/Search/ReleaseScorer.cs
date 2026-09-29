@@ -10,7 +10,7 @@ namespace RetroArr.Core.Search
 {
     public enum ReleaseDecision
     {
-        Reject,        // Hard reject, never show
+        Reject,        // Hard reject, never auto-download; shown with its reason on request
         Hide,          // Below review threshold, hide by default
         Review,        // Needs human review, surface in manual list
         AutoDownload   // Above auto threshold, safe to download unattended

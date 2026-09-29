@@ -555,10 +555,18 @@ namespace RetroArr.Api.V3.DownloadClients
                 // The URL carries the indexer's API key (Prowlarr/Jackett apikey=, tracker passkeys)
                 _logger.Info($"[DownloadClient] Attempting to add torrent: {LogRedactor.DescribeDownloadUrl(request.Url)} (Platform: {request.PlatformFolder ?? "unset"}, GameId: {request.GameId?.ToString() ?? "none"})");
                 
-                // Track platform folder, game ID and patch flag for post-download processing
-                if (!string.IsNullOrEmpty(request.PlatformFolder) || request.GameId.HasValue)
+                // Track platform folder, game ID and patch flag for post-download processing.
+                // Without a folder, take the game's own platform so the import never depends on a later lookup.
+                var platformFolder = request.PlatformFolder;
+                if (string.IsNullOrEmpty(platformFolder) && request.GameId.HasValue)
                 {
-                    _platformTracker.Track(request.Url, request.PlatformFolder, request.GameId, request.ImportSubfolder);
+                    var game = await _gameRepository.GetByIdAsync(request.GameId.Value);
+                    if (game != null)
+                        platformFolder = RetroArr.Core.Games.PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.Id == game.PlatformId)?.FolderName;
+                }
+                if (!string.IsNullOrEmpty(platformFolder) || request.GameId.HasValue)
+                {
+                    _platformTracker.Track(request.Url, platformFolder, request.GameId, request.ImportSubfolder);
                 }
                 
                 DownloadClient? client = null;

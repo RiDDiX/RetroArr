@@ -13,6 +13,7 @@ using RetroArr.Core.Configuration;
 using RetroArr.Core.Data;
 using RetroArr.Core.Download;
 using RetroArr.Core.Games;
+using RetroArr.Core.Indexers;
 using RetroArr.Core.Jackett;
 using RetroArr.Core.Search;
 
@@ -21,35 +22,17 @@ namespace RetroArr.Core.Test.Search
     [TestFixture]
     public class MonitoredGameSearchServiceTest
     {
-        // Answers every request with one Jackett result for the given title and categories.
-        private sealed class FakeJackett : IDisposable
+        // Answers every request with the same JSON body.
+        private sealed class FakeServer : IDisposable
         {
             private readonly HttpListener _listener = new();
             private readonly string _body;
 
             public int Port { get; }
 
-            public FakeJackett(string title, params int[] categories)
+            public FakeServer(string body)
             {
-                _body = JsonSerializer.Serialize(new
-                {
-                    Results = new[]
-                    {
-                        new
-                        {
-                            Title = title,
-                            Guid = "https://tracker.invalid/t/1",
-                            Link = "",
-                            MagnetUri = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
-                            Tracker = "tracker",
-                            Size = 0,
-                            PublishDate = DateTime.UtcNow,
-                            Category = categories,
-                            Seeders = 50,
-                            Peers = 60
-                        }
-                    }
-                });
+                _body = body;
                 Port = FreePort();
                 _listener.Prefixes.Add($"http://127.0.0.1:{Port}/");
                 _listener.Start();
@@ -72,6 +55,31 @@ namespace RetroArr.Core.Test.Search
 
             public void Dispose() => _listener.Close();
         }
+
+        // One Jackett result per (title, category).
+        private static FakeServer FakeJackett(params (string Title, int Category)[] releases) =>
+            new(JsonSerializer.Serialize(new
+            {
+                Results = releases.Select(r => new
+                {
+                    Title = r.Title,
+                    Guid = "https://tracker.invalid/t/1",
+                    Link = "",
+                    MagnetUri = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
+                    Tracker = "tracker",
+                    Size = 0,
+                    PublishDate = DateTime.UtcNow,
+                    Category = new[] { r.Category },
+                    Seeders = 50,
+                    Peers = 60
+                })
+            }));
+
+        private static FakeServer FakeHydra(string title) =>
+            new(JsonSerializer.Serialize(new
+            {
+                downloads = new[] { new { title, uris = new[] { "magnet:?xt=urn:btih:fedcba9876543210fedcba9876543210fedcba98" }, fileSize = "7 GB" } }
+            }));
 
         private static int FreePort()
         {
@@ -119,7 +127,7 @@ namespace RetroArr.Core.Test.Search
         public async Task AutomaticSearch_KeepsJackettCategoriesForPlatformDetection()
         {
             // The title alone names no platform; only the Xbox 360 category does.
-            using var jackett = new FakeJackett("Halo 3 (USA) P2P", 1050);
+            using var jackett = FakeJackett(("Halo 3 (USA) P2P", 1050));
 
             var result = await Search(new ConfigurationService(_root), jackett.Port, autoDispatch: false);
 
@@ -133,7 +141,7 @@ namespace RetroArr.Core.Test.Search
         [Test]
         public async Task AutoGrab_ToDelugeWithSsl_TalksTls()
         {
-            using var jackett = new FakeJackett("Halo 3 X360 P2P", 1050);
+            using var jackett = FakeJackett(("Halo 3 X360 P2P", 1050));
 
             // Stands in for deluge-web behind TLS: records the first byte the client sends.
             // A TLS handshake starts with 0x16, a plain HTTP request with 'P' of POST.
@@ -176,6 +184,106 @@ namespace RetroArr.Core.Test.Search
             {
                 deluge.Stop();
             }
+        }
+
+        [Test]
+        public async Task AutoGrab_NeverDispatchesAReject()
+        {
+            using var jackett = FakeJackett(("Halo 3 (Europe) P2P", 1030));
+            var deluge = new TcpListener(IPAddress.Loopback, 0);
+            deluge.Start();
+            try
+            {
+                var config = new ConfigurationService(_root);
+                var monitor = MonitorSettings.CreateDefault();
+                monitor.AutoDownloadThreshold = 0;
+                monitor.RequireTrustedSourceForAuto = false;
+                config.SaveMonitorSettings(monitor);
+                config.SaveDownloadClients(new List<DownloadClient>
+                {
+                    new DownloadClient
+                    {
+                        Id = 1, Name = "deluge", Implementation = "Deluge", Host = "127.0.0.1",
+                        Port = ((IPEndPoint)deluge.LocalEndpoint).Port, Password = "pw", Enable = true
+                    }
+                });
+
+                var result = await Search(config, jackett.Port, autoDispatch: true);
+
+                Assert.That(result.Scored.Single().Decision, Is.EqualTo(ReleaseDecision.Reject));
+                Assert.That(result.AutoQueued, Is.False);
+                Assert.That(deluge.Pending(), Is.False, "a rejected release reached the download client");
+            }
+            finally
+            {
+                deluge.Stop();
+            }
+        }
+
+        [Test]
+        public async Task Search_KeepsRejectsLastWithTheirReason()
+        {
+            // The Wii category makes the first release a platform mismatch for the Xbox 360 game.
+            // The second has no trusted group, and the penalty clamps it to a Hide with score 0, the score a Reject gets.
+            using var jackett = FakeJackett(("Halo 3 (Europe) P2P", 1030), ("Halo 3 (USA)", 1050));
+            var config = new ConfigurationService(_root);
+            var monitor = MonitorSettings.CreateDefault();
+            monitor.UnknownUploaderPenalty = 200;
+            config.SaveMonitorSettings(monitor);
+
+            var result = await Search(config, jackett.Port, autoDispatch: false);
+
+            Assert.That(result.Scored, Has.Count.EqualTo(2));
+            Assert.That(result.RejectedCount, Is.EqualTo(1));
+            Assert.That(result.Scored[0].Release.Title, Is.EqualTo("Halo 3 (USA)"));
+            Assert.That(result.Scored[0].Decision, Is.EqualTo(ReleaseDecision.Hide));
+            Assert.That(result.Scored[0].Score, Is.EqualTo(0));
+            Assert.That(result.Scored[1].Decision, Is.EqualTo(ReleaseDecision.Reject));
+            Assert.That(result.Scored[1].Reason, Does.StartWith("platform mismatch"));
+            Assert.That(result.Queries, Is.EqualTo(new[] { "Halo 3" }));
+            Assert.That(result.ProviderErrors, Is.Empty);
+        }
+
+        [Test]
+        public async Task JackettFailure_IsReportedAndHydraResultsAreKept()
+        {
+            using var hydra = FakeHydra("Halo 3 (USA)");
+            var config = new ConfigurationService(_root);
+            config.SaveHydraIndexers(new List<HydraConfiguration>
+            {
+                new HydraConfiguration { Name = "hydra", Url = $"http://127.0.0.1:{hydra.Port}/", Enabled = true }
+            });
+
+            // Nothing listens on this port, so Jackett fails.
+            var result = await Search(config, FreePort(), autoDispatch: false);
+
+            Assert.That(result.Error, Is.Null);
+            Assert.That(result.ProviderErrors, Has.Count.EqualTo(1));
+            Assert.That(result.ProviderErrors[0], Does.StartWith("Jackett search failed: "));
+            Assert.That(result.ProviderErrors[0], Does.Contain("refused").IgnoreCase);
+            // Hydra sources carry no seeder count, so the kept row is a Reject.
+            var hydraRow = result.Scored.Single();
+            Assert.That(hydraRow.Release.Title, Is.EqualTo("Halo 3 (USA)"));
+            Assert.That(hydraRow.Decision, Is.EqualTo(ReleaseDecision.Reject));
+            Assert.That(hydraRow.Reason, Does.StartWith("insufficient seeders"));
+        }
+
+        [Test]
+        public async Task HydraFailure_IsReportedAndJackettResultsAreKept()
+        {
+            using var jackett = FakeJackett(("Halo 3 (USA) P2P", 1050));
+            var config = new ConfigurationService(_root);
+            config.SaveHydraIndexers(new List<HydraConfiguration>
+            {
+                new HydraConfiguration { Name = "hydra", Url = $"http://127.0.0.1:{FreePort()}/", Enabled = true }
+            });
+
+            var result = await Search(config, jackett.Port, autoDispatch: false);
+
+            Assert.That(result.ProviderErrors, Has.Count.EqualTo(1));
+            Assert.That(result.ProviderErrors[0], Does.StartWith("hydra: "));
+            Assert.That(result.ProviderErrors[0], Does.Contain("refused").IgnoreCase);
+            Assert.That(result.Scored.Select(s => s.Release.Title), Is.EqualTo(new[] { "Halo 3 (USA) P2P" }));
         }
     }
 }

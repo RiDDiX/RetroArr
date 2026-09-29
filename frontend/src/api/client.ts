@@ -1002,6 +1002,9 @@ export interface MonitorSearchResultDto {
   autoQueuedRelease: string | null;
   autoQueuedScore: number | null;
   error: string | null;
+  rejectedCount: number;
+  queries: string[];
+  providerErrors: string[];
   scored: ScoredReleaseDto[];
 }
 

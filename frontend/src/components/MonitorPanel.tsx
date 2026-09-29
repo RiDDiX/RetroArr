@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import apiClient, { monitorApi, getErrorMessage, type ScoredReleaseDto } from '../api/client';
+import apiClient, { monitorApi, getErrorMessage, type MonitorSearchResultDto, type ScoredReleaseDto } from '../api/client';
 import { useTranslation } from '../i18n/translations';
 import './MonitorPanel.css';
 
@@ -27,6 +27,7 @@ const MonitorPanel: React.FC<Props> = ({ gameId, initialMonitored, initialPrefer
   const [busy, setBusy] = useState(false);
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<ScoredReleaseDto[] | null>(null);
+  const [searchInfo, setSearchInfo] = useState<MonitorSearchResultDto | null>(null);
   const [autoQueued, setAutoQueued] = useState<{ title: string; score: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -55,7 +56,6 @@ const MonitorPanel: React.FC<Props> = ({ gameId, initialMonitored, initialPrefer
       const response = await apiClient.post('/downloadclient/add', {
         url,
         protocol: release.protocol,
-        platformFolder: release.platformFolder || undefined,
         gameId,
         importSubfolder: detectImportSubfolder(release.title)
       });
@@ -105,9 +105,11 @@ const MonitorPanel: React.FC<Props> = ({ gameId, initialMonitored, initialPrefer
     setNotice(null);
     setAutoQueued(null);
     setResults(null);
+    setSearchInfo(null);
     try {
       const resp = await monitorApi.searchNow(gameId, autoDispatch);
       setResults(resp.data.scored || []);
+      setSearchInfo(resp.data);
       if (resp.data.autoQueued && resp.data.autoQueuedRelease && resp.data.autoQueuedScore != null) {
         setAutoQueued({ title: resp.data.autoQueuedRelease, score: resp.data.autoQueuedScore });
       }
@@ -121,7 +123,7 @@ const MonitorPanel: React.FC<Props> = ({ gameId, initialMonitored, initialPrefer
     }
   };
 
-  const visibleResults = !results ? [] : (showAll ? results : results.filter(r => r.decision !== 'Hide'));
+  const visibleResults = !results ? [] : (showAll ? results : results.filter(r => r.decision !== 'Hide' && r.decision !== 'Reject'));
 
   return (
     <div className="monitor-panel">
@@ -183,6 +185,15 @@ const MonitorPanel: React.FC<Props> = ({ gameId, initialMonitored, initialPrefer
       </small>
 
       {error && <div className="alert alert-error">{error}</div>}
+      {searchInfo && searchInfo.queries.length > 0 && (
+        <div className="monitor-hint monitor-diagnostics">
+          <span>{t('searchQueriesSent').replace('{queries}', searchInfo.queries.map(q => `"${q}"`).join(', '))}</span>
+          {searchInfo.rejectedCount > 0 && (
+            <span>{t('monitorRejectedCount').replace('{count}', String(searchInfo.rejectedCount))}</span>
+          )}
+          {searchInfo.providerErrors.map((e, i) => <span key={i} className="monitor-provider-error">{e}</span>)}
+        </div>
+      )}
       {notice && <div className="alert alert-info">{notice}</div>}
 
       {autoQueued && (
@@ -196,7 +207,7 @@ const MonitorPanel: React.FC<Props> = ({ gameId, initialMonitored, initialPrefer
       {results && (
         <div className="monitor-results">
           <div className="monitor-results-header">
-            <span>{t('monitorResultsCount').replace('{count}', String(results.length))}</span>
+            <span>{t('monitorResultsCount').replace('{count}', String(visibleResults.length))}</span>
             <label className="monitor-show-hidden">
               <input
                 type="checkbox"
@@ -215,6 +226,7 @@ const MonitorPanel: React.FC<Props> = ({ gameId, initialMonitored, initialPrefer
                 <div className="monitor-result-head">
                   <span className={`monitor-score score-${r.decision.toLowerCase()}`}>{r.score}</span>
                   <span className="monitor-decision-badge">{decisionLabel(r.decision, t)}</span>
+                  {r.decision === 'Reject' && r.reason && <span className="monitor-reject-reason">{r.reason}</span>}
                   <span className="monitor-result-title">{r.title}</span>
                 </div>
                 <div className="monitor-result-meta">

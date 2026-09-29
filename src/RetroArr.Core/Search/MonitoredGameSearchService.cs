@@ -25,6 +25,13 @@ namespace RetroArr.Core.Search
         [SuppressMessage("Microsoft.Usage", "CA2227:CollectionPropertiesShouldBeReadOnly")]
         [SuppressMessage("Microsoft.Design", "CA1002:DoNotExposeGenericLists")]
         public List<ScoredRelease> Scored { get; set; } = new();
+        public int RejectedCount { get; set; }
+        [SuppressMessage("Microsoft.Usage", "CA2227:CollectionPropertiesShouldBeReadOnly")]
+        [SuppressMessage("Microsoft.Design", "CA1002:DoNotExposeGenericLists")]
+        public List<string> Queries { get; set; } = new();
+        [SuppressMessage("Microsoft.Usage", "CA2227:CollectionPropertiesShouldBeReadOnly")]
+        [SuppressMessage("Microsoft.Design", "CA1002:DoNotExposeGenericLists")]
+        public List<string> ProviderErrors { get; set; } = new();
         public string? Error { get; set; }
     }
 
@@ -74,10 +81,11 @@ namespace RetroArr.Core.Search
                 return result;
             }
 
+            result.Queries.Add(query);
             List<SearchResult> raw;
             try
             {
-                raw = await RunSearchAsync(query, ct).ConfigureAwait(false);
+                raw = await RunSearchAsync(query, result.ProviderErrors, ct).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -98,11 +106,14 @@ namespace RetroArr.Core.Search
                 .Select(g => g.First())
                 .ToList();
 
-            // Score
+            // Score. Rejects stay in the list (last) so the UI can show why.
             var scored = unique
                 .Select(r => _scorer.Score(r, game, settings))
-                .Where(s => s.Decision != ReleaseDecision.Reject)
-                .OrderByDescending(s => s.Score)
+                .ToList();
+            result.RejectedCount = scored.Count(s => s.Decision == ReleaseDecision.Reject);
+            scored = scored
+                .OrderBy(s => s.Decision == ReleaseDecision.Reject)
+                .ThenByDescending(s => s.Score)
                 .ToList();
 
             result.Scored = scored;
@@ -185,27 +196,28 @@ namespace RetroArr.Core.Search
             return sanitized;
         }
 
-        private async Task<List<SearchResult>> RunSearchAsync(string query, CancellationToken ct)
+        private async Task<List<SearchResult>> RunSearchAsync(string query, List<string> providerErrors, CancellationToken ct)
         {
             var results = new List<SearchResult>();
             var prowlarr = _config.LoadProwlarrSettings();
             var jackett = _config.LoadJackettSettings();
             var hydraConfigs = _config.LoadHydraIndexers().Where(h => h.Enabled).ToList();
 
-            var tasks = new List<Task<List<SearchResult>>>();
+            var tasks = new List<(string Name, Task<List<SearchResult>> Task)>();
 
             if (prowlarr.IsConfigured && prowlarr.Enabled)
             {
                 var client = new ProwlarrClient(prowlarr.Url, prowlarr.ApiKey);
-                tasks.Add(client.SearchAsync(query, indexerIds: null, categories: null));
+                tasks.Add(("Prowlarr", client.SearchAsync(query, indexerIds: null, categories: null)));
             }
 
             if (jackett.IsConfigured && jackett.Enabled)
             {
                 var jClient = new JackettClient(jackett.Url, jackett.ApiKey);
-                tasks.Add(jClient.SearchAsync(query, categories: null).ContinueWith(t =>
+                tasks.Add(("Jackett", jClient.SearchAsync(query, categories: null).ContinueWith(t =>
                 {
-                    if (t.IsFaulted || t.Result == null) return new List<SearchResult>();
+                    if (t.IsFaulted) throw t.Exception!.InnerException ?? t.Exception;
+                    if (t.Result == null) return new List<SearchResult>();
                     return t.Result.Select(j => new SearchResult
                     {
                         Title = j.Title,
@@ -225,27 +237,38 @@ namespace RetroArr.Core.Search
                             .Select(id => new ProwlarrCategory { Id = id, Name = id.ToString(System.Globalization.CultureInfo.InvariantCulture) })
                             .ToList()
                     }).ToList();
-                }, ct, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default));
+                }, ct, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default)));
             }
 
             using var sharedClient = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(60) };
             foreach (var hydra in hydraConfigs)
             {
                 var hydraClient = new HydraIndexer(sharedClient, hydra.Name, hydra.Url);
-                tasks.Add(hydraClient.SearchAsync(query));
+                tasks.Add((hydra.Name, hydraClient.SearchAsync(query)));
             }
 
             if (tasks.Count == 0) return results;
 
             var timeoutTask = Task.Delay(TimeSpan.FromSeconds(60), ct);
-            var allTask = Task.WhenAll(tasks);
-            var done = await Task.WhenAny(allTask, timeoutTask).ConfigureAwait(false);
+            var allTask = Task.WhenAll(tasks.Select(t => t.Task));
+            await Task.WhenAny(allTask, timeoutTask).ConfigureAwait(false);
 
-            foreach (var t in tasks)
+            foreach (var (name, t) in tasks)
             {
-                if (t.IsCompletedSuccessfully && t.Result != null)
+                if (t.IsCompletedSuccessfully)
                 {
-                    results.AddRange(t.Result);
+                    if (t.Result != null) results.AddRange(t.Result);
+                }
+                else if (t.IsFaulted)
+                {
+                    var message = t.Exception?.InnerException?.Message ?? t.Exception?.Message ?? "unknown error";
+                    _logger.Warn($"[Monitor] {name} search failed: {message}");
+                    providerErrors.Add(message.StartsWith(name, StringComparison.OrdinalIgnoreCase) ? message : $"{name}: {message}");
+                }
+                else
+                {
+                    // Still running at the deadline, or cancelled by an HttpClient timeout.
+                    providerErrors.Add($"{name}: timeout after 60s");
                 }
             }
 

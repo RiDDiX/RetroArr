@@ -170,7 +170,7 @@ namespace RetroArr.Api.V3.Search
                         providers.Add(new { name, status = "error", count = 0, error = errorMsg });
                         _logger.Error("{Provider} FAILED: {Error}", name, errorMsg);
                     }
-                    else if (timedOut && !task.IsCompleted)
+                    else if (task.IsCanceled || (timedOut && !task.IsCompleted))
                     {
                         providers.Add(new { name, status = "timeout", count = 0, error = "Timed out after 60s" });
                         _logger.Warn("{Provider}: timed out", name);
@@ -227,6 +227,8 @@ namespace RetroArr.Api.V3.Search
                         r.Categories
                     }),
                     providers,
+                    queries = new[] { query },
+                    categories = categoryIds ?? Array.Empty<int>(),
                     diagnostics = new { configured = true, message = (string?)null }
                 });
             }

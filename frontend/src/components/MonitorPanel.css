@@ -83,6 +83,27 @@
   opacity: 0.7;
 }
 
+.monitor-result.decision-reject {
+  border-left-color: var(--ctp-red, #f38ba8);
+  opacity: 0.7;
+}
+
+.monitor-reject-reason {
+  font-size: 0.8rem;
+  color: var(--ctp-red, #f38ba8);
+}
+
+.monitor-diagnostics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.monitor-provider-error {
+  color: var(--ctp-red, #f38ba8);
+}
+
 .monitor-result-head {
   display: flex;
   align-items: baseline;
@@ -112,6 +133,11 @@
 .monitor-score.score-hide {
   background: var(--ctp-surface1, #45475a);
   color: var(--ctp-text, #cdd6f4);
+}
+
+.monitor-score.score-reject {
+  background: var(--ctp-red, #f38ba8);
+  color: var(--ctp-base, #1e1e2e);
 }
 
 .monitor-decision-badge {

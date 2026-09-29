@@ -50,6 +50,15 @@ assert(modal.includes('onClick={confirmDownload} disabled={!selectedPlatform}'),
 assert(/const confirmDownload = async \(\) => \{\n\s+if \(!pendingDownload \|\| !selectedPlatform \|\|/.test(details),
   'confirmDownload must refuse to post without a platform');
 
+// Choosing a platform other than the game's puts the download under another game entry; the modal must say so.
+const hint = folder => load(details, 'otherPlatformHint', { availablePlatforms, game: { platformId: 31 }, t: k => `${k}:{platform}` })(folder);
+assert(hint('xbox360') === null, 'no hint when the game platform is selected');
+assert(hint('') === null, 'no hint when nothing is selected');
+assert(hint('switch') === 'downloadOtherPlatformHint:Nintendo Switch', 'a different platform must name the target in the hint');
+assert(load(details, 'otherPlatformHint', { availablePlatforms, game: { platformId: 999 }, t: k => `${k}:{platform}` })('switch') === 'downloadOtherPlatformHint:Nintendo Switch',
+  'the hint must also show when the game platform is not an option, every choice then files under another entry');
+assert(modal.includes('{otherPlatformHint(selectedPlatform) && ('), 'the platform hint must be rendered in the download modal');
+
 // Library search results: lookup results always carry id 0, only igdbId identifies an IGDB game.
 const library = read('frontend', 'src', 'pages', 'Library.tsx');
 const addBody = async (result) => {

@@ -169,6 +169,9 @@ namespace RetroArr.Api.V3.Monitor
                     autoQueuedRelease = result.AutoQueuedRelease,
                     autoQueuedScore = result.AutoQueuedScore,
                     error = result.Error,
+                    rejectedCount = result.RejectedCount,
+                    queries = result.Queries,
+                    providerErrors = result.ProviderErrors,
                     scored = result.Scored.Select(s => new
                     {
                         score = s.Score,

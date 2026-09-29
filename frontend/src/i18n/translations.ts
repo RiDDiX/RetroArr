@@ -491,6 +491,11 @@ export const translations = {
         webhooksPayloadTemplate: 'Plantilla del payload (opcional)',
         webhooksPayloadTemplateHint: 'Déjalo vacío para enviar el JSON estándar. Usa {event}, {timestamp}, {data} como marcadores.',
         webhooksPresets: 'Relleno rápido:',
+        searchQueriesSent: 'Consultas enviadas: {queries}',
+        searchCategoriesSent: 'Categorías: {categories}',
+        monitorRejectedCount: '{count} rechazados',
+        monitorShowHidden: 'Mostrar ocultos y rechazados',
+        downloadOtherPlatformHint: 'La descarga se guardará en {platform}. Para ello se crea o reutiliza una entrada de juego propia.',
     },
     en: {
         // Settings
@@ -1149,7 +1154,7 @@ export const translations = {
         monitorSearchFailed: 'Indexer search failed.',
         monitorAutoQueuedNotice: 'Auto-queued: "{title}" (score {score}). Watch the downloads page for progress.',
         monitorResultsCount: '{count} releases scored',
-        monitorShowHidden: 'Show low-score',
+        monitorShowHidden: 'Show hidden and rejected',
         monitorNoResults: 'No releases passed the filters. Loosen the thresholds in Settings or try a different title.',
         monitorScoreBreakdown: 'Score breakdown',
         monitorOpenIndexerLink: 'Open release page',
@@ -1235,6 +1240,10 @@ export const translations = {
         renameTokenRegion: 'Game.Region field',
         renameTokenLanguages: 'Game.Languages field',
         renameTokenRevision: 'Game.Revision field',
+        searchQueriesSent: 'Queries sent: {queries}',
+        searchCategoriesSent: 'Categories: {categories}',
+        monitorRejectedCount: '{count} rejected',
+        downloadOtherPlatformHint: 'The download will be filed under {platform}. A separate game entry is created or reused for it.',
     },
     fr: {
         // Post-Download Management
@@ -1703,6 +1712,11 @@ export const translations = {
         webhooksPayloadTemplate: 'Modèle de payload (optionnel)',
         webhooksPayloadTemplateHint: 'Laissez vide pour envoyer le JSON par défaut. Utilisez {event}, {timestamp}, {data} comme variables.',
         webhooksPresets: 'Remplissage rapide :',
+        searchQueriesSent: 'Requêtes envoyées : {queries}',
+        searchCategoriesSent: 'Catégories : {categories}',
+        monitorRejectedCount: '{count} rejetés',
+        monitorShowHidden: 'Afficher masqués et rejetés',
+        downloadOtherPlatformHint: 'Le téléchargement sera classé sous {platform}. Une entrée de jeu distincte est créée ou réutilisée pour cela.',
     },
     de: {
         // Post-Download Management
@@ -2224,6 +2238,11 @@ export const translations = {
         webhooksPayloadTemplate: 'Payload-Template (optional)',
         webhooksPayloadTemplateHint: 'Leer lassen für die Standard-JSON-Hülle. {event}, {timestamp}, {data} als Platzhalter verwenden.',
         webhooksPresets: 'Schnellausfüllen:',
+        searchQueriesSent: 'Gesendete Suchanfragen: {queries}',
+        searchCategoriesSent: 'Kategorien: {categories}',
+        monitorRejectedCount: '{count} abgelehnt',
+        monitorShowHidden: 'Ausgeblendete und abgelehnte anzeigen',
+        downloadOtherPlatformHint: 'Der Download wird unter {platform} abgelegt. Dafür wird ein eigener Spieleintrag angelegt oder genutzt.',
     },
     ru: {
         // Post-Download Management
@@ -2660,6 +2679,11 @@ export const translations = {
         webhooksPayloadTemplate: 'Шаблон полезной нагрузки (необязательно)',
         webhooksPayloadTemplateHint: 'Оставьте пустым для отправки стандартного JSON. Используйте {event}, {timestamp}, {data} как переменные.',
         webhooksPresets: 'Быстрая вставка:',
+        searchQueriesSent: 'Отправленные запросы: {queries}',
+        searchCategoriesSent: 'Категории: {categories}',
+        monitorRejectedCount: 'Отклонено: {count}',
+        monitorShowHidden: 'Показать скрытые и отклонённые',
+        downloadOtherPlatformHint: 'Загрузка будет сохранена в {platform}. Для этого создаётся или используется отдельная запись игры.',
     },
     zh: {
         // Post-Download Management
@@ -3089,6 +3113,11 @@ export const translations = {
         webhooksPayloadTemplate: '负载模板（可选）',
         webhooksPayloadTemplateHint: '留空发送默认 JSON。使用 {event}、{timestamp}、{data} 作为占位符。',
         webhooksPresets: '快速填充：',
+        searchQueriesSent: '已发送的查询：{queries}',
+        searchCategoriesSent: '分类：{categories}',
+        monitorRejectedCount: '已拒绝 {count} 个',
+        monitorShowHidden: '显示隐藏和已拒绝的结果',
+        downloadOtherPlatformHint: '下载将归档到 {platform}。为此会创建或复用一个单独的游戏条目。',
     },
     ja: {
         // Post-Download Management
@@ -3513,6 +3542,11 @@ export const translations = {
         webhooksPayloadTemplate: 'ペイロードテンプレート（任意）',
         webhooksPayloadTemplateHint: '空欄でデフォルトの JSON を送信。{event}、{timestamp}、{data} をプレースホルダーとして使用。',
         webhooksPresets: 'クイック入力:',
+        searchQueriesSent: '送信したクエリ: {queries}',
+        searchCategoriesSent: 'カテゴリ: {categories}',
+        monitorRejectedCount: '{count} 件を除外',
+        monitorShowHidden: '非表示と除外を表示',
+        downloadOtherPlatformHint: 'ダウンロードは {platform} に保存されます。そのために別のゲーム項目が作成されるか、既存の項目が使われます。',
     },
 } as const;
 

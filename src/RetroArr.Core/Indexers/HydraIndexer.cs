@@ -52,7 +52,7 @@ namespace RetroArr.Core.Indexers
             catch (Exception ex)
             {
                 _logger.Error($"[Hydra] Error searching {_name}: {ex.Message}");
-                return new List<SearchResult>();
+                throw;
             }
         }
 
