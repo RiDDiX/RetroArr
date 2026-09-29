@@ -520,7 +520,7 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
               {t('missingRetentionLabel') || 'Missing-flag retention (days, 0 = keep forever)'}
             </label>
             <p className="settings-description-sm" style={{ fontSize: '0.8em', color: 'var(--ctp-subtext0)', margin: '2px 0 6px' }}>
-              {t('missingRetentionDesc') || 'How long a game stays flagged as Missing before a full scan purges it from the DB.'}
+              {t('missingRetentionDesc') || 'How long an unmonitored game whose folder is gone stays flagged as Missing before a full scan removes it. Monitored games are kept and searched again.'}
             </p>
             <input
               id="missing-retention"

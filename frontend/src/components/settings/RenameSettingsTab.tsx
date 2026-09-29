@@ -21,6 +21,7 @@ const SAMPLE = {
   Languages: 'En',
   Revision: '',
   Edition: '',
+  Disc: '',
 };
 
 const renderPreview = (template: string, variables: Record<string, string>) => {
@@ -28,6 +29,8 @@ const renderPreview = (template: string, variables: Record<string, string>) => {
   let result = template.replace(/\{([A-Za-z]+)\}/g, (_, key) => {
     return variables[key] ?? `{${key}}`;
   });
+  // An empty token leaves "()" or "[]" behind, which the backend drops as well.
+  result = result.replace(/\s*(\([\s,;+-]*\)|\[[\s,;+-]*\]|\{[\s,;+-]*\})/g, '');
   result = result.replace(/(\s-\s)+/g, ' - ');
   result = result.replace(/^\s*-\s*/, '');
   result = result.replace(/\s*-\s*$/, '');
@@ -35,6 +38,20 @@ const renderPreview = (template: string, variables: Record<string, string>) => {
   // Strip filesystem-illegal chars (cheap subset of what the backend does).
   result = result.replace(/[<>:"|?*\\/]/g, '');
   return result;
+};
+
+const buildPreview = (s: Pick<MediaSettings, 'mainFileTemplate' | 'updateFileTemplate' | 'dlcFileTemplate' | 'includeReleaseGroupInFilename' | 'releaseGroupSuffix'>) => {
+  const suffix = s.includeReleaseGroupInFilename ? ' ' + renderPreview(s.releaseGroupSuffix || '[{ReleaseGroup}]', SAMPLE) : '';
+  return {
+    main: renderPreview(s.mainFileTemplate || '{Title}', SAMPLE) + suffix + '.zip',
+    update: renderPreview(s.updateFileTemplate || '{Title} - Update {Version}', SAMPLE) + suffix + '.zip',
+    dlc: renderPreview(s.dlcFileTemplate || '{Title} - DLC - {ContentName}', SAMPLE) + suffix + '.zip',
+  };
+};
+
+// "Overwrite" is gone, the backend treats a stored one as Skip
+const normalizeConflict = (value?: string) => {
+  return value === 'Suffix' ? 'Suffix' : 'Skip';
 };
 
 const RenameSettingsTab: React.FC<Props> = ({ t }) => {
@@ -49,7 +66,7 @@ const RenameSettingsTab: React.FC<Props> = ({ t }) => {
     setError(null);
     try {
       const resp = await mediaApi.getSettings();
-      setSettings(resp.data);
+      setSettings({ ...resp.data, fileConflictBehavior: normalizeConflict(resp.data.fileConflictBehavior) });
     } catch (e) {
       setError(getErrorMessage(e, t('renameLoadFailed')));
     } finally {
@@ -84,18 +101,7 @@ const RenameSettingsTab: React.FC<Props> = ({ t }) => {
     }
   };
 
-  const preview = useMemo(() => {
-    if (!settings) return null;
-    const samples = { ...SAMPLE };
-    return {
-      main: renderPreview(settings.mainFileTemplate || '{Title}', samples) + '.zip',
-      update: renderPreview(settings.updateFileTemplate || '{Title} - Update {Version}', samples) + '.zip',
-      dlc: renderPreview(settings.dlcFileTemplate || '{Title} - DLC - {ContentName}', samples) + '.zip',
-      suffix: settings.includeReleaseGroupInFilename
-        ? ' ' + renderPreview(settings.releaseGroupSuffix || '[{ReleaseGroup}]', samples)
-        : '',
-    };
-  }, [settings]);
+  const preview = useMemo(() => (settings ? buildPreview(settings) : null), [settings]);
 
   if (loading || !settings) {
     return <div className="settings-section">{t('loading')}</div>;
@@ -144,7 +150,7 @@ const RenameSettingsTab: React.FC<Props> = ({ t }) => {
           onChange={(e) => setSettings({ ...settings, mainFileTemplate: e.target.value })}
           disabled={saving}
         />
-        {preview && <small className="settings-hint">{t('renamePreview')}: <code>{preview.main}{preview.suffix && preview.main.replace('.zip', '') + preview.suffix + '.zip'}</code></small>}
+        {preview && <small className="settings-hint">{t('renamePreview')}: <code>{preview.main}</code></small>}
       </div>
 
       <div className="form-group">
@@ -200,7 +206,6 @@ const RenameSettingsTab: React.FC<Props> = ({ t }) => {
         >
           <option value="Skip">{t('renameConflictSkip')}</option>
           <option value="Suffix">{t('renameConflictSuffix')}</option>
-          <option value="Overwrite">{t('renameConflictOverwrite')}</option>
         </select>
         <small className="settings-hint">{t('renameConflictHint')}</small>
       </div>
@@ -208,6 +213,7 @@ const RenameSettingsTab: React.FC<Props> = ({ t }) => {
       <h3>{t('renameTokens')}</h3>
       <ul className="settings-hint" style={{ paddingLeft: '1.2em' }}>
         <li><code>{'{Title}'}</code> {t('renameTokenTitle')}</li>
+        <li><code>{'{Disc}'}</code> {t('renameTokenDisc')}</li>
         <li><code>{'{Year}'}</code> {t('renameTokenYear')}</li>
         <li><code>{'{Platform}'}</code> {t('renameTokenPlatform')}</li>
         <li><code>{'{Version}'}</code> {t('renameTokenVersion')}</li>

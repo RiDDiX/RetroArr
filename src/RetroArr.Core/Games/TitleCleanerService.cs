@@ -719,18 +719,16 @@ namespace RetroArr.Core.Games
         };
 
         // Extracts a release group name from a filename if recognisable.
-        // Used by the auto-rename pipeline to populate GameFile.ReleaseGroup
-        // and by the scorer to award a per-game preferred-group bonus.
+        // Used by the import rename for the {ReleaseGroup} token.
         public static string? ExtractReleaseGroup(string fileName)
         {
             if (string.IsNullOrWhiteSpace(fileName)) return null;
 
-            // Prefer a known-group substring match anywhere in the name -
-            // covers "Game.FitGirl.Repack.zip" and "Game [No-Intro].zip"
-            // uniformly without making the regex brittle.
+            // A known group counts as a whole token only - "Hades-RUNE", "Game [No-Intro].zip",
+            // "Game.FitGirl.Repack" - so "Rune Factory" or "The Matrix Reloaded" name no group.
             foreach (var group in _knownReleaseGroups)
             {
-                if (fileName.IndexOf(group, StringComparison.OrdinalIgnoreCase) >= 0)
+                if (Regex.IsMatch(fileName, @"(?<=[-._\[(])" + Regex.Escape(group) + @"(?=$|[-._\])\s])", RegexOptions.IgnoreCase))
                 {
                     return group;
                 }

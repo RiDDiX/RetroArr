@@ -37,9 +37,19 @@ namespace RetroArr.Api.V3.Settings
             return Ok(_configService.LoadMediaSettings());
         }
 
+        // Each settings tab sends only its own fields, the rest stays as it is
         [HttpPost]
-        public IActionResult SaveSettings([FromBody] MediaSettings settings)
+        public IActionResult SaveSettings([FromBody] Newtonsoft.Json.Linq.JObject body)
         {
+            var settings = _configService.LoadMediaSettings();
+            try
+            {
+                Newtonsoft.Json.JsonConvert.PopulateObject(body?.ToString() ?? "{}", settings);
+            }
+            catch (Newtonsoft.Json.JsonException ex)
+            {
+                return BadRequest(new { message = $"Invalid media settings: {ex.Message}" });
+            }
             _configService.SaveMediaSettings(settings);
             // Best-effort mkdir for every configured rooted path so a fresh
             // setup doesn't fail at the first download or scan.

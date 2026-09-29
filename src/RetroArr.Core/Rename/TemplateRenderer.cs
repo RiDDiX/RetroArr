@@ -18,7 +18,7 @@ namespace RetroArr.Core.Rename
         public static readonly IReadOnlyCollection<string> KnownTokens = new[]
         {
             "Title", "Year", "Platform", "Version", "ContentName",
-            "ReleaseGroup", "Region", "Languages", "Revision", "Edition"
+            "ReleaseGroup", "Region", "Languages", "Revision", "Edition", "Disc"
         };
 
         private static readonly Regex TokenRegex = new(@"\{([A-Za-z]+)\}", RegexOptions.Compiled);
@@ -52,6 +52,9 @@ namespace RetroArr.Core.Rename
                 }
                 return m.Value;
             });
+
+            // An empty token leaves "()" or "[]" behind: "{Title} ({Region})" with no region is just the title.
+            substituted = Regex.Replace(substituted, @"\s*(\([\s,;+-]*\)|\[[\s,;+-]*\]|\{[\s,;+-]*\})", "");
 
             // 2. Collapse adjacent " - " separators that flank a now-empty
             // variable: "{Title} - DLC - {ContentName}" with ContentName=""

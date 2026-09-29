@@ -44,6 +44,25 @@ namespace RetroArr.Core.IO
                 }
             }
 
+            // Never replaces a file. A link to the source is the one exception: the source may be deleted after the import.
+            // File.Exists is true for a dangling link as well, so that is refused too.
+            if (File.Exists(destinationFile) || Directory.Exists(destinationFile))
+            {
+                if (!LinksTo(destinationFile, sourceFile))
+                {
+                    failureReason = $"Target exists, not overwriting: {destinationFile}";
+                    _logger.Warn($"[FileMover] {failureReason}");
+                    return false;
+                }
+                try { File.Delete(destinationFile); }
+                catch (Exception ex)
+                {
+                    failureReason = $"Could not remove link {destinationFile}: {ex.Message}";
+                    _logger.Error($"[FileMover] {failureReason}");
+                    return false;
+                }
+            }
+
             try
             {
                 if (TryCreateHardLink(sourceFile, destinationFile))
@@ -61,7 +80,7 @@ namespace RetroArr.Core.IO
             try
             {
                 _logger.Info($"[FileMover] Copying file: {sourceFile} -> {destinationFile}");
-                File.Copy(sourceFile, destinationFile, overwrite: true);
+                File.Copy(sourceFile, destinationFile, overwrite: false);
                 return true;
             }
             catch (Exception ex)
@@ -72,14 +91,19 @@ namespace RetroArr.Core.IO
             }
         }
 
+        internal static bool LinksTo(string link, string target)
+        {
+            try
+            {
+                var info = new FileInfo(link);
+                return info.LinkTarget != null
+                    && string.Equals(info.ResolveLinkTarget(true)?.FullName, Path.GetFullPath(target), StringComparison.Ordinal);
+            }
+            catch (IOException) { return false; }
+        }
+
         private bool TryCreateHardLink(string source, string destination)
         {
-            // Delete destination if it exists (overwrite behavior for import)
-            if (File.Exists(destination))
-            {
-                 File.Delete(destination);
-            }
-
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
                 return CreateHardLink(destination, source, IntPtr.Zero);

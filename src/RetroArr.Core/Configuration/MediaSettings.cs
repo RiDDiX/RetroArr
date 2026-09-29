@@ -43,10 +43,12 @@ namespace RetroArr.Core.Configuration
         public bool RenameOnImport { get; set; }
 
         // Templates for the canonical filename, without extension.
-        // Variables: {Title}, {Year}, {Version}, {ContentName}, {ReleaseGroup}, {Region}, {Platform}
+        // Variables: {Title}, {Year}, {Version}, {ContentName}, {ReleaseGroup}, {Platform},
+        // and from the file name (else the release name): {Region}, {Languages}, {Revision}, {Disc}.
         // Empty variables are dropped together with their surrounding
-        // " - " separators by the renamer, so a missing ContentName leaves
+        // " - " separators and empty brackets, so a missing ContentName leaves
         // a clean "{Title} - DLC" instead of "{Title} - DLC - ".
+        // The disc token is added when the template leaves it out.
         public string MainFileTemplate { get; set; } = "{Title}";
         public string UpdateFileTemplate { get; set; } = "{Title} - Update {Version}";
         public string DlcFileTemplate { get; set; } = "{Title} - DLC - {ContentName}";
@@ -61,13 +63,14 @@ namespace RetroArr.Core.Configuration
         // handheld platforms (Switch, PS4/5, PS Vita, Wii etc.) embed
         // load-bearing TitleID/version markers in their filenames that
         // emulators parse - blindly renaming those breaks the games. CSV
-        // of Platform.Slug values that the renamer is allowed to touch.
+        // of platform slugs or folder names that the renamer is allowed to touch.
         public string ApplyRenameToPlatforms { get; set; } = "windows,pc,linux,macintosh";
 
-        // What to do when the target filename already exists on disk:
-        //   "Skip"      - leave the source alone, log it (safest default)
-        //   "Overwrite" - replace target (caller should know what they want)
-        //   "Suffix"    - append " (1)", " (2)" until unique
+        // What to do when the name is taken by another file (the file's own tags are tried first,
+        // an existing file is never replaced):
+        //   "Skip"   - don't import it, keep the download (default)
+        //   "Suffix" - append " (1)", " (2)" until unique
+        // A stored "Overwrite" from older versions acts as Skip.
         public string FileConflictBehavior { get; set; } = "Skip";
 
         public bool IsConfigured => !string.IsNullOrWhiteSpace(FolderPath);
