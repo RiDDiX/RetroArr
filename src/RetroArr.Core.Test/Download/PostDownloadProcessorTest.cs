@@ -64,6 +64,211 @@ namespace RetroArr.Core.Test.Download
             public RetroArrDbContext CreateDbContext() => new RetroArrDbContext(_options);
         }
 
+        // ── Import never replaces a file that's already there ─────────
+
+        [Test]
+        public async Task GameTargetedImport_OtherRegionOfSameGame_KeepsBothFiles()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "retroarr_pdclash_" + Path.GetRandomFileName());
+            try
+            {
+                var (processor, dbOptions, library) = await SetUpGameAsync(root, "Advance Wars", 52);
+
+                var usa = await ImportFileAsync(processor, root, "Advance Wars (USA).gba", "usa");
+                var eur = await ImportFileAsync(processor, root, "Advance Wars (Europe).gba", "eur");
+                Assert.That(usa.Success, Is.True, usa.Reason);
+                Assert.That(eur.Success, Is.True, eur.Reason);
+                Assert.That(File.ReadAllText(Path.Combine(library, "Advance Wars.gba")), Is.EqualTo("usa"));
+                Assert.That(File.ReadAllText(Path.Combine(library, "Advance Wars (Europe).gba")), Is.EqualTo("eur"));
+
+                var again = await ImportFileAsync(processor, root, "Advance Wars (Europe).gba", "eur rev 1");
+                Assert.That(again.Success, Is.False);
+                Assert.That(again.Reason, Does.Contain("not overwriting"));
+                Assert.That(File.ReadAllText(Path.Combine(library, "Advance Wars.gba")), Is.EqualTo("usa"));
+                Assert.That(File.ReadAllText(Path.Combine(library, "Advance Wars (Europe).gba")), Is.EqualTo("eur"));
+                Assert.That(File.Exists(Path.Combine(root, "downloads", "Advance Wars (Europe).gba")), Is.True, "source was removed");
+                Assert.That(Directory.GetFiles(library), Has.Length.EqualTo(2));
+
+                using var check = new RetroArrDbContext(dbOptions);
+                Assert.That(check.Games.Single().ExecutablePath, Is.EqualTo(Path.Combine(library, "Advance Wars.gba")));
+            }
+            finally
+            {
+                Directory.Delete(root, true);
+            }
+        }
+
+        [Test]
+        public async Task GameTargetedImport_SameFileAgain_LeavesTheLibraryFileAlone()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "retroarr_pdsame_" + Path.GetRandomFileName());
+            try
+            {
+                var (processor, _, library) = await SetUpGameAsync(root, "Advance Wars", 52);
+
+                await ImportFileAsync(processor, root, "Advance Wars (USA).gba", "usa");
+                var libraryFile = Path.Combine(library, "Advance Wars.gba");
+                var stamp = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                File.SetLastWriteTimeUtc(libraryFile, stamp);
+                var again = await ImportFileAsync(processor, root, "Advance Wars (USA).gba", "usa");
+
+                Assert.That(again.Success, Is.True, again.Reason);
+                Assert.That(Directory.GetFiles(library).Select(Path.GetFileName), Is.EqualTo(new[] { "Advance Wars.gba" }));
+                Assert.That(File.GetLastWriteTimeUtc(libraryFile), Is.EqualTo(stamp), "library file was replaced");
+                Assert.That(File.Exists(Path.Combine(root, "downloads", "Advance Wars (USA).gba")), Is.False, "source was kept");
+            }
+            finally
+            {
+                Directory.Delete(root, true);
+            }
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public async Task GameTargetedImport_SourceAlreadyAtTarget_IsLeftAlone(bool asFolder)
+        {
+            var root = Path.Combine(Path.GetTempPath(), "retroarr_pdself_" + Path.GetRandomFileName());
+            try
+            {
+                var (processor, dbOptions, library) = await SetUpGameAsync(root, "Advance Wars", 52);
+                var file = Path.Combine(library, "Advance Wars.gba");
+                File.WriteAllText(file, "usa");
+
+                var result = await processor.ProcessCompletedDownloadAsync(new DownloadStatus
+                {
+                    Id = "x", Name = "Advance Wars", DownloadPath = asFolder ? library : file, GameId = 1, State = DownloadState.Completed
+                });
+
+                Assert.That(result.Success, Is.True, result.Reason);
+                Assert.That(File.ReadAllText(file), Is.EqualTo("usa"));
+                Assert.That(Directory.GetFiles(library), Has.Length.EqualTo(1));
+                using var check = new RetroArrDbContext(dbOptions);
+                Assert.That(check.Games.Single().ExecutablePath, Is.EqualTo(file));
+            }
+            finally
+            {
+                Directory.Delete(root, true);
+            }
+        }
+
+        [Test]
+        public async Task GameTargetedImport_KeepsTheDiscToken()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "retroarr_pddisc_" + Path.GetRandomFileName());
+            try
+            {
+                var (processor, dbOptions, library) = await SetUpGameAsync(root, "Final Fantasy IX", 20);
+
+                var result = await ImportFolderAsync(processor, root, "Final Fantasy IX (USA) (Disc 2)", "Final Fantasy IX (USA) (Disc 2).chd", "disc2");
+
+                var expected = Path.Combine(library, "Final Fantasy IX (Disc 2).chd");
+                Assert.That(result.Success, Is.True, result.Reason);
+                Assert.That(File.ReadAllText(expected), Is.EqualTo("disc2"));
+                using var check = new RetroArrDbContext(dbOptions);
+                Assert.That(check.Games.Single().ExecutablePath, Is.EqualTo(expected));
+            }
+            finally
+            {
+                Directory.Delete(root, true);
+            }
+        }
+
+        [TestCase("Final Fantasy IX (USA) (Disc 2).chd", "Final Fantasy IX (Europe) (Disc 2).chd")]
+        [TestCase("ffix.chd", "ffix.chd")]
+        public async Task GameTargetedImport_FolderOfOtherRegion_KeepsBothFiles(string usaName, string eurName)
+        {
+            var root = Path.Combine(Path.GetTempPath(), "retroarr_pdfolder_" + Path.GetRandomFileName());
+            try
+            {
+                var (processor, _, library) = await SetUpGameAsync(root, "Final Fantasy IX", 20);
+                var usaFile = Path.Combine(library, "Final Fantasy IX (Disc 2).chd");
+                var eurFile = Path.Combine(library, "Final Fantasy IX (Europe) (Disc 2).chd");
+
+                var usa = await ImportFolderAsync(processor, root, "Final Fantasy IX (USA) (Disc 2)", usaName, "usa");
+                var eur = await ImportFolderAsync(processor, root, "Final Fantasy IX (Europe) (Disc 2)", eurName, "eur");
+                Assert.That(usa.Success, Is.True, usa.Reason);
+                Assert.That(eur.Success, Is.True, eur.Reason);
+                Assert.That(File.ReadAllText(usaFile), Is.EqualTo("usa"));
+                Assert.That(File.ReadAllText(eurFile), Is.EqualTo("eur"));
+
+                var again = await ImportFolderAsync(processor, root, "Final Fantasy IX (Europe) (Disc 2)", eurName, "eur rev 1");
+                Assert.That(again.Success, Is.False);
+                Assert.That(again.Reason, Does.Contain("not overwriting"));
+                Assert.That(File.ReadAllText(usaFile), Is.EqualTo("usa"));
+                Assert.That(File.ReadAllText(eurFile), Is.EqualTo("eur"));
+                Assert.That(File.Exists(Path.Combine(root, "downloads", "Final Fantasy IX (Europe) (Disc 2)", eurName)), Is.True, "source was removed");
+                Assert.That(Directory.GetFiles(library), Has.Length.EqualTo(2));
+            }
+            finally
+            {
+                Directory.Delete(root, true);
+            }
+        }
+
+        [Test]
+        [Platform(Exclude = "Win")]
+        public async Task GameTargetedImport_SymlinkToTheSource_IsReplacedByTheFile()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "retroarr_pdlink_" + Path.GetRandomFileName());
+            try
+            {
+                var (processor, _, library) = await SetUpGameAsync(root, "Advance Wars", 52);
+                var link = Path.Combine(library, "Advance Wars.gba");
+                File.CreateSymbolicLink(link, Path.Combine(root, "downloads", "Advance Wars (USA).gba"));
+
+                var result = await ImportFileAsync(processor, root, "Advance Wars (USA).gba", "usa");
+
+                Assert.That(result.Success, Is.True, result.Reason);
+                Assert.That(new FileInfo(link).LinkTarget, Is.Null);
+                Assert.That(File.ReadAllText(link), Is.EqualTo("usa"));
+            }
+            finally
+            {
+                Directory.Delete(root, true);
+            }
+        }
+
+        private static async Task<(PostDownloadProcessor Processor, DbContextOptions<RetroArrDbContext> DbOptions, string Library)> SetUpGameAsync(string root, string title, int platformId)
+        {
+            Directory.CreateDirectory(Path.Combine(root, "config"));
+            var config = new ConfigurationService(root);
+            var platform = PlatformDefinitions.AllPlatforms.Single(p => p.Id == platformId);
+            var library = Directory.CreateDirectory(Path.Combine(root, "library", platform.FolderName, title)).FullName;
+            config.SaveMediaSettings(new MediaSettings { FolderPath = Path.Combine(root, "library") });
+            config.SavePostDownloadSettings(new PostDownloadSettings { EnableAutoMove = true });
+
+            var dbOptions = new DbContextOptionsBuilder<RetroArrDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+            using (var ctx = new RetroArrDbContext(dbOptions))
+            {
+                ctx.Games.Add(new Game { Id = 1, Title = title, PlatformId = platformId, Path = library });
+                await ctx.SaveChangesAsync();
+            }
+
+            var processor = new PostDownloadProcessor(config, new FileMoverService(),
+                new SqliteGameRepository(new DbFactory(dbOptions)), null!, new ArchiveService(), new TitleCleanerService());
+            return (processor, dbOptions, library);
+        }
+
+        private static Task<PostDownloadResult> ImportFileAsync(PostDownloadProcessor processor, string root, string fileName, string content)
+        {
+            var file = Path.Combine(Directory.CreateDirectory(Path.Combine(root, "downloads")).FullName, fileName);
+            File.WriteAllText(file, content);
+            return processor.ProcessCompletedDownloadAsync(new DownloadStatus
+            {
+                Id = fileName, Name = Path.GetFileNameWithoutExtension(fileName), DownloadPath = file, GameId = 1, State = DownloadState.Completed
+            });
+        }
+
+        private static Task<PostDownloadResult> ImportFolderAsync(PostDownloadProcessor processor, string root, string release, string fileName, string content)
+        {
+            var folder = Directory.CreateDirectory(Path.Combine(root, "downloads", release)).FullName;
+            File.WriteAllText(Path.Combine(folder, fileName), content);
+            return processor.ProcessCompletedDownloadAsync(new DownloadStatus
+            {
+                Id = release, Name = release, DownloadPath = folder, GameId = 1, State = DownloadState.Completed
+            });
+        }
+
         // ── DetectContentType: Patch with version ─────────────────────
 
         [TestCase("Street Fighter x Tekken Update v1.02 PS3", "1.02")]

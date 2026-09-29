@@ -624,31 +624,37 @@ namespace RetroArr.Core.Download
             if (isDirectory)
             {
                 var files = GetImportFiles(download.DownloadPath!, keep);
+                var sourceIsTarget = false;
                 foreach (var file in files)
                 {
                     var relativePath = Path.GetRelativePath(download.DownloadPath!, file);
                     var ext = Path.GetExtension(file);
 
-                    // Rename primary file based on content type
-                    string destFileName;
-                    if (contentType == DownloadContentType.Patch)
-                        destFileName = BuildPatchFileName(game.Title, detectedVersion, ext);
-                    else if (contentType == DownloadContentType.DLC)
-                        destFileName = BuildDlcFileName(game.Title, detectedDlcName, ext);
-                    else if (contentType == DownloadContentType.MainGame && files.Length == 1)
-                        destFileName = SanitizeFileName(game.Title) + ext;
-                    else
-                        destFileName = Path.GetFileName(file); // keep original for multi-file directories
-
-                    // For multi-file dirs, only rename the first file; keep relative structure for the rest
+                    // A single file is renamed based on content type; multi-file dirs keep their structure
                     string destPath;
-                    if (files.Length == 1)
-                    {
-                        destPath = Path.Combine(importFolder, destFileName);
-                    }
-                    else
-                    {
+                    var target = ImportTarget.Free;
+                    if (files.Length > 1)
                         destPath = Path.Combine(importFolder, relativePath);
+                    else if (contentType == DownloadContentType.Patch)
+                        destPath = Path.Combine(importFolder, BuildPatchFileName(game.Title, detectedVersion, ext));
+                    else if (contentType == DownloadContentType.DLC)
+                        destPath = Path.Combine(importFolder, BuildDlcFileName(game.Title, detectedDlcName, ext));
+                    else
+                        (destPath, target) = PickMainGameDestination(importFolder, game.Title, file, download.Name);
+
+                    if (target == ImportTarget.Taken)
+                    {
+                        lastMoveError = $"Target exists, not overwriting: {destPath}";
+                        _logger.Warn($"[PostDownload] {lastMoveError}");
+                        continue;
+                    }
+                    if (target == ImportTarget.AlreadyThere)
+                    {
+                        movedCount++;
+                        firstMovedFile ??= destPath;
+                        sourceIsTarget |= SamePath(file, destPath);
+                        _logger.Info($"[PostDownload] Already in library: {destPath}");
+                        continue;
                     }
 
                     Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
@@ -668,7 +674,7 @@ namespace RetroArr.Core.Download
 
                 if (movedCount > 0 && lastMoveError == null)
                 {
-                    DeleteSource(download.DownloadPath, keep);
+                    if (!sourceIsTarget) DeleteSource(download.DownloadPath, keep);
                 }
                 else if (movedCount > 0)
                 {
@@ -678,16 +684,28 @@ namespace RetroArr.Core.Download
             else if (File.Exists(download.DownloadPath))
             {
                 var ext = Path.GetExtension(download.DownloadPath!);
-                string destFileName;
+                string destPath;
+                var target = ImportTarget.Free;
                 if (contentType == DownloadContentType.Patch)
-                    destFileName = BuildPatchFileName(game.Title, detectedVersion, ext);
+                    destPath = Path.Combine(importFolder, BuildPatchFileName(game.Title, detectedVersion, ext));
                 else if (contentType == DownloadContentType.DLC)
-                    destFileName = BuildDlcFileName(game.Title, detectedDlcName, ext);
+                    destPath = Path.Combine(importFolder, BuildDlcFileName(game.Title, detectedDlcName, ext));
                 else
-                    destFileName = SanitizeFileName(game.Title) + ext;
+                    (destPath, target) = PickMainGameDestination(importFolder, game.Title, download.DownloadPath!, download.Name);
 
-                var destPath = Path.Combine(importFolder, destFileName);
-                if (_fileMover.ImportFile(download.DownloadPath!, destPath, out var reason))
+                if (target == ImportTarget.Taken)
+                {
+                    lastMoveError = $"Target exists, not overwriting: {destPath}";
+                    _logger.Warn($"[PostDownload] {lastMoveError}");
+                }
+                else if (target == ImportTarget.AlreadyThere)
+                {
+                    movedCount = 1;
+                    firstMovedFile = destPath;
+                    _logger.Info($"[PostDownload] Already in library: {destPath}");
+                    if (!SamePath(download.DownloadPath!, destPath)) DeleteSource(download.DownloadPath, keep);
+                }
+                else if (_fileMover.ImportFile(download.DownloadPath!, destPath, out var reason))
                 {
                     var finalPath = await TryRenameAfterImportAsync(destPath, game, gamePlatform, contentType, detectedVersion, detectedDlcName, download.Name, mediaSettings);
                     movedCount = 1;
@@ -941,6 +959,72 @@ namespace RetroArr.Core.Download
             var namePart = !string.IsNullOrEmpty(dlcName) ? $"-{dlcName}" : "";
             return RetroArr.Core.IO.FileNameSanitizer.Sanitize($"{gameTitle}-DLC{namePart}", "unknown") + extension;
         }
+
+        private static readonly Regex _discTokenRegex = new(
+            @"[(\[]\s*(Dis[ck]\s*\d+(?:\s*of\s*\d+)?)\s*[)\]]",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex _bracketTagRegex = new(
+            @"\([^()]+\)|\[[^\[\]]+\]",
+            RegexOptions.Compiled);
+
+        private enum ImportTarget { Free, AlreadyThere, Taken }
+
+        // The main file is named after the game, plus the disc token of the file (or else of the release).
+        // Another release of the same game (e.g. another region) gets its tags instead of replacing the
+        // file that's there. Taken means that name is in use as well.
+        private static (string Path, ImportTarget Target) PickMainGameDestination(string folder, string gameTitle, string sourceFile, string releaseName)
+        {
+            var name = Path.GetFileNameWithoutExtension(sourceFile);
+            var ext = Path.GetExtension(sourceFile);
+            var disc = _discTokenRegex.Match(name);
+            if (!disc.Success) disc = _discTokenRegex.Match(releaseName ?? "");
+            var discPart = disc.Success ? $" ({disc.Groups[1].Value})" : "";
+
+            var dest = Path.Combine(folder, RetroArr.Core.IO.FileNameSanitizer.Sanitize(gameTitle + discPart, "unknown") + ext);
+            var target = CheckTarget(dest, sourceFile);
+            if (target != ImportTarget.Taken) return (dest, target);
+
+            string[] TagsOf(string s) => _bracketTagRegex.Matches(s).Select(m => m.Value).Where(t => !_discTokenRegex.IsMatch(t)).Distinct().ToArray();
+            var tags = TagsOf(name);
+            if (tags.Length == 0) tags = TagsOf(releaseName ?? "");
+            var tagged = Path.Combine(folder, RetroArr.Core.IO.FileNameSanitizer.Sanitize($"{gameTitle} {string.Join(" ", tags)}{discPart}", "unknown") + ext);
+            return (tagged, tagged == dest ? ImportTarget.Taken : CheckTarget(tagged, sourceFile));
+        }
+
+        // The source itself, a hardlink or a byte-identical copy of it is already there and is left alone.
+        private static ImportTarget CheckTarget(string dest, string sourceFile)
+        {
+            if (!File.Exists(dest)) return ImportTarget.Free;
+            // Exact match only: on a case-sensitive disk "game.gba" is another file, the content check below decides.
+            if (Path.GetFullPath(dest) == Path.GetFullPath(sourceFile)) return ImportTarget.AlreadyThere;
+            try
+            {
+                using (var a = File.OpenRead(dest))
+                using (var b = File.OpenRead(sourceFile))
+                {
+                    if (a.Length != b.Length) return ImportTarget.Taken;
+                    var bufA = new byte[81920];
+                    var bufB = new byte[81920];
+                    int read;
+                    while ((read = a.ReadAtLeast(bufA, bufA.Length, throwOnEndOfStream: false)) > 0)
+                    {
+                        b.ReadExactly(bufB, 0, read);
+                        if (!bufA.AsSpan(0, read).SequenceEqual(bufB.AsSpan(0, read))) return ImportTarget.Taken;
+                    }
+                }
+                // A symlink may point at the source, which gets deleted after the import. Replace the link instead.
+                return new FileInfo(dest).LinkTarget == null ? ImportTarget.AlreadyThere : ImportTarget.Free;
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn($"[PostDownload] Could not compare {sourceFile} with existing {dest}: {ex.Message}");
+                return ImportTarget.Taken;
+            }
+        }
+
+        private static bool SamePath(string a, string b) =>
+            string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
 
         private static readonly string[] TorrentClients = { "qBittorrent", "Transmission", "Deluge" };
 
