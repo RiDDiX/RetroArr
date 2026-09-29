@@ -106,6 +106,42 @@ namespace RetroArr.Core.Games
         [SuppressMessage("Microsoft.Design", "CA1002:DoNotExposeGenericLists")]
         [System.ComponentModel.DataAnnotations.Schema.NotMapped]
         public List<GameUpdateFile> UpdateFiles { get; set; } = new();
+
+        // Moves Status and MissingSince to what was found on disk. A wanted game (Missing without
+        // MissingSince) stays wanted until content shows up. True when a field changed.
+        public bool ApplyContent(GameContent content, DateTime at)
+        {
+            GameStatus status;
+            DateTime? since;
+            switch (content)
+            {
+                case GameContent.Present:
+                    status = Status == GameStatus.InstallerDetected ? GameStatus.InstallerDetected : GameStatus.Downloaded;
+                    since = null;
+                    break;
+                case GameContent.Empty when Status == GameStatus.Downloaded || Status == GameStatus.InstallerDetected:
+                case GameContent.Gone when Status != GameStatus.Missing:
+                    status = GameStatus.Missing;
+                    since = at;
+                    break;
+                default:
+                    return false;
+            }
+            if (Status == status && MissingSince == since) return false;
+            Status = status;
+            MissingSince = since;
+            return true;
+        }
+    }
+
+    // What a check of the game's path found. Unknown when it can't tell (library offline, folder
+    // shared with other games), so nothing is changed.
+    public enum GameContent
+    {
+        Unknown,
+        Present,
+        Empty,
+        Gone
     }
 
     public enum InstallerStatus

@@ -21,12 +21,13 @@ namespace RetroArr.Core.Games
         Task SyncGameFilesAsync(int gameId, List<GameFile> files);
         Task<bool> UpdateGameFilePathAsync(int gameFileId, string newRelativePath);
 
-        // Missing-flag workflow: mark when files first disappeared, clear when
-        // the file is rediscovered, and prune entries that stayed missing past
-        // the retention window.
-        Task<int> FlagMissingAsync(System.Collections.Generic.IEnumerable<int> gameIds, System.DateTime at);
-        Task<int> ClearMissingAsync(int gameId);
+        // Missing-flag workflow: apply what a content check of checkedPath found
+        // to the stored row (Game.ApplyContent), and prune unmonitored entries
+        // whose path stayed gone past the retention window. A loss is ignored
+        // when the row points somewhere else by now. Returns the row's values,
+        // or null when the row no longer exists.
+        Task<(bool Changed, GameStatus Status, System.DateTime? MissingSince)?> ApplyContentStateAsync(int gameId, GameContent content, System.DateTime at, string? checkedPath);
         Task<List<Game>> GetMissingAsync();
-        Task<int> DeleteMissingOlderThanAsync(System.DateTime threshold);
+        Task<int> DeleteMissingOlderThanAsync(System.DateTime threshold, IReadOnlyCollection<int> goneIds);
     }
 }

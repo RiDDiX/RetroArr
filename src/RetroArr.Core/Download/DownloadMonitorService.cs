@@ -154,9 +154,18 @@ namespace RetroArr.Core.Download
         /// <summary>
         /// Phase 2: Process all tracked downloads through the state machine.
         /// </summary>
-        private async Task ProcessTrackedDownloadsAsync(List<DownloadClient> clients)
+        internal async Task ProcessTrackedDownloadsAsync(List<DownloadClient> clients)
         {
             var trackedDownloads = _trackedDownloadService.GetTrackedDownloads();
+
+            try
+            {
+                await _completedDownloadService.ReopenForMissingGamesAsync(trackedDownloads, clients);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[DownloadMonitor] Error reopening downloads of games missing from the library");
+            }
 
             foreach (var tracked in trackedDownloads)
             {

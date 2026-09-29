@@ -127,29 +127,22 @@ namespace RetroArr.Core.Cache
             return result;
         }
 
-        public async Task<int> FlagMissingAsync(IEnumerable<int> gameIds, DateTime at)
+        public async Task<(bool Changed, GameStatus Status, DateTime? MissingSince)?> ApplyContentStateAsync(int gameId, GameContent content, DateTime at, string? checkedPath)
         {
-            var count = await _inner.FlagMissingAsync(gameIds, at);
-            if (count > 0) await InvalidateAllGameCaches();
-            return count;
-        }
-
-        public async Task<int> ClearMissingAsync(int gameId)
-        {
-            var count = await _inner.ClearMissingAsync(gameId);
-            if (count > 0)
+            var result = await _inner.ApplyContentStateAsync(gameId, content, at, checkedPath);
+            if (result?.Changed == true)
             {
                 await _cache.RemoveAsync(CacheKeys.GameDetail(gameId));
                 await InvalidateListCaches();
             }
-            return count;
+            return result;
         }
 
         public Task<List<Game>> GetMissingAsync() => _inner.GetMissingAsync();
 
-        public async Task<int> DeleteMissingOlderThanAsync(DateTime threshold)
+        public async Task<int> DeleteMissingOlderThanAsync(DateTime threshold, IReadOnlyCollection<int> goneIds)
         {
-            var count = await _inner.DeleteMissingOlderThanAsync(threshold);
+            var count = await _inner.DeleteMissingOlderThanAsync(threshold, goneIds);
             if (count > 0) await InvalidateAllGameCaches();
             return count;
         }

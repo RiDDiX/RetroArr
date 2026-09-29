@@ -150,6 +150,11 @@ namespace RetroArr.Api.V3.Games
                         problemType = "missing_file";
                         problemDescription = "The game file or folder no longer exists at the specified path.";
                     }
+                    else if (game.MissingSince != null)
+                    {
+                        problemType = "missing_file";
+                        problemDescription = "The game's files are missing from its folder.";
+                    }
                 }
 
                 // Check for missing metadata

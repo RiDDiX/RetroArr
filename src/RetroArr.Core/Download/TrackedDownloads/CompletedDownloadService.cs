@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Diagnostics.CodeAnalysis;
@@ -68,7 +69,7 @@ namespace RetroArr.Core.Download.TrackedDownloads
 
             // A client can list a job again long after its import (an old SABnzbd history row, a pruned
             // tracker entry) when its files are already gone. ImportAsync would skip it anyway.
-            if (await SkipIfImportedAsync(trackedDownload))
+            if (await SkipIfImportedAsync(trackedDownload, LocalPath(trackedDownload.OutputPath, clientConfig)))
             {
                 _trackedDownloadService.Save();
                 return;
@@ -143,7 +144,7 @@ namespace RetroArr.Core.Download.TrackedDownloads
             }
 
             // Guard: skip if already successfully imported (prevents overwriting Imported→Failed on retry)
-            if (await SkipIfImportedAsync(trackedDownload))
+            if (await SkipIfImportedAsync(trackedDownload, trackedDownload.OutputPath))
             {
                 return;
             }
@@ -206,7 +207,32 @@ namespace RetroArr.Core.Download.TrackedDownloads
             }
         }
 
-        private async Task<bool> SkipIfImportedAsync(TrackedDownload trackedDownload)
+        /// <summary>
+        /// Files deleted from the library come back from a download that is still on disk, once per Missing flag.
+        /// </summary>
+        public async Task ReopenForMissingGamesAsync(IReadOnlyCollection<TrackedDownload> trackedDownloads, IReadOnlyCollection<DownloadClient> clients)
+        {
+            var candidates = trackedDownloads
+                .Where(t => t.State == TrackedDownloadState.Imported && t.GameId.HasValue
+                    && OnDisk(LocalPath(t.OutputPath, clients.FirstOrDefault(c => c.Id == t.DownloadClientId))))
+                .ToList();
+            if (candidates.Count == 0) return;
+
+            var missing = (await _gameRepository.GetMissingAsync()).Where(IsWantedAgain).ToDictionary(g => g.Id, g => g.MissingSince);
+            var reopened = 0;
+            foreach (var trackedDownload in candidates)
+            {
+                if (!missing.TryGetValue(trackedDownload.GameId!.Value, out var since) || trackedDownload.ReimportedFor == since) continue;
+
+                trackedDownload.ReimportedFor = since;
+                trackedDownload.MarkImportPending();
+                reopened++;
+                _logger.LogInformation("[CompletedDownload] '{Title}' is imported again: its game's files were deleted from the library.", trackedDownload.Title);
+            }
+            if (reopened > 0) _trackedDownloadService.Save();
+        }
+
+        private async Task<bool> SkipIfImportedAsync(TrackedDownload trackedDownload, string? localPath)
         {
             var existingHistory = await _historyRepo.FindByDownloadIdAsync(trackedDownload.DownloadId,
                 trackedDownload.DownloadClientId, trackedDownload.Title, trackedDownload.Size);
@@ -215,11 +241,48 @@ namespace RetroArr.Core.Download.TrackedDownloads
                 return false;
             }
 
+            // The game's files were deleted from the library since, and this download still has them
+            var gameId = trackedDownload.GameId ?? existingHistory.GameId;
+            if (gameId.HasValue && OnDisk(localPath))
+            {
+                var game = await _gameRepository.GetByIdAsync(gameId.Value);
+                if (game != null && IsWantedAgain(game))
+                {
+                    trackedDownload.GameId = game.Id;
+                    trackedDownload.ReimportedFor = game.MissingSince;
+                    _logger.LogInformation("[CompletedDownload] '{Title}' was imported before, but '{Game}' is missing from the library - importing it again.",
+                        trackedDownload.Title, game.Title);
+                    return false;
+                }
+            }
+
             trackedDownload.ClearWarnings();
             trackedDownload.IsUnmapped = false;
+            // Not imported again after all (a cached copy of the game may still say Downloaded), so the
+            // next reopen for the game's flag is not skipped
+            trackedDownload.ReimportedFor = null;
             trackedDownload.MarkImported();
+            // Nothing new came of this grab, so it no longer holds back the monitor's next search for the game
+            _platformTracker.MarkProcessed(trackedDownload.Title);
             _logger.LogInformation("[CompletedDownload] '{Title}' was already imported - skipping re-import.", trackedDownload.Title);
             return true;
+        }
+
+        private static bool IsWantedAgain(Game game) =>
+            game.Monitored && game.MissingSince != null && game.Status == GameStatus.Missing;
+
+        private static bool OnDisk(string? path) =>
+            !string.IsNullOrEmpty(path) && (File.Exists(path) || Directory.Exists(path));
+
+        // The client's path as seen here, or null when a remote path mapping is set and the path is outside it.
+        private static string? LocalPath(string? outputPath, DownloadClient? clientConfig)
+        {
+            if (clientConfig == null) return null;
+            if (string.IsNullOrEmpty(outputPath) || string.IsNullOrEmpty(clientConfig.RemotePathMapping) || string.IsNullOrEmpty(clientConfig.LocalPathMapping))
+                return outputPath;
+            if (!outputPath.StartsWith(clientConfig.RemotePathMapping, StringComparison.OrdinalIgnoreCase)) return null;
+            var relative = outputPath.Substring(clientConfig.RemotePathMapping.Length).TrimStart('/', '\\');
+            return Path.Combine(clientConfig.LocalPathMapping, relative);
         }
 
         // Upsert on DownloadId so a retried terminal state doesn't double-row.
@@ -241,7 +304,8 @@ namespace RetroArr.Core.Download.TrackedDownloads
                     SourcePath = tracked.OutputPath,
                     DestinationPath = destinationPath,
                     ImportedAt = DateTime.UtcNow,
-                    AddedAt = tracked.Added
+                    AddedAt = tracked.Added,
+                    GameId = tracked.GameId
                 };
 
                 await _historyRepo.UpsertAsync(entry);
@@ -269,25 +333,18 @@ namespace RetroArr.Core.Download.TrackedDownloads
             }
 
             // Apply remote path mapping
-            if (!string.IsNullOrEmpty(clientConfig.RemotePathMapping) &&
-                !string.IsNullOrEmpty(clientConfig.LocalPathMapping))
+            var mappedPath = LocalPath(trackedDownload.OutputPath, clientConfig);
+            if (mappedPath == null)
             {
-                if (trackedDownload.OutputPath.StartsWith(clientConfig.RemotePathMapping, StringComparison.OrdinalIgnoreCase))
-                {
-                    var relative = trackedDownload.OutputPath
-                        .Substring(clientConfig.RemotePathMapping.Length)
-                        .TrimStart('/', '\\');
-                    var mappedPath = Path.Combine(clientConfig.LocalPathMapping, relative);
-                    _logger.LogDebug("[CompletedDownload] Path mapping: '{Original}' -> '{Mapped}'",
-                        trackedDownload.OutputPath, mappedPath);
-                    trackedDownload.OutputPath = mappedPath;
-                }
-                else
-                {
-                    trackedDownload.Warn($"Download path '{trackedDownload.OutputPath}' does not match remote mapping '{clientConfig.RemotePathMapping}'. Check Remote Path Mapping in download client settings.");
-                    trackedDownload.State = TrackedDownloadState.ImportBlocked;
-                    return false;
-                }
+                trackedDownload.Warn($"Download path '{trackedDownload.OutputPath}' does not match remote mapping '{clientConfig.RemotePathMapping}'. Check Remote Path Mapping in download client settings.");
+                trackedDownload.State = TrackedDownloadState.ImportBlocked;
+                return false;
+            }
+            if (mappedPath != trackedDownload.OutputPath)
+            {
+                _logger.LogDebug("[CompletedDownload] Path mapping: '{Original}' -> '{Mapped}'",
+                    trackedDownload.OutputPath, mappedPath);
+                trackedDownload.OutputPath = mappedPath;
             }
 
             // Check path accessibility

@@ -366,6 +366,26 @@ namespace RetroArr.Core.Test.Search
         }
 
         [Test]
+        public async Task Sweep_InstallerFoundWhileItsSearchRuns_IsNotGrabbed()
+        {
+            using var jackett = new FakeServer(_ =>
+            {
+                using var ctx = new RetroArrDbContext(_dbOptions);
+                ctx.Games.Single().Status = GameStatus.InstallerDetected;
+                ctx.SaveChanges();
+                return JackettResults(("Halo 3 X360 P2P", 1050));
+            });
+            using var deluge = FakeDeluge();
+            var config = AutoGrabConfig(deluge.Port);
+            config.SaveJackettSettings(new JackettSettings { Url = $"http://127.0.0.1:{jackett.Port}", ApiKey = "key", Enabled = true });
+
+            await Sweep(config);
+
+            Assert.That(jackett.Queries, Is.EqualTo(new[] { "Halo 3" }));
+            Assert.That(MagnetsAdded(deluge), Is.EqualTo(0));
+        }
+
+        [Test]
         public async Task SearchNow_StillGrabsForADownloadedGame()
         {
             using (var ctx = new RetroArrDbContext(_dbOptions))
@@ -403,6 +423,172 @@ namespace RetroArr.Core.Test.Search
                 new DownloadPlatformTracker(Path.Combine(_root, "config"))).RunSweepAsync();
 
             Assert.That(jackett.Queries, Is.EqualTo(new[] { "Gears of War" }));
+        }
+
+        // A library with Halo 3 at <library>/xbox360/Halo 3, searched by a Jackett that finds nothing.
+        private (string Game, ConfigurationService Config) Library(FakeServer jackett, GameStatus status, bool monitored = true, bool createFolder = true)
+        {
+            var library = Directory.CreateDirectory(Path.Combine(_root, "library")).FullName;
+            Directory.CreateDirectory(Path.Combine(_root, "downloads"));
+            var game = Path.Combine(library, "xbox360", "Halo 3");
+            if (createFolder) Directory.CreateDirectory(game);
+            using (var ctx = new RetroArrDbContext(_dbOptions))
+            {
+                var halo = ctx.Games.Single();
+                halo.Path = game;
+                halo.Status = status;
+                halo.Monitored = monitored;
+                ctx.SaveChanges();
+            }
+            var config = new ConfigurationService(_root);
+            config.SaveMediaSettings(new MediaSettings { FolderPath = library, DestinationPath = library, DownloadPath = Path.Combine(_root, "downloads") });
+            config.SaveJackettSettings(new JackettSettings { Url = $"http://127.0.0.1:{jackett.Port}", ApiKey = "key", Enabled = true });
+            return (game, config);
+        }
+
+        private async Task Sweep(ConfigurationService config)
+        {
+            using var db = new RetroArrDbContext(_dbOptions);
+            await new MonitoredGameSearchService(db, config, new ReleaseScorer(),
+                new DownloadPlatformTracker(Path.Combine(_root, "config"))).RunSweepAsync();
+        }
+
+        private Game Halo()
+        {
+            using var ctx = new RetroArrDbContext(_dbOptions);
+            return ctx.Games.AsNoTracking().Single();
+        }
+
+        [Test]
+        public async Task Sweep_RomDeletedFromFolder_IsSearchedAgain()
+        {
+            using var jackett = FakeJackett();
+            var (_, config) = Library(jackett, GameStatus.Downloaded);
+
+            await Sweep(config);
+
+            Assert.That(jackett.Queries, Is.EqualTo(new[] { "Halo 3" }));
+            Assert.That(Halo().Status, Is.EqualTo(GameStatus.Missing));
+            Assert.That(Halo().MissingSince, Is.Not.Null);
+        }
+
+        [TestCase(true, true, false, TestName = "Sweep_RomDeletedWhileItsDownloadIsOnDisk_WaitsOneSweepForTheReimport")]
+        [TestCase(true, false, true, TestName = "Sweep_RomDeletedAndItsDownloadGone_IsSearched")]
+        [TestCase(false, true, true, TestName = "Sweep_RomDeletedWithoutAutomaticImport_IsSearched")]
+        public async Task Sweep_RomDeleted_WaitsOnlyForADownloadThatIsImportedAgain(bool autoImport, bool onDisk, bool searchedNow)
+        {
+            using var jackett = FakeJackett();
+            var (_, config) = Library(jackett, GameStatus.Downloaded);
+            config.SavePostDownloadSettings(new PostDownloadSettings { EnableAutoMove = autoImport });
+            var seeding = Path.Combine(_root, "downloads", "Halo 3");
+            if (onDisk) Directory.CreateDirectory(seeding);
+            using (var ctx = new RetroArrDbContext(_dbOptions))
+            {
+                ctx.DownloadHistory.Add(new DownloadHistoryEntry { DownloadId = "hash", Title = "Halo 3", State = DownloadHistoryState.Imported, GameId = 1, SourcePath = seeding });
+                ctx.SaveChanges();
+            }
+
+            await Sweep(config);
+            Assert.That(jackett.Queries, searchedNow ? Is.EqualTo(new[] { "Halo 3" }) : Is.Empty);
+            Assert.That(Halo().Status, Is.EqualTo(GameStatus.Missing));
+
+            await Sweep(config);
+            Assert.That(jackett.Queries, Is.Not.Empty, "still missing a sweep later");
+        }
+
+        [Test]
+        public async Task Sweep_ExternalGame_IsNotChecked()
+        {
+            using var jackett = FakeJackett();
+            var (_, config) = Library(jackett, GameStatus.Downloaded);
+            using (var ctx = new RetroArrDbContext(_dbOptions))
+            {
+                ctx.Games.Single().IsExternal = true;
+                ctx.SaveChanges();
+            }
+
+            await Sweep(config);
+
+            Assert.That(Halo().Status, Is.EqualTo(GameStatus.Downloaded));
+            Assert.That(Halo().MissingSince, Is.Null);
+        }
+
+        [Test]
+        public async Task Sweep_ReleasedGameWithContent_IsPromotedAndNotSearched()
+        {
+            using var jackett = FakeJackett();
+            var (game, config) = Library(jackett, GameStatus.Released);
+            File.WriteAllText(Path.Combine(game, "default.xex"), "xex");
+
+            await Sweep(config);
+
+            Assert.That(jackett.Queries, Is.Empty);
+            Assert.That(Halo().Status, Is.EqualTo(GameStatus.Downloaded));
+        }
+
+        [Test]
+        public async Task Sweep_InstallerDetected_IsNotSearched()
+        {
+            using (var ctx = new RetroArrDbContext(_dbOptions))
+            {
+                ctx.Games.Single().Status = GameStatus.InstallerDetected;
+                ctx.SaveChanges();
+            }
+            using var jackett = FakeJackett();
+            var config = new ConfigurationService(_root);
+            config.SaveJackettSettings(new JackettSettings { Url = $"http://127.0.0.1:{jackett.Port}", ApiKey = "key", Enabled = true });
+
+            await Sweep(config);
+
+            Assert.That(jackett.Queries, Is.Empty);
+        }
+
+        [Test]
+        public async Task Sweep_PlatformFolderUnavailable_KeepsDownloaded()
+        {
+            // The library root is there but empty, as after a share failed to mount
+            using var jackett = FakeJackett();
+            var (_, config) = Library(jackett, GameStatus.Downloaded, createFolder: false);
+
+            await Sweep(config);
+
+            Assert.That(jackett.Queries, Is.Empty);
+            Assert.That(Halo().Status, Is.EqualTo(GameStatus.Downloaded));
+            Assert.That(Halo().MissingSince, Is.Null);
+        }
+
+        [Test]
+        public async Task Sweep_UnmonitoredGame_FlaggedButNotSearched()
+        {
+            using var jackett = FakeJackett();
+            var (_, config) = Library(jackett, GameStatus.Downloaded, monitored: false);
+
+            await Sweep(config);
+
+            Assert.That(jackett.Queries, Is.Empty);
+            Assert.That(Halo().Status, Is.EqualTo(GameStatus.Missing));
+            Assert.That(Halo().MissingSince, Is.Not.Null);
+        }
+
+        [Test]
+        public async Task ApplyContent_ImportAfterCheck_IsNotUndone()
+        {
+            using var jackett = FakeJackett();
+            var (game, config) = Library(jackett, GameStatus.Downloaded);
+            var roots = MediaScannerService.LibraryRoots(config.LoadMediaSettings());
+            var results = MediaScannerService.CheckAll(new[] { Halo() }, roots, new List<string>());
+            Assert.That(results.Single().Content, Is.EqualTo(GameContent.Empty));
+
+            // The import lands between the check and the write
+            File.WriteAllText(Path.Combine(game, "default.xex"), "xex");
+            using (var db = new RetroArrDbContext(_dbOptions))
+            {
+                await new MonitoredGameSearchService(db, config, new ReleaseScorer(),
+                    new DownloadPlatformTracker(Path.Combine(_root, "config"))).ApplyContentAsync(results, roots, DateTime.UtcNow, default);
+            }
+
+            Assert.That(Halo().Status, Is.EqualTo(GameStatus.Downloaded));
+            Assert.That(Halo().MissingSince, Is.Null);
         }
 
         [Test]

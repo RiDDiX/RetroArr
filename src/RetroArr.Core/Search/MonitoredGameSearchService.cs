@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -175,8 +176,21 @@ namespace RetroArr.Core.Search
                 return;
             }
 
+            // A ROM deleted from its folder turns the game Missing here, so it is searched in this sweep,
+            // unless the download it came from is still on disk and is imported again first
+            var reimporting = new HashSet<int>();
+            try
+            {
+                reimporting = await CheckLibraryContentAsync(ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.Warn($"[Monitor] library content check failed, searching with the stored status: {ex.Message}");
+            }
+
             var monitored = await _db.Games
-                .Where(g => g.Monitored && !g.IsExternal && g.Status != GameStatus.Downloaded)
+                .Where(g => g.Monitored && !g.IsExternal && g.Status != GameStatus.Downloaded && g.Status != GameStatus.InstallerDetected)
                 .Include(g => g.Platform)
                 .OrderBy(g => g.Id)
                 .ToListAsync(ct)
@@ -187,6 +201,11 @@ namespace RetroArr.Core.Search
             foreach (var g in monitored)
             {
                 if (ct.IsCancellationRequested) break;
+                if (reimporting.Contains(g.Id))
+                {
+                    _logger.Info($"[Monitor] '{g.Title}' is left to the next sweep: the download it was imported from is still on disk and is imported again first.");
+                    continue;
+                }
                 try
                 {
                     await SearchAsync(g.Id, allowAutoDispatch: true, sweep: true, ct).ConfigureAwait(false);
@@ -200,6 +219,51 @@ namespace RetroArr.Core.Search
                 }
             }
             _logger.Info("[Monitor] sweep done.");
+        }
+
+        // Returns the games it flagged whose earlier download is still on disk. The download monitor imports
+        // that download again (CompletedDownloadService.ReopenForMissingGamesAsync), so they wait one sweep.
+        internal async Task<HashSet<int>> CheckLibraryContentAsync(CancellationToken ct)
+        {
+            var roots = MediaScannerService.LibraryRoots(_config.LoadMediaSettings());
+            var games = await _db.Games.AsNoTracking()
+                .Where(g => !g.IsExternal && g.Path != null && g.Path != "")
+                .ToListAsync(ct)
+                .ConfigureAwait(false);
+            var held = new List<string>();
+            var results = MediaScannerService.CheckAll(games, roots, held);
+            foreach (var entry in held)
+                _logger.Warn($"[Monitor] {entry} games look missing at once; nothing flagged. Check that the library is mounted.");
+            var flagged = await ApplyContentAsync(results, roots, DateTime.UtcNow, ct).ConfigureAwait(false);
+            if (flagged.Count == 0 || !_config.LoadPostDownloadSettings().EnableAutoMove) return new HashSet<int>();
+
+            var imported = await _db.DownloadHistory.AsNoTracking()
+                .Where(h => h.GameId != null && flagged.Contains(h.GameId.Value) && h.State == DownloadHistoryState.Imported && h.SourcePath != null)
+                .Select(h => new { h.GameId, h.SourcePath })
+                .ToListAsync(ct)
+                .ConfigureAwait(false);
+            return imported.Where(h => File.Exists(h.SourcePath) || Directory.Exists(h.SourcePath)).Select(h => h.GameId!.Value).ToHashSet();
+        }
+
+        // Each change is written on its own, right after the game is checked again on the current row,
+        // so an import that finished since the first check is not undone. Returns the games it flagged.
+        internal async Task<List<int>> ApplyContentAsync(IEnumerable<(Game Game, GameContent Content)> results, IReadOnlyList<string> roots, DateTime now, CancellationToken ct)
+        {
+            var flagged = new List<int>();
+            foreach (var (game, content) in results)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (content == GameContent.Unknown) continue;
+                if (!new Game { Status = game.Status, MissingSince = game.MissingSince }.ApplyContent(content, now)) continue;
+
+                var row = await _db.Games.FindAsync(new object[] { game.Id }, ct).ConfigureAwait(false);
+                if (row == null) continue;
+                var current = content == GameContent.Present ? content : MediaScannerService.CheckContent(row, roots);
+                if (current == GameContent.Unknown || !row.ApplyContent(current, now)) continue;
+                await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+                if (row.Status == GameStatus.Missing) flagged.Add(row.Id);
+            }
+            return flagged;
         }
 
         // ---- Internals ----
@@ -225,7 +289,8 @@ namespace RetroArr.Core.Search
                 .Select(g => new { g.Status, g.Monitored, g.IsExternal })
                 .FirstOrDefaultAsync(ct)
                 .ConfigureAwait(false);
-            return current == null || current.Status == GameStatus.Downloaded || !current.Monitored || current.IsExternal
+            return current == null || current.Status == GameStatus.Downloaded || current.Status == GameStatus.InstallerDetected
+                || !current.Monitored || current.IsExternal
                 ? "the game was downloaded, unmonitored, marked external or removed during the sweep"
                 : null;
         }

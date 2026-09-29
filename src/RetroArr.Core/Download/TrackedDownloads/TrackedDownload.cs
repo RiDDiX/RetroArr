@@ -28,6 +28,8 @@ namespace RetroArr.Core.Download.TrackedDownloads
         public DateTime? ImportedAt { get; set; }
         public bool CanBeRemoved { get; set; }
         public bool IsUnmapped { get; set; }
+        // The game's MissingSince this download was imported again for, so each flag reopens it once
+        public DateTime? ReimportedFor { get; set; }
         // Why the client reported no usable path, refreshed on every poll
         [System.Text.Json.Serialization.JsonIgnore]
         public string? ClientMessage { get; set; }

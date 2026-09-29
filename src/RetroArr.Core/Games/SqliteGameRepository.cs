@@ -294,35 +294,29 @@ namespace RetroArr.Core.Games
             return true;
         }
 
-        public async Task<int> FlagMissingAsync(IEnumerable<int> gameIds, DateTime at)
-        {
-            using var context = await _contextFactory.CreateDbContextAsync();
-            var ids = gameIds as List<int> ?? gameIds.ToList();
-            if (ids.Count == 0) return 0;
-
-            var targets = await context.Games
-                .Where(g => ids.Contains(g.Id) && g.MissingSince == null)
-                .ToListAsync();
-
-            foreach (var g in targets)
-            {
-                g.MissingSince = at;
-                g.Status = GameStatus.Missing;
-            }
-            await context.SaveChangesAsync();
-            return targets.Count;
-        }
-
-        public async Task<int> ClearMissingAsync(int gameId)
+        public async Task<(bool Changed, GameStatus Status, DateTime? MissingSince)?> ApplyContentStateAsync(int gameId, GameContent content, DateTime at, string? checkedPath)
         {
             using var context = await _contextFactory.CreateDbContextAsync();
             var g = await context.Games.FindAsync(gameId);
-            if (g == null || g.MissingSince == null) return 0;
-            g.MissingSince = null;
-            // Flip Missing back to Released; leave anything else alone.
-            if (g.Status == GameStatus.Missing) g.Status = GameStatus.Released;
-            await context.SaveChangesAsync();
-            return 1;
+            if (g == null) return null;
+            // A loss at the path the check saw says nothing once the game was moved (an import, a path edit)
+            var changed = (content == GameContent.Present || SamePath(g.Path, checkedPath)) && g.ApplyContent(content, at);
+            if (changed) await context.SaveChangesAsync();
+            return (changed, g.Status, g.MissingSince);
+        }
+
+        private static bool SamePath(string? a, string? b)
+        {
+            if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return false;
+            try
+            {
+                return string.Equals(System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(a)),
+                    System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(b)), StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or System.IO.IOException)
+            {
+                return false;
+            }
         }
 
         public async Task<List<Game>> GetMissingAsync()
@@ -334,12 +328,17 @@ namespace RetroArr.Core.Games
                 .ToListAsync();
         }
 
-        public async Task<int> DeleteMissingOlderThanAsync(DateTime threshold)
+        public async Task<int> DeleteMissingOlderThanAsync(DateTime threshold, IReadOnlyCollection<int> goneIds)
         {
+            if (goneIds.Count == 0) return 0;
+            var ids = goneIds.ToList();
             using var context = await _contextFactory.CreateDbContextAsync();
-            var stale = await context.Games
-                .Where(g => g.MissingSince != null && g.MissingSince < threshold)
-                .ToListAsync();
+            var stale = (await context.Games
+                .Where(g => ids.Contains(g.Id) && g.MissingSince != null && g.MissingSince < threshold && !g.Monitored)
+                .ToListAsync())
+                // The row may point somewhere else by now
+                .Where(g => string.IsNullOrEmpty(g.Path) || !(System.IO.File.Exists(g.Path) || System.IO.Directory.Exists(g.Path)))
+                .ToList();
             if (stale.Count == 0) return 0;
             context.Games.RemoveRange(stale);
             await context.SaveChangesAsync();
