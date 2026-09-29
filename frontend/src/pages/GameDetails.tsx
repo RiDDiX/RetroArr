@@ -633,155 +633,37 @@ const GameDetails: React.FC = () => {
 
   // Platform configurations for release search
   // Steam, GOG Galaxy, and generic PC games all use PC categories
-  const PC_CONFIG = {
-    categories: [4000, 4010, 4050],
-    keywords: ['PC', 'WINDOWS', 'WIN64', 'WIN32', '.EXE', 'WINE', 'GOG-GAMES', 'GOG', 'STEAM', 'CRACK', 'REPACK', 'FITGIRL', 'DODI', 'ELAMIGOS', 'RAZOR1911', 'CODEX', 'SKIDROW', 'PLAZA'],
-    negativeKeywords: ['PS3', 'PS4', 'PS5', 'SWITCH', 'XBOX', 'NSW', 'NSP', 'XCI'],
-    extensions: ['.exe', '.iso', '.bin', '.rar', '.zip', '.7z'],
-    color: 'var(--ctp-green)'
-  };
+  const PC_CONFIG = { categories: [4000, 4010, 4050] };
 
-  const PLATFORM_CONFIG: Record<string, { categories: number[], keywords: string[], negativeKeywords: string[], extensions: string[], color: string }> = {
+  const PLATFORM_CONFIG: Record<string, { categories: number[] }> = {
     // All PC-based platforms share the same config
     'PC': PC_CONFIG,
     'Steam': PC_CONFIG,
     'GOG': PC_CONFIG,
     'GOG Galaxy': PC_CONFIG,
     'Windows': PC_CONFIG,
-    'Nintendo Switch': {
-      categories: [1000, 1030],
-      keywords: ['SWITCH', 'NSW', 'NSP', 'XCI', 'NSZ'],
-      negativeKeywords: ['PS4', 'PC', 'XBOX', 'WII'],
-      extensions: ['.nsp', '.xci', '.nsz'],
-      color: 'var(--ctp-red)'
-    },
-    'PlayStation 4': {
-      categories: [1000, 1080],
-      keywords: ['PS4', 'PLAYSTATION 4', 'CUSA', 'PKG'],
-      negativeKeywords: ['PS5', 'PC', 'SWITCH'],
-      extensions: ['.pkg'],
-      color: 'var(--ctp-blue)'
-    },
-    'PlayStation 5': {
-      categories: [1000],
-      keywords: ['PS5', 'PLAYSTATION 5', 'PPSA'],
-      negativeKeywords: ['PS4', 'PC', 'SWITCH'],
-      extensions: [],
-      color: 'var(--ctp-blue)'
-    },
-    'Xbox One': {
-      categories: [1000],
-      keywords: ['XBOX ONE', 'XB1'],
-      negativeKeywords: ['PS4', 'PC', 'SWITCH'],
-      extensions: [],
-      color: 'var(--ctp-green)'
-    },
-    'Xbox Series': {
-      categories: [1000],
-      keywords: ['XBOX SERIES', 'XBSX', 'XSX'],
-      negativeKeywords: ['PS4', 'PC', 'SWITCH'],
-      extensions: [],
-      color: 'var(--ctp-green)'
-    }
+    'Nintendo Switch': { categories: [1000, 1030] },
+    'PlayStation 4': { categories: [1000, 1080] },
+    'PlayStation 5': { categories: [1000] },
+    'Xbox One': { categories: [1000] },
+    'Xbox Series': { categories: [1000] }
   };
 
-  type PlatformType = 'PC' | 'PlayStation' | 'Xbox' | 'Nintendo' | 'Unknown';
-
-  const GetPlatformInfo = (categoryId: number): { name: string, icon: string, type: PlatformType } => {
-    switch (categoryId) {
-      // ==========================================
-      // 🖥️ PC & MAC
-      // ==========================================
-      case 4000: // PC General
-      case 4010: // PC 0day
-      case 4020: // PC ISO
-      case 4040: // PC Mobile
-      case 4050: // PC Games (Standard)
-      case 14050: // PC Games (Extended)
-      case 100400: // TPB PC General
-      case 100401: // TPB PC
-      case 104050: // User specific extended
-        return { name: "PC", icon: "mdi-microsoft-windows", type: 'PC' };
-
-      case 4030: // Mac
-      case 100402: // TPB Mac
-        return { name: "Mac", icon: "mdi-apple", type: 'PC' };
-
-      // ==========================================
-      // 🔵 SONY PLAYSTATION
-      // ==========================================
-      case 1080: // PS3
-      case 101080: // PS3 Extended
-      case 100403: // TPB PSx (A veces mezcla)
-        return { name: "PS3", icon: "mdi-sony-playstation", type: 'PlayStation' };
-
-      case 1180: // PS4 (Standard Newznab)
-      case 101100: // PS4 (Extended)
-        return { name: "PS4", icon: "mdi-sony-playstation", type: 'PlayStation' };
-
-      case 1020: // PSP
-      case 101020:
-        return { name: "PSP", icon: "mdi-sony-playstation", type: 'PlayStation' };
-
-      case 1120: // PS Vita
-      case 101120:
-        return { name: "PS Vita", icon: "mdi-sony-playstation", type: 'PlayStation' };
-
-      // ==========================================
-      // 🟢 MICROSOFT XBOX
-      // ==========================================
-      case 1040: // Xbox Original
-      case 101040:
-        return { name: "Xbox", icon: "mdi-microsoft-xbox", type: 'Xbox' };
-
-      case 1050: // Xbox 360
-      case 101050:
-      case 1070: // 360 DLC
-      case 100404: // TPB Xbox360
-        return { name: "Xbox 360", icon: "mdi-microsoft-xbox", type: 'Xbox' };
-
-      case 1140: // Xbox One
-      case 101090: // Xbox One Extended
-        return { name: "Xbox One", icon: "mdi-microsoft-xbox", type: 'Xbox' };
-
-      // ==========================================
-      // 🔴 NINTENDO
-      // ==========================================
-      case 101035: // Switch (El ID más común ahora)
-      case 101110: // Switch Alternativo
-      case 101111: // Switch Update/DLC
-        return { name: "Switch", icon: "mdi-nintendo-switch", type: 'Nintendo' };
-
-      case 1030: // Wii
-      case 101030:
-      case 100405: // TPB Wii
-        return { name: "Wii", icon: "mdi-nintendo-wii", type: 'Nintendo' };
-
-      case 1130: // Wii U
-      case 101130:
-        return { name: "Wii U", icon: "mdi-nintendo-wiiu", type: 'Nintendo' };
-
-      case 1010: // NDS
-      case 101010:
-        return { name: "DS", icon: "mdi-nintendo-game-boy", type: 'Nintendo' };
-
-      case 1110: // 3DS
-        return { name: "3DS", icon: "mdi-nintendo-3ds", type: 'Nintendo' };
-
-      // ==========================================
-      // 📦 OTROS / GENÉRICOS
-      // ==========================================
-      case 1000: // Console General
-        return { name: "Console", icon: "mdi-gamepad-variant", type: 'Unknown' };
-
-      default:
-        // Si es un 1xxx desconocido, es consola
-        if (categoryId >= 1000 && categoryId < 2000) return { name: "Console", icon: "mdi-gamepad-variant", type: 'Unknown' };
-        // Si es un 4xxx desconocido, es PC
-        if (categoryId >= 4000 && categoryId < 5000) return { name: "PC", icon: "mdi-laptop", type: 'PC' };
-
-        return { name: "Unknown", icon: "mdi-help-circle", type: 'Unknown' };
-    }
+  // Platform column and row color follow the backend detector, checked against the game's own platform folder.
+  // A folder the download dialog cannot offer stays neutral, the dialog then preselects the game's folder
+  const getResultPlatform = (result: TorrentResult) => {
+    const folder = result.platformFolder && result.platformFolder !== 'unknown' ? result.platformFolder : '';
+    const gameFolder = availablePlatforms.find(p => p.id === game?.platformId)?.folder;
+    let badge = 'platform-console';
+    if (!folder) badge = 'platform-unknown';
+    else if (folder === 'macintosh') badge = 'platform-mac';
+    else if (['windows', 'steam', 'gog', 'linux', 'dos'].includes(folder)) badge = 'platform-pc';
+    else if (/^(ps\d|psx|psp|vita)$/.test(folder)) badge = 'platform-playstation';
+    else if (folder.startsWith('xbox')) badge = 'platform-xbox';
+    else if (/^(switch2?|wiiu?|3ds|nds|gb[ac]?|n64|s?nes|gamecube)$/.test(folder)) badge = 'platform-nintendo';
+    const offered = !!folder && availablePlatforms.some(p => p.folder === folder);
+    const confidence = !offered || !gameFolder ? 'unknown' : folder === gameFolder ? 'match' : 'mismatch';
+    return { name: folder ? result.detectedPlatform : t('unknown'), badge, confidence };
   };
 
   const SCENE_GROUPS = ['FLT', 'CODEX', 'RUNE', 'TENOKE', 'SKIDROW', 'RELOADED', 'PROPHET', 'CPY', 'EMPRESS', 'RAZOR1911', 'GOLDBERG'];
@@ -789,36 +671,7 @@ const GameDetails: React.FC = () => {
 
   const analyzeTorrent = (title: string) => {
     const t = title.toUpperCase();
-    let detectedPlatform = 'Game';
-    let confidence: 'match' | 'mismatch' | 'unknown' = 'unknown';
     const tags: string[] = [];
-
-    // Detect Platform
-    for (const [platformName, config] of Object.entries(PLATFORM_CONFIG)) {
-      const hasKeyword = config.keywords.some(k => t.includes(k));
-      const hasNegative = config.negativeKeywords.some(k => t.includes(k));
-
-      if (hasKeyword && !hasNegative) {
-        detectedPlatform = platformName;
-        break;
-      }
-    }
-
-    // Special case for generic PC keywords if not found
-    if (detectedPlatform === 'Game') {
-      if (t.includes('LINUX') || t.includes('WINE')) detectedPlatform = 'Linux';
-    }
-
-    // Determine Confidence relative to current game
-    if (game?.platform) {
-      if (detectedPlatform === game.platform.name ||
-        (game.platform.name.includes('PC') && detectedPlatform === 'PC') ||
-        (game.platform.name.includes('Switch') && detectedPlatform === 'Nintendo Switch')) {
-        confidence = 'match';
-      } else if (detectedPlatform !== 'Game' && detectedPlatform !== 'Linux') {
-        confidence = 'mismatch';
-      }
-    }
 
     // Extract Extra Tags
     if (SCENE_GROUPS.some(g => t.includes(g))) tags.push('Scene');
@@ -828,7 +681,7 @@ const GameDetails: React.FC = () => {
     if (t.includes('GOG')) tags.push('GOG');
     if (t.includes('STEAM')) tags.push('Steam');
 
-    return { detectedPlatform, confidence, tags };
+    return { tags };
   };
 
   const handleSearchTorrents = async (overrideQuery?: string) => {
@@ -862,6 +715,7 @@ const GameDetails: React.FC = () => {
         const response = await apiClient.get(`/settings/gog/downloads/${game.gogId}`);
         console.log('[Release Search] GOG API response:', response.data);
         if (response.data.success && response.data.downloads && response.data.downloads.length > 0) {
+          const gamePlatform = availablePlatforms.find(p => p.id === game.platformId);
           gogDownloads = response.data.downloads.map((dl: Record<string, unknown>, index: number) => ({
             title: `[GOG] ${game.title} - ${dl.name || dl.platform || 'Download'} ${dl.version || ''}`.trim(),
             guid: `gog-${game.gogId}-${index}`,
@@ -871,6 +725,8 @@ const GameDetails: React.FC = () => {
             protocol: 'gog',
             downloadUrl: dl.manualUrl || dl.downloadUrl,
             formattedSize: dl.size ? `${((dl.size as number) / 1024 / 1024 / 1024).toFixed(2)} GB` : 'Unknown',
+            detectedPlatform: gamePlatform?.name,
+            platformFolder: gamePlatform?.folder,
             gogDownload: dl,
             isOwned: true // Mark as owned for UI highlighting
           }));
@@ -1842,56 +1698,10 @@ const GameDetails: React.FC = () => {
 
                   {sortedResults.map((result, index) => {
                     const analysis = analyzeTorrent(result.title);
-
-                    // Try to resolve explicit category name
-                    let explicitPlatform = '';
-                    let explicitPlatformType: PlatformType | null = null;
-
-                    if (result.category) {
-                      const catIds = result.category.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
-                      // Prioritize finding a detailed match (skipping general ones if detailed exists)
-                      // But our GetPlatformInfo returns generic names for 1000/4000 too.
-                      // Pick the most specific category ID (e.g. 1010 over 1000)
-
-                      for (const cid of catIds) {
-                        const info = GetPlatformInfo(cid);
-                        if (info.name !== "Console" && info.name !== "Unknown") {
-                          explicitPlatform = info.name;
-                          explicitPlatformType = info.type;
-                          break; // Found a specific one
-                        }
-
-                        // Only set generic if we haven't found anything yet AND it's not Unknown
-                        if (!explicitPlatform && info.name !== "Unknown") {
-                          explicitPlatform = info.name;
-                          explicitPlatformType = info.type;
-                        }
-                      }
-                    }
-
-                    // Final display platform: Explicit Category > Detected Title Analysis
-                    // If explicit is empty (because all were Unknown), it falls back to detected.
-                    const displayPlatform = explicitPlatform || analysis.detectedPlatform;
-
-                    // Map platform type to CSS class for proper contrast badges
-                    let platformClass = 'platform-unknown';
-                    const pType = explicitPlatformType || (analysis.detectedPlatform === 'PC' ? 'PC' : null);
-                    if (pType) {
-                      switch (pType) {
-                        case 'Nintendo': platformClass = 'platform-nintendo'; break;
-                        case 'PlayStation': platformClass = 'platform-playstation'; break;
-                        case 'Xbox': platformClass = 'platform-xbox'; break;
-                        case 'PC': platformClass = displayPlatform === 'Mac' ? 'platform-mac' : 'platform-pc'; break;
-                        default: platformClass = 'platform-unknown'; break;
-                      }
-                    } else if (displayPlatform === 'Console') {
-                      platformClass = 'platform-console';
-                    } else if (displayPlatform !== 'Game' && displayPlatform !== 'Unknown') {
-                      platformClass = 'platform-console';
-                    }
+                    const platform = getResultPlatform(result);
 
                     return (
-                      <div key={index} className={`results-row ${analysis.confidence}`}>
+                      <div key={index} className={`results-row ${platform.confidence}`}>
                         <div className="col-protocol">
                           <span className={`protocol-badge ${(result.protocol || 'torrent').toLowerCase()}`}>
                             {(result.protocol || 'TORRENT').toUpperCase()}
@@ -1925,8 +1735,8 @@ const GameDetails: React.FC = () => {
                         </div>
 
                         <div className="col-platform">
-                          <span className={`platform-tag ${platformClass}`} title={`Category IDs: ${result.category || 'None'}`}>
-                            {displayPlatform}
+                          <span className={`platform-tag ${platform.badge}`} title={`Category IDs: ${result.category || 'None'}`}>
+                            {platform.name}
                           </span>
                         </div>
 
