@@ -247,12 +247,15 @@ namespace RetroArr.Api.V3.DownloadClients
             {
                 // Decode URL encoded ID (especially for SABnzbd/Transmission which might have funky chars, although unlikely for IDs)
                 var decodedId = Uri.UnescapeDataString(downloadId);
-                var managedId = await FindManagedIdAsync(config, client, decodedId);
-                if (managedId == null)
+                var managed = await FindManagedAsync(config, client, decodedId);
+                if (managed == null)
                     return NotFound($"Download '{decodedId}' is not in the queue of this client");
+                var managedId = managed.Id;
                 var result = await client.RemoveDownloadAsync(managedId, deleteFiles);
-                if (result) return Ok();
-                return BadRequest("Failed to delete download from client.");
+                if (!result) return BadRequest("Failed to delete download from client.");
+                // A removed download is no pending grab for the monitor anymore
+                _platformTracker.MarkProcessed(managed.Name);
+                return Ok();
             }
             catch (Exception ex)
             {
@@ -422,12 +425,15 @@ namespace RetroArr.Api.V3.DownloadClients
         // resumed or removed through it; the rest of a shared client belongs to other apps.
         // Returns the client's own id for it, so values like qBittorrent's "all" or "a|b" never
         // reach the client.
-        public static async Task<string?> FindManagedIdAsync(DownloadClient config, IDownloadClient client, string downloadId)
+        public static async Task<string?> FindManagedIdAsync(DownloadClient config, IDownloadClient client, string downloadId) =>
+            (await FindManagedAsync(config, client, downloadId))?.Id;
+
+        private static async Task<DownloadStatus?> FindManagedAsync(DownloadClient config, IDownloadClient client, string downloadId)
         {
             var downloads = await client.GetDownloadsAsync();
             return downloads.FirstOrDefault(d => d.Id.Equals(downloadId, StringComparison.OrdinalIgnoreCase)
                 && (string.IsNullOrEmpty(config.Category)
-                    || (!string.IsNullOrEmpty(d.Category) && d.Category.Equals(config.Category, StringComparison.OrdinalIgnoreCase))))?.Id;
+                    || (!string.IsNullOrEmpty(d.Category) && d.Category.Equals(config.Category, StringComparison.OrdinalIgnoreCase))));
         }
 
         private static bool InCategory(DownloadClient config, DownloadStatus download) =>
@@ -760,15 +766,18 @@ namespace RetroArr.Api.V3.DownloadClients
         private readonly DownloadHistoryRepository _historyRepo;
         private readonly DownloadBlacklistRepository _blacklistRepo;
         private readonly TrackedDownloadService _trackedDownloadService;
+        private readonly DownloadPlatformTracker _platformTracker;
 
         public DownloadHistoryController(
             DownloadHistoryRepository historyRepo,
             DownloadBlacklistRepository blacklistRepo,
-            TrackedDownloadService trackedDownloadService)
+            TrackedDownloadService trackedDownloadService,
+            DownloadPlatformTracker platformTracker)
         {
             _historyRepo = historyRepo;
             _blacklistRepo = blacklistRepo;
             _trackedDownloadService = trackedDownloadService;
+            _platformTracker = platformTracker;
         }
 
         [HttpGet]
@@ -827,6 +836,8 @@ namespace RetroArr.Api.V3.DownloadClients
             });
 
             await _historyRepo.UpdateStateAsync(id, DownloadHistoryState.Ignored, "Moved to blacklist");
+            // A blacklisted grab is dead, so it no longer holds back the monitor's next search for the game
+            _platformTracker.MarkProcessed(entry.Title);
             return Ok(new { message = "Blacklisted" });
         }
 

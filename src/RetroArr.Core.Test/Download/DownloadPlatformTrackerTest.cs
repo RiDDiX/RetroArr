@@ -333,6 +333,41 @@ namespace RetroArr.Core.Test.Download
             Assert.That(tracker.GetAll(), Is.Empty);
         }
 
+        [Test]
+        public void HasPendingGrab_UntilTheImport()
+        {
+            _tracker.Track(ProwlarrGrab, "snes", 42);
+            Assert.That(_tracker.HasPendingGrab(42), Is.True);
+            Assert.That(_tracker.HasPendingGrab(7), Is.False);
+
+            _tracker.MarkProcessed("Chrono Trigger (USA)");
+            Assert.That(_tracker.HasPendingGrab(42), Is.False);
+        }
+
+        [Test]
+        public void HasPendingGrab_NotForAnExpiredEntry()
+        {
+            File.WriteAllText(Path.Combine(_tempDir, "download_platform_map.json"), $$"""
+                [ { "Url": "Old.Game", "PlatformFolder": "psx", "GameId": 42, "AddedAt": "{{DateTime.UtcNow.AddDays(-8):O}}" } ]
+                """);
+
+            Assert.That(new DownloadPlatformTracker(_tempDir).HasPendingGrab(42), Is.False);
+        }
+
+        [Test]
+        public void Untrack_DropsTheGrabStoredForTheLink()
+        {
+            // The stored link has the API key stripped; Untrack gets the link as it was grabbed
+            _tracker.Track(ProwlarrGrab, "snes", 42);
+            _tracker.Track("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Other", "snes", 7);
+
+            _tracker.Untrack(ProwlarrGrab);
+
+            Assert.That(_tracker.HasPendingGrab(42), Is.False);
+            Assert.That(_tracker.HasPendingGrab(7), Is.True, "another grab was dropped");
+            Assert.That(new DownloadPlatformTracker(_tempDir).HasPendingGrab(42), Is.False, "the removal was not saved");
+        }
+
         // The file keeps its format: entries saved by earlier versions still resolve
         [Test]
         public void StoredEntries_FromEarlierVersions_StillResolve()

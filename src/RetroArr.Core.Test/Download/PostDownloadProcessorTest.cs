@@ -144,6 +144,7 @@ namespace RetroArr.Core.Test.Download
                 Assert.That(Directory.GetFiles(library), Has.Length.EqualTo(1));
                 using var check = new RetroArrDbContext(dbOptions);
                 Assert.That(check.Games.Single().ExecutablePath, Is.EqualTo(file));
+                Assert.That(check.Games.Single().Status, Is.EqualTo(GameStatus.Downloaded));
             }
             finally
             {
@@ -221,6 +222,62 @@ namespace RetroArr.Core.Test.Download
                 Assert.That(result.Success, Is.True, result.Reason);
                 Assert.That(new FileInfo(link).LinkTarget, Is.Null);
                 Assert.That(File.ReadAllText(link), Is.EqualTo("usa"));
+            }
+            finally
+            {
+                Directory.Delete(root, true);
+            }
+        }
+
+        // ── Only a main game import marks the game downloaded ─────────
+
+        [TestCase("Advance Wars (USA).gba", GameStatus.Released, GameStatus.Downloaded)]
+        [TestCase("Advance Wars Update v1.1.gba", GameStatus.Released, GameStatus.Released)]
+        [TestCase("Advance Wars (USA).gba", GameStatus.InstallerDetected, GameStatus.InstallerDetected)]
+        public async Task GameTargetedImport_MainGameMarksTheGameDownloaded(string fileName, GameStatus before, GameStatus expected)
+        {
+            var root = Path.Combine(Path.GetTempPath(), "retroarr_pdstatus_" + Path.GetRandomFileName());
+            try
+            {
+                var (processor, dbOptions, _) = await SetUpGameAsync(root, "Advance Wars", 52);
+                using (var ctx = new RetroArrDbContext(dbOptions))
+                {
+                    ctx.Games.Single().Status = before;
+                    await ctx.SaveChangesAsync();
+                }
+
+                var result = await ImportFileAsync(processor, root, fileName, "rom");
+
+                Assert.That(result.Success, Is.True, result.Reason);
+                using var check = new RetroArrDbContext(dbOptions);
+                Assert.That(check.Games.Single().Status, Is.EqualTo(expected));
+            }
+            finally
+            {
+                Directory.Delete(root, true);
+            }
+        }
+
+        [Test]
+        public async Task GameTargetedImport_StatusThatCannotBeSaved_StillImports()
+        {
+            // The repository refuses to save a game on the unknown platform, so only the status write fails
+            var root = Path.Combine(Path.GetTempPath(), "retroarr_pdstatusfail_" + Path.GetRandomFileName());
+            try
+            {
+                var (processor, dbOptions, library) = await SetUpGameAsync(root, "Advance Wars", 52);
+                using (var ctx = new RetroArrDbContext(dbOptions))
+                {
+                    var game = ctx.Games.Single();
+                    game.PlatformId = 0;
+                    game.ExecutablePath = Path.Combine(library, "Advance Wars.gba");
+                    await ctx.SaveChangesAsync();
+                }
+
+                var result = await ImportFileAsync(processor, root, "Advance Wars (USA).gba", "usa");
+
+                Assert.That(result.Success, Is.True, result.Reason);
+                Assert.That(File.ReadAllText(Path.Combine(library, "Advance Wars.gba")), Is.EqualTo("usa"));
             }
             finally
             {

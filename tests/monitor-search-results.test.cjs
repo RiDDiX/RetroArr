@@ -30,6 +30,16 @@ for (const needle of ["{searchInfo && searchInfo.queries.length > 0 && (", "t('s
   assert(panel.includes(needle), `monitor panel must render ${needle}`);
 }
 
+// An auto-download held back by a pending grab says so instead of just not happening.
+assert(/export interface MonitorSearchResultDto \{[\s\S]*autoDispatchSkipped\?: string \| null;/.test(client),
+  'MonitorSearchResultDto must carry autoDispatchSkipped');
+assert(panel.includes("t('monitorAutoDispatchSkipped').replace('{reason}', searchInfo.autoDispatchSkipped)"),
+  'the diagnostics line must show why an auto-download was skipped');
+const translations = read('frontend', 'src', 'i18n', 'translations.ts');
+assert((translations.match(/\n        monitorAutoDispatchSkipped: '[^'\n]*\{reason\}[^'\n]*',/g) || []).length ===
+  (translations.match(/\n        monitorRejectedCount: /g) || []).length,
+  'monitorAutoDispatchSkipped must exist with {reason} in every language block');
+
 // Pull one `const name = ... };` block out of the panel and run it with the given stand-ins.
 const load = (name, sandbox) => {
   const block = panel.match(new RegExp(`const ${name} = [\\s\\S]*?\\n  \\};`));

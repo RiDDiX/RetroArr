@@ -60,6 +60,8 @@ namespace RetroArr.Core.Download.TrackedDownloads
                 trackedDownload.MarkIgnored();
                 trackedDownload.Warn("This download is blacklisted and will not be processed.");
                 _trackedDownloadService.Save();
+                // Its grab is dead, so it no longer holds back the monitor's next search for the game
+                _platformTracker.MarkProcessed(trackedDownload.Title);
                 _logger.LogInformation("[CompletedDownload] '{Title}' is blacklisted - skipping.", trackedDownload.Title);
                 return;
             }

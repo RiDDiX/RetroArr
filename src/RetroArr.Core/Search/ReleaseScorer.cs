@@ -32,7 +32,7 @@ namespace RetroArr.Core.Search
     // scanner and the scorer agree on what "region X" means.
     public sealed class ReleaseScorer
     {
-        public ScoredRelease Score(SearchResult release, Game game, MonitorSettings settings)
+        public ScoredRelease Score(SearchResult release, Game game, MonitorSettings settings, Func<SearchResult, string?>? blockedReason = null)
         {
             var scored = new ScoredRelease { Release = release };
 
@@ -40,6 +40,11 @@ namespace RetroArr.Core.Search
             if (release == null || string.IsNullOrWhiteSpace(release.Title))
             {
                 return Reject(scored, "empty release title");
+            }
+
+            if (blockedReason?.Invoke(release) is { } blocked)
+            {
+                return Reject(scored, $"blacklisted: {blocked}");
             }
 
             // Platform: if the detector identified a platform and it doesn't

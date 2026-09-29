@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using RetroArr.Core.Configuration;
 using RetroArr.Core.Data;
 using RetroArr.Core.Download;
+using RetroArr.Core.Download.History;
 using RetroArr.Core.Games;
 using RetroArr.Core.Indexers;
 using RetroArr.Core.Jackett;
@@ -32,6 +33,7 @@ namespace RetroArr.Core.Search
         [SuppressMessage("Microsoft.Usage", "CA2227:CollectionPropertiesShouldBeReadOnly")]
         [SuppressMessage("Microsoft.Design", "CA1002:DoNotExposeGenericLists")]
         public List<string> ProviderErrors { get; set; } = new();
+        public string? AutoDispatchSkipped { get; set; }
         public string? Error { get; set; }
     }
 
@@ -40,25 +42,33 @@ namespace RetroArr.Core.Search
     public sealed class MonitoredGameSearchService
     {
         private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(Logging.AppLoggerService.ReleaseSearch);
+        private static readonly System.Text.RegularExpressions.Regex BtihHash =
+            new(@"urn:btih:([0-9a-f]{40})\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         private readonly RetroArrDbContext _db;
         private readonly ConfigurationService _config;
         private readonly ReleaseScorer _scorer;
         private readonly DownloadPlatformTracker _platformTracker;
+        private readonly DownloadBlacklistRepository? _blacklist;
 
         public MonitoredGameSearchService(
             RetroArrDbContext db,
             ConfigurationService config,
             ReleaseScorer scorer,
-            DownloadPlatformTracker platformTracker)
+            DownloadPlatformTracker platformTracker,
+            DownloadBlacklistRepository? blacklist = null)
         {
             _db = db;
             _config = config;
             _scorer = scorer;
             _platformTracker = platformTracker;
+            _blacklist = blacklist;
         }
 
-        public async Task<MonitorSearchResult> SearchAndMaybeDispatchAsync(
-            int gameId, bool allowAutoDispatch, CancellationToken ct = default)
+        public Task<MonitorSearchResult> SearchAndMaybeDispatchAsync(
+            int gameId, bool allowAutoDispatch, CancellationToken ct = default) =>
+            SearchAsync(gameId, allowAutoDispatch, sweep: false, ct);
+
+        private async Task<MonitorSearchResult> SearchAsync(int gameId, bool allowAutoDispatch, bool sweep, CancellationToken ct)
         {
             var game = await _db.Games
                 .Include(g => g.Platform)
@@ -107,8 +117,9 @@ namespace RetroArr.Core.Search
                 .ToList();
 
             // Score. Rejects stay in the list (last) so the UI can show why.
+            var blockedReason = await LoadBlacklistAsync().ConfigureAwait(false);
             var scored = unique
-                .Select(r => _scorer.Score(r, game, settings))
+                .Select(r => _scorer.Score(r, game, settings, blockedReason))
                 .ToList();
             result.RejectedCount = scored.Count(s => s.Decision == ReleaseDecision.Reject);
             scored = scored
@@ -122,7 +133,13 @@ namespace RetroArr.Core.Search
             if (allowAutoDispatch && settings.Enabled)
             {
                 var top = scored.FirstOrDefault(s => s.Decision == ReleaseDecision.AutoDownload);
-                if (top != null)
+                var skipped = top == null ? null : await WhyNotDispatchAsync(gameId, sweep, ct).ConfigureAwait(false);
+                if (skipped != null)
+                {
+                    result.AutoDispatchSkipped = skipped;
+                    _logger.Info($"[Monitor] auto-dispatch skipped for game {gameId}: {skipped}");
+                }
+                else if (top != null)
                 {
                     try
                     {
@@ -159,7 +176,7 @@ namespace RetroArr.Core.Search
             }
 
             var monitored = await _db.Games
-                .Where(g => g.Monitored && g.Status != GameStatus.Downloaded)
+                .Where(g => g.Monitored && !g.IsExternal && g.Status != GameStatus.Downloaded)
                 .Include(g => g.Platform)
                 .OrderBy(g => g.Id)
                 .ToListAsync(ct)
@@ -172,7 +189,7 @@ namespace RetroArr.Core.Search
                 if (ct.IsCancellationRequested) break;
                 try
                 {
-                    await SearchAndMaybeDispatchAsync(g.Id, allowAutoDispatch: true, ct).ConfigureAwait(false);
+                    await SearchAsync(g.Id, allowAutoDispatch: true, sweep: true, ct).ConfigureAwait(false);
                     // Polite stagger between games to be kind to indexers.
                     await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
                 }
@@ -194,6 +211,53 @@ namespace RetroArr.Core.Search
             var sanitized = System.Text.RegularExpressions.Regex.Replace(raw, @"[:\(\)\[\]\{\}""'™®©\p{Pd}]", " ");
             sanitized = System.Text.RegularExpressions.Regex.Replace(sanitized, @"\s{2,}", " ").Trim();
             return sanitized;
+        }
+
+        // Why a release that qualifies for auto-download is not sent now, or null. A sweep runs for a long
+        // time, so it reads the game again: it may have been imported, unmonitored or synced as external since.
+        private async Task<string?> WhyNotDispatchAsync(int gameId, bool sweep, CancellationToken ct)
+        {
+            if (_platformTracker.HasPendingGrab(gameId)) return "an earlier grab for this game is not imported yet";
+            if (!sweep) return null;
+
+            var current = await _db.Games.AsNoTracking()
+                .Where(g => g.Id == gameId)
+                .Select(g => new { g.Status, g.Monitored, g.IsExternal })
+                .FirstOrDefaultAsync(ct)
+                .ConfigureAwait(false);
+            return current == null || current.Status == GameStatus.Downloaded || !current.Monitored || current.IsExternal
+                ? "the game was downloaded, unmonitored, marked external or removed during the sweep"
+                : null;
+        }
+
+        // Blacklist entries hold the download client's job name and id (the info hash for torrents).
+        // Job names don't always equal the indexer title and NZBs have no hash, so the import checks again.
+        private async Task<Func<SearchResult, string?>?> LoadBlacklistAsync()
+        {
+            if (_blacklist == null) return null;
+
+            var byTitle = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var byId = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                foreach (var entry in await _blacklist.GetAllAsync().ConfigureAwait(false))
+                {
+                    byTitle.TryAdd(entry.Title, entry.Reason);
+                    if (!string.IsNullOrEmpty(entry.DownloadId)) byId.TryAdd(entry.DownloadId, entry.Reason);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn($"[Monitor] blacklist not loaded, the import still checks it: {ex.Message}");
+                return null;
+            }
+
+            return r =>
+            {
+                if (byTitle.TryGetValue(r.Title, out var reason)) return reason;
+                var hash = BtihHash.Match(r.MagnetUrl ?? string.Empty);
+                return hash.Success && byId.TryGetValue(hash.Groups[1].Value, out reason) ? reason : null;
+            };
         }
 
         private async Task<List<SearchResult>> RunSearchAsync(string query, List<string> providerErrors, CancellationToken ct)
@@ -314,6 +378,14 @@ namespace RetroArr.Core.Search
             var platformFolder = game.Platform?.FolderName;
             _platformTracker.Track(url, platformFolder, game.Id, null);
 
+            var sent = await SendToClientAsync(client, url).ConfigureAwait(false);
+            // A grab the client didn't take must not hold back the next search as a pending one
+            if (!sent) _platformTracker.Untrack(url);
+            return sent;
+        }
+
+        private static async Task<bool> SendToClientAsync(DownloadClient client, string url)
+        {
             bool sent = false;
             try
             {

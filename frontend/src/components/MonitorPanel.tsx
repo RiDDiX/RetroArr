@@ -192,6 +192,9 @@ const MonitorPanel: React.FC<Props> = ({ gameId, initialMonitored, initialPrefer
             <span>{t('monitorRejectedCount').replace('{count}', String(searchInfo.rejectedCount))}</span>
           )}
           {searchInfo.providerErrors.map((e, i) => <span key={i} className="monitor-provider-error">{e}</span>)}
+          {searchInfo.autoDispatchSkipped && (
+            <span>{t('monitorAutoDispatchSkipped').replace('{reason}', searchInfo.autoDispatchSkipped)}</span>
+          )}
         </div>
       )}
       {notice && <div className="alert alert-info">{notice}</div>}

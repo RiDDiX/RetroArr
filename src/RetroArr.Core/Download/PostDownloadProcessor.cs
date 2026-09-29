@@ -743,6 +743,21 @@ namespace RetroArr.Core.Download
                 await _gameRepository.UpdateAsync(game.Id, game);
             }
 
+            // The game is in the library now, so the monitor stops searching for it. Patches and DLC don't count,
+            // and an installer the scanner found keeps its status. The files are in place either way.
+            if (contentType == DownloadContentType.MainGame && game.Status != GameStatus.Downloaded && game.Status != GameStatus.InstallerDetected)
+            {
+                try
+                {
+                    game.Status = GameStatus.Downloaded;
+                    await _gameRepository.UpdateAsync(game.Id, game);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warn($"[PostDownload] Imported '{game.Title}' but could not mark it downloaded: {ex.Message}");
+                }
+            }
+
             _logger.Info($"[PostDownload] Game-targeted import complete: {movedCount} file(s) -> {importFolder} [Type: {contentType}]");
             return PostDownloadResult.Ok(targetFolder);
         }

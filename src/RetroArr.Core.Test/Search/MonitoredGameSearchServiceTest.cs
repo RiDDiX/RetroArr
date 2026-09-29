@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -12,6 +13,7 @@ using NUnit.Framework;
 using RetroArr.Core.Configuration;
 using RetroArr.Core.Data;
 using RetroArr.Core.Download;
+using RetroArr.Core.Download.History;
 using RetroArr.Core.Games;
 using RetroArr.Core.Indexers;
 using RetroArr.Core.Jackett;
@@ -22,17 +24,21 @@ namespace RetroArr.Core.Test.Search
     [TestFixture]
     public class MonitoredGameSearchServiceTest
     {
-        // Answers every request with the same JSON body.
+        // Answers each request with what respond returns for its body.
         private sealed class FakeServer : IDisposable
         {
             private readonly HttpListener _listener = new();
-            private readonly string _body;
+            private readonly Func<string, string> _respond;
 
             public int Port { get; }
+            public ConcurrentQueue<string?> Queries { get; } = new();
+            public ConcurrentQueue<string> Bodies { get; } = new();
 
-            public FakeServer(string body)
+            public FakeServer(string body) : this(_ => body) { }
+
+            public FakeServer(Func<string, string> respond)
             {
-                _body = body;
+                _respond = respond;
                 Port = FreePort();
                 _listener.Prefixes.Add($"http://127.0.0.1:{Port}/");
                 _listener.Start();
@@ -46,7 +52,10 @@ namespace RetroArr.Core.Test.Search
                     HttpListenerContext ctx;
                     try { ctx = await _listener.GetContextAsync(); }
                     catch { return; }
-                    var bytes = Encoding.UTF8.GetBytes(_body);
+                    Queries.Enqueue(ctx.Request.QueryString["Query"]);
+                    var body = await new StreamReader(ctx.Request.InputStream).ReadToEndAsync();
+                    Bodies.Enqueue(body);
+                    var bytes = Encoding.UTF8.GetBytes(_respond(body));
                     ctx.Response.ContentType = "application/json";
                     await ctx.Response.OutputStream.WriteAsync(bytes);
                     ctx.Response.Close();
@@ -57,8 +66,10 @@ namespace RetroArr.Core.Test.Search
         }
 
         // One Jackett result per (title, category).
-        private static FakeServer FakeJackett(params (string Title, int Category)[] releases) =>
-            new(JsonSerializer.Serialize(new
+        private static FakeServer FakeJackett(params (string Title, int Category)[] releases) => new(JackettResults(releases));
+
+        private static string JackettResults(params (string Title, int Category)[] releases) =>
+            JsonSerializer.Serialize(new
             {
                 Results = releases.Select(r => new
                 {
@@ -73,7 +84,16 @@ namespace RetroArr.Core.Test.Search
                     Seeders = 50,
                     Peers = 60
                 })
-            }));
+            });
+
+        // A deluge-web that is connected to its daemon and takes every magnet.
+        private static FakeServer FakeDeluge() =>
+            new(request => request.Contains("\"web.connected\"", StringComparison.Ordinal)
+                ? """{"result": true, "error": null, "id": 1}"""
+                : """{"result": "0123456789abcdef0123456789abcdef01234567", "error": null, "id": 1}""");
+
+        private static int MagnetsAdded(FakeServer deluge) =>
+            deluge.Bodies.Count(b => b.Contains("core.add_torrent_magnet", StringComparison.Ordinal));
 
         private static FakeServer FakeHydra(string title) =>
             new(JsonSerializer.Serialize(new
@@ -114,13 +134,44 @@ namespace RetroArr.Core.Test.Search
                 Directory.Delete(_root, recursive: true);
         }
 
-        private async Task<MonitorSearchResult> Search(ConfigurationService config, int jackettPort, bool autoDispatch)
+        private async Task<MonitorSearchResult> Search(ConfigurationService config, int jackettPort, bool autoDispatch,
+            DownloadBlacklistRepository? blacklist = null)
         {
             config.SaveJackettSettings(new JackettSettings { Url = $"http://127.0.0.1:{jackettPort}", ApiKey = "key", Enabled = true });
             using var db = new RetroArrDbContext(_dbOptions);
             var service = new MonitoredGameSearchService(db, config, new ReleaseScorer(),
-                new DownloadPlatformTracker(Path.Combine(_root, "config")));
+                new DownloadPlatformTracker(Path.Combine(_root, "config")), blacklist);
             return await service.SearchAndMaybeDispatchAsync(1, autoDispatch);
+        }
+
+        // Auto-grabs every release that isn't rejected, to a Deluge on this port.
+        private ConfigurationService AutoGrabConfig(int delugePort)
+        {
+            var config = new ConfigurationService(_root);
+            var monitor = MonitorSettings.CreateDefault();
+            monitor.AutoDownloadThreshold = 0;
+            monitor.RequireTrustedSourceForAuto = false;
+            config.SaveMonitorSettings(monitor);
+            config.SaveDownloadClients(new List<DownloadClient>
+            {
+                new DownloadClient
+                {
+                    Id = 1, Name = "deluge", Implementation = "Deluge", Host = "127.0.0.1", Port = delugePort, Password = "pw", Enable = true
+                }
+            });
+            return config;
+        }
+
+        private sealed class DbFactory : IDbContextFactory<RetroArrDbContext>
+        {
+            private readonly DbContextOptions<RetroArrDbContext> _options;
+            public DbFactory(DbContextOptions<RetroArrDbContext> options) => _options = options;
+            public RetroArrDbContext CreateDbContext() => new RetroArrDbContext(_options);
+        }
+
+        private sealed class BrokenDbFactory : IDbContextFactory<RetroArrDbContext>
+        {
+            public RetroArrDbContext CreateDbContext() => throw new InvalidOperationException("database is locked");
         }
 
         [Test]
@@ -218,6 +269,140 @@ namespace RetroArr.Core.Test.Search
             {
                 deluge.Stop();
             }
+        }
+
+        [TestCase("halo 3 x360 p2p", null)]
+        [TestCase("Halo.3.X360-GRP", "0123456789ABCDEF0123456789ABCDEF01234567")]
+        public async Task AutoGrab_BlacklistedRelease_IsRejectedWithTheReason(string title, string? downloadId)
+        {
+            // Blacklisted by its title, or by the info hash a torrent client uses as its download id.
+            using var jackett = FakeJackett(("Halo 3 X360 P2P", 1050));
+            var deluge = new TcpListener(IPAddress.Loopback, 0);
+            deluge.Start();
+            try
+            {
+                var blacklist = new DownloadBlacklistRepository(new DbFactory(_dbOptions));
+                await blacklist.AddAsync(new DownloadBlacklistEntry { Title = title, DownloadId = downloadId, Reason = "bad dump" });
+
+                var result = await Search(AutoGrabConfig(((IPEndPoint)deluge.LocalEndpoint).Port), jackett.Port, autoDispatch: true, blacklist);
+
+                var row = result.Scored.Single();
+                Assert.That(row.Decision, Is.EqualTo(ReleaseDecision.Reject));
+                Assert.That(row.Reason, Is.EqualTo("blacklisted: bad dump"));
+                Assert.That(result.AutoQueued, Is.False);
+                Assert.That(deluge.Pending(), Is.False, "a blacklisted release reached the download client");
+            }
+            finally
+            {
+                deluge.Stop();
+            }
+        }
+
+        [Test]
+        public async Task Search_BlacklistThatCannotBeRead_StillSearches()
+        {
+            using var jackett = FakeJackett(("Halo 3 X360 P2P", 1050));
+
+            var result = await Search(new ConfigurationService(_root), jackett.Port, autoDispatch: false,
+                new DownloadBlacklistRepository(new BrokenDbFactory()));
+
+            Assert.That(result.Error, Is.Null);
+            Assert.That(result.Scored.Single().Release.Title, Is.EqualTo("Halo 3 X360 P2P"));
+        }
+
+        [Test]
+        public async Task AutoGrab_WhileTheLastGrabIsPending_SkipsAndSaysWhy()
+        {
+            using var jackett = FakeJackett(("Halo 3 X360 P2P", 1050));
+            using var deluge = FakeDeluge();
+            var config = AutoGrabConfig(deluge.Port);
+
+            var first = await Search(config, jackett.Port, autoDispatch: true);
+            var second = await Search(config, jackett.Port, autoDispatch: true);
+
+            Assert.That(first.AutoQueued, Is.True);
+            Assert.That(first.AutoDispatchSkipped, Is.Null);
+            Assert.That(second.Scored.Single().Decision, Is.EqualTo(ReleaseDecision.AutoDownload));
+            Assert.That(second.AutoQueued, Is.False);
+            Assert.That(second.AutoDispatchSkipped, Is.EqualTo("an earlier grab for this game is not imported yet"));
+            Assert.That(MagnetsAdded(deluge), Is.EqualTo(1), "the release was sent again while the first grab was pending");
+        }
+
+        [Test]
+        public async Task AutoGrab_TheClientRefuses_LeavesNoPendingGrab()
+        {
+            using var jackett = FakeJackett(("Halo 3 X360 P2P", 1050));
+            // deluge-web answers, but it has no daemon and refuses the login
+            using var deluge = new FakeServer("""{"result": false, "error": null, "id": 1}""");
+
+            var result = await Search(AutoGrabConfig(deluge.Port), jackett.Port, autoDispatch: true);
+
+            Assert.That(result.AutoQueued, Is.False);
+            Assert.That(deluge.Bodies, Is.Not.Empty, "the grab never reached Deluge");
+            Assert.That(new DownloadPlatformTracker(Path.Combine(_root, "config")).HasPendingGrab(1), Is.False);
+        }
+
+        [Test]
+        public async Task Sweep_GameDownloadedWhileItsSearchRuns_IsNotGrabbed()
+        {
+            // The game's import finishes while the indexer answers.
+            using var jackett = new FakeServer(_ =>
+            {
+                using var ctx = new RetroArrDbContext(_dbOptions);
+                ctx.Games.Single().Status = GameStatus.Downloaded;
+                ctx.SaveChanges();
+                return JackettResults(("Halo 3 X360 P2P", 1050));
+            });
+            using var deluge = FakeDeluge();
+            var config = AutoGrabConfig(deluge.Port);
+            config.SaveJackettSettings(new JackettSettings { Url = $"http://127.0.0.1:{jackett.Port}", ApiKey = "key", Enabled = true });
+
+            using var db = new RetroArrDbContext(_dbOptions);
+            await new MonitoredGameSearchService(db, config, new ReleaseScorer(),
+                new DownloadPlatformTracker(Path.Combine(_root, "config"))).RunSweepAsync();
+
+            Assert.That(jackett.Queries, Is.EqualTo(new[] { "Halo 3" }));
+            Assert.That(MagnetsAdded(deluge), Is.EqualTo(0));
+        }
+
+        [Test]
+        public async Task SearchNow_StillGrabsForADownloadedGame()
+        {
+            using (var ctx = new RetroArrDbContext(_dbOptions))
+            {
+                ctx.Games.Single().Status = GameStatus.Downloaded;
+                ctx.SaveChanges();
+            }
+            using var jackett = FakeJackett(("Halo 3 X360 P2P", 1050));
+            using var deluge = FakeDeluge();
+
+            var result = await Search(AutoGrabConfig(deluge.Port), jackett.Port, autoDispatch: true);
+
+            Assert.That(result.AutoQueued, Is.True);
+            Assert.That(MagnetsAdded(deluge), Is.EqualTo(1));
+        }
+
+        [TestCase(true, GameStatus.Released)]
+        [TestCase(false, GameStatus.Downloaded)]
+        public async Task Sweep_SkipsExternalAndDownloadedGames(bool isExternal, GameStatus status)
+        {
+            using (var ctx = new RetroArrDbContext(_dbOptions))
+            {
+                var halo = ctx.Games.Single();
+                halo.IsExternal = isExternal;
+                halo.Status = status;
+                ctx.Games.Add(new Game { Id = 2, Title = "Gears of War", PlatformId = 31, Monitored = true });
+                ctx.SaveChanges();
+            }
+            using var jackett = FakeJackett();
+            var config = new ConfigurationService(_root);
+            config.SaveJackettSettings(new JackettSettings { Url = $"http://127.0.0.1:{jackett.Port}", ApiKey = "key", Enabled = true });
+
+            using var db = new RetroArrDbContext(_dbOptions);
+            await new MonitoredGameSearchService(db, config, new ReleaseScorer(),
+                new DownloadPlatformTracker(Path.Combine(_root, "config"))).RunSweepAsync();
+
+            Assert.That(jackett.Queries, Is.EqualTo(new[] { "Gears of War" }));
         }
 
         [Test]

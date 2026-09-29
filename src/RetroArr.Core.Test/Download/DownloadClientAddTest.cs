@@ -8,6 +8,7 @@ using RetroArr.Api.V3.DownloadClients;
 using RetroArr.Core.Configuration;
 using RetroArr.Core.Data;
 using RetroArr.Core.Download;
+using RetroArr.Core.Download.History;
 using RetroArr.Core.Games;
 
 namespace RetroArr.Core.Test.Download
@@ -51,6 +52,27 @@ namespace RetroArr.Core.Test.Download
             var tracked = tracker.GetAll().Single();
             Assert.That(tracked.GameId, Is.EqualTo(1));
             Assert.That(tracked.PlatformFolder, Is.EqualTo("xbox360"));
+        }
+
+        [Test]
+        public async Task BlacklistFromHistory_EndsThePendingGrab()
+        {
+            var dbOptions = new DbContextOptionsBuilder<RetroArrDbContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .Options;
+            var factory = new DbFactory(dbOptions);
+            using (var ctx = new RetroArrDbContext(dbOptions))
+            {
+                ctx.DownloadHistory.Add(new DownloadHistoryEntry { Id = 3, DownloadId = "abc", Title = "Halo 3 (USA)", State = DownloadHistoryState.ImportFailed });
+                await ctx.SaveChangesAsync();
+            }
+            var tracker = new DownloadPlatformTracker(Path.Combine(_root, "config"));
+            tracker.Track("magnet:?xt=urn:btih:abc&dn=Halo+3+(USA)", "xbox360", 1);
+            var controller = new DownloadHistoryController(new DownloadHistoryRepository(factory), new DownloadBlacklistRepository(factory), null!, tracker);
+
+            await controller.BlacklistFromHistory(3);
+
+            Assert.That(tracker.HasPendingGrab(1), Is.False);
         }
 
         private sealed class DbFactory : IDbContextFactory<RetroArrDbContext>

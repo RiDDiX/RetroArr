@@ -64,6 +64,23 @@ namespace RetroArr.Core.Download
             lock (_lock) { return Find(downloadName, e => !string.IsNullOrEmpty(e.ImportSubfolder))?.ImportSubfolder; }
         }
 
+        // A grab for this game is still waiting for its import. Entries go away on import, when the grab
+        // is refused, blacklisted or deleted, or after 7 days.
+        public bool HasPendingGrab(int gameId)
+        {
+            lock (_lock) { return _entries.Any(e => e.GameId == gameId && !IsExpired(e)); }
+        }
+
+        // Drops the entry Track stored for this link, for a grab no client took
+        public void Untrack(string downloadUrl)
+        {
+            downloadUrl = StripCredentials(downloadUrl);
+            lock (_lock)
+            {
+                if (_entries.RemoveAll(e => e.Url.Equals(downloadUrl, StringComparison.OrdinalIgnoreCase)) > 0) Save();
+            }
+        }
+
         public void MarkProcessed(string downloadName)
         {
             lock (_lock)

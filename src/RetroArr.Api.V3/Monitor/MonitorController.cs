@@ -172,6 +172,7 @@ namespace RetroArr.Api.V3.Monitor
                     rejectedCount = result.RejectedCount,
                     queries = result.Queries,
                     providerErrors = result.ProviderErrors,
+                    autoDispatchSkipped = result.AutoDispatchSkipped,
                     scored = result.Scored.Select(s => new
                     {
                         score = s.Score,

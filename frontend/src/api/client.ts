@@ -1005,6 +1005,7 @@ export interface MonitorSearchResultDto {
   rejectedCount: number;
   queries: string[];
   providerErrors: string[];
+  autoDispatchSkipped?: string | null;
   scored: ScoredReleaseDto[];
 }
 

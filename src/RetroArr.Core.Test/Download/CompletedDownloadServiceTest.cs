@@ -22,6 +22,7 @@ namespace RetroArr.Core.Test.Download
     {
         private string _root = null!;
         private DbContextOptions<RetroArrDbContext> _db = null!;
+        private DownloadPlatformTracker _tracker = null!;
         private CompletedDownloadService _service = null!;
 
         [SetUp]
@@ -31,7 +32,8 @@ namespace RetroArr.Core.Test.Download
             Directory.CreateDirectory(_root);
             _db = new DbContextOptionsBuilder<RetroArrDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
             var factory = new DbFactory(_db);
-            _service = new CompletedDownloadService(null!, new DownloadPlatformTracker(_root), new TrackedDownloadService(_root),
+            _tracker = new DownloadPlatformTracker(_root);
+            _service = new CompletedDownloadService(null!, _tracker, new TrackedDownloadService(_root),
                 new DownloadHistoryRepository(factory), new DownloadBlacklistRepository(factory), null!,
                 NullLogger<CompletedDownloadService>.Instance);
         }
@@ -68,6 +70,23 @@ namespace RetroArr.Core.Test.Download
 
             Assert.That(tracked.State, Is.EqualTo(TrackedDownloadState.Imported));
             Assert.That(tracked.StatusMessages, Is.Empty);
+        }
+
+        [Test]
+        public async Task Check_BlacklistedDownload_EndsItsPendingGrab()
+        {
+            _tracker.Track("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Old+Game", "snes", 5);
+            using (var ctx = new RetroArrDbContext(_db))
+            {
+                ctx.DownloadBlacklist.Add(new DownloadBlacklistEntry { Title = "Old Game", Reason = "fake" });
+                await ctx.SaveChangesAsync();
+            }
+            var tracked = Tracked(TrackedDownloadState.ImportPending, _root);
+
+            await _service.CheckAsync(tracked, new DownloadClient());
+
+            Assert.That(tracked.State, Is.EqualTo(TrackedDownloadState.Ignored));
+            Assert.That(_tracker.HasPendingGrab(5), Is.False);
         }
 
         [Test]
