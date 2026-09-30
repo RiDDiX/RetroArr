@@ -1,6 +1,10 @@
 using System.Linq;
 using NUnit.Framework;
+using RetroArr.Core.Configuration;
 using RetroArr.Core.Games;
+using RetroArr.Core.Prowlarr;
+using RetroArr.Core.Rename;
+using RetroArr.Core.Search;
 
 namespace RetroArr.Core.Test.Games
 {
@@ -572,6 +576,72 @@ namespace RetroArr.Core.Test.Games
         public void IsContainerOrphanPath_DetectsRowsBelowContainer(string? path, bool expected)
         {
             Assert.That(TitleCleanerService.IsContainerOrphanPath(path), Is.EqualTo(expected));
+        }
+
+        // --- ExtractFilenameMetadata: numeric tags ---
+
+        [TestCase("Super Mario World (USA) (Rev 1)", "USA", null, "Rev 1")]
+        [TestCase("Street Fighter II (Europe) (v1.1)", "Europe", null, "v1.1")]
+        [TestCase("Tomb Raider (1996) (Europe) (En,Fr,De) (Disc 1) (Rev 1)", "Europe", "En, Fr, De", "Rev 1")]
+        public void ExtractFilenameMetadata_NumericTags_GiveTheRevision(string name, string? region, string? languages, string? revision)
+        {
+            Assert.That(TitleCleanerService.ExtractFilenameMetadata(name), Is.EqualTo((region, languages, revision)));
+        }
+
+        // Every disc of a game has the same revision; the renamer names discs with a token of their own
+        [TestCase("Final Fantasy VII (USA) (Disc 2)", "USA", null, null)]
+        [TestCase("Metal Gear Solid (USA) (Disc 1) (Rev 1).chd", "USA", null, "Rev 1")]
+        public void ExtractFilenameMetadata_DiscNumber_IsNoRevision(string name, string? region, string? languages, string? revision)
+        {
+            Assert.That(TitleCleanerService.ExtractFilenameMetadata(name), Is.EqualTo((region, languages, revision)));
+        }
+
+        [TestCase("Sonic the Hedgehog 2 (World) (Rev A)", "Rev A")]
+        [TestCase("Contra (USA) (Rev 1)", "Rev 1")]
+        [TestCase("Street Fighter Alpha 2 (Europe) (Rev-1)", "Rev 1")]
+        [TestCase("Sonic The Hedgehog 2 (W) (REV01) [!]", "Rev 01")]
+        [TestCase("Bomberman (Revolution)", null)]
+        [TestCase("Double Dragon (Revenge)", null)]
+        [TestCase("Atelier (Reverie)", null)]
+        public void ExtractFilenameMetadata_RevTag_IsARevision_AWordStartingWithRevIsNot(string name, string? revision)
+        {
+            Assert.That(TitleCleanerService.ExtractFilenameMetadata(name).Revision, Is.EqualTo(revision));
+        }
+
+        [Test]
+        public void ReleaseScorer_NumericRevision_GetsTheRevisionBonus()
+        {
+            var game = new Game { Title = "Super Mario World", Revision = "Rev 1" };
+            var release = new SearchResult { Title = "Super Mario World (USA) (Rev 1)", Protocol = "usenet" };
+
+            var scored = new ReleaseScorer().Score(release, game, new MonitorSettings());
+
+            Assert.That(scored.Signals, Has.Some.StartsWith("revision match (Rev 1,"));
+        }
+
+        [TestCase("Rev 2", "Link's Awakening DX (USA, Europe) (Rev 2) (SGB Enhanced)", true)]
+        [TestCase("Rev 2, SGB Enhanced", "Link's Awakening DX (USA, Europe) (Rev 2)", true)]
+        [TestCase("rev 2", "Link's Awakening DX (USA, Europe) (Rev 2) (SGB Enhanced)", true)]
+        [TestCase("Rev 2", "Link's Awakening DX (USA, Europe) (Rev 2) (Disc 1)", true)]
+        [TestCase("Rev 1", "Link's Awakening DX (USA, Europe) (Rev 2) (SGB Enhanced)", false)]
+        public void ReleaseScorer_RevisionBonus_WhenTheReleaseSharesATag(string revision, string title, bool bonus)
+        {
+            var game = new Game { Title = "Link's Awakening DX", Revision = revision };
+
+            var scored = new ReleaseScorer().Score(new SearchResult { Title = title, Protocol = "usenet" }, game, new MonitorSettings());
+
+            Assert.That(scored.Signals.Any(s => s.StartsWith("revision match")), Is.EqualTo(bonus));
+        }
+
+        [Test]
+        public void Rename_RevisionToken_TakesNumericRevisions_ButNoDisc()
+        {
+            var renamer = new FileRenamer(new TemplateRenderer());
+
+            var stem = renamer.Render("{Title} ({Revision})", new Game { Title = "Final Fantasy VII" }, null,
+                "Final Fantasy VII (USA) (Disc 1) (Rev 1).chd", "Final Fantasy VII (USA)", "Disc 1", null, null);
+
+            Assert.That(stem, Is.EqualTo("Final Fantasy VII (Rev 1)"));
         }
     }
 }

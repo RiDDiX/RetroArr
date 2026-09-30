@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import apiClient, { getErrorMessage } from '../api/client';
 import { t } from '../i18n/translations';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faTrash, faMicrochip, faExclamationTriangle, faFolder, faDownload, faFileExport } from '@fortawesome/free-solid-svg-icons';
@@ -8,11 +9,17 @@ interface UninstallModalProps {
     isOpen: boolean;
     onClose: () => void;
     onRunUninstaller: () => void;
-    onDelete: (deleteLibraryFiles: boolean, deleteDownloadFiles: boolean, targetLibraryPath?: string, targetDownloadPath?: string) => void;
+    onDelete: (deleteLibraryFiles: boolean, deleteDownloadFiles: boolean, plan: DeletePlan) => void;
+    gameId: number;
     gameTitle: string;
-    gamePath?: string;
     uninstallerPath?: string;
-    downloadPath?: string;
+}
+
+// What the server moves to the trash: the game's files (null, with the reason, when they can't go) and its downloads
+export interface DeletePlan {
+    paths: string[] | null;
+    refused: string | null;
+    downloads: string[];
 }
 
 const UninstallModal: React.FC<UninstallModalProps> = ({
@@ -20,43 +27,28 @@ const UninstallModal: React.FC<UninstallModalProps> = ({
     onClose,
     onRunUninstaller,
     onDelete,
+    gameId,
     gameTitle,
-    gamePath,
-    uninstallerPath,
-    downloadPath
+    uninstallerPath
 }) => {
     const [deleteLibraryFiles, setDeleteLibraryFiles] = useState(true);
     const [deleteDownloadFiles, setDeleteDownloadFiles] = useState(false);
-    const [useContainerFolder, setUseContainerFolder] = useState(true);
+    // Asked for when the dialog opens, so it never shows anything but what the server will move
+    const [plan, setPlan] = useState<DeletePlan | null>(null);
 
-    // Smart Path Logic: Detect "Game container" vs specific folder.
-    const getSmartPaths = (path?: string) => {
-        if (!path) return { deepest: '', container: '' };
+    useEffect(() => {
+        if (!isOpen) return;
+        let current = true;
+        setPlan(null);
+        apiClient.get<DeletePlan>(`/game/${gameId}/delete-plan`)
+            .then(res => { if (current) setPlan(res.data); })
+            .catch(err => { if (current) setPlan({ paths: null, refused: getErrorMessage(err), downloads: [] }); });
+        return () => { current = false; };
+    }, [isOpen, gameId]);
 
-        const normalized = path.replace(/\\/g, '/');
-        const parts = normalized.split('/').filter(p => p !== '');
-        const isFile = parts[parts.length - 1].includes('.');
-        const baseParts = isFile ? parts.slice(0, -1) : parts;
-
-        const deepest = '/' + baseParts.join('/');
-        let container = deepest;
-
-        // Try to find a logical "Game Container" level (e.g., .../Juegos/Name/)
-        const roots = ['Juegos', 'Library', 'Games', 'RetroArr', 'Desktop'];
-        for (const root of roots) {
-            const rootIndex = baseParts.lastIndexOf(root);
-            if (rootIndex !== -1 && baseParts.length > rootIndex + 2) {
-                // Suggest 1 level after the root
-                container = '/' + baseParts.slice(0, rootIndex + 2).join('/');
-                break;
-            }
-        }
-
-        return { deepest, container };
-    };
-
-    const paths = getSmartPaths(gamePath);
-    const targetLibraryPath = useContainerFolder ? paths.container : paths.deepest;
+    const downloads = plan?.downloads ?? [];
+    // Files only go when the server can say which
+    const filesMovable = plan?.paths != null;
 
     if (!isOpen) return null;
 
@@ -114,49 +106,29 @@ const UninstallModal: React.FC<UninstallModalProps> = ({
                         <label className="um-checkbox-container">
                             <input
                                 type="checkbox"
-                                checked={deleteLibraryFiles}
+                                checked={deleteLibraryFiles && filesMovable}
+                                disabled={!filesMovable}
                                 onChange={(e) => setDeleteLibraryFiles(e.target.checked)}
                             />
                             <div className="um-checkbox-content">
                                 <span className="um-checkbox-label">
                                     <FontAwesomeIcon icon={faFolder} style={{ marginRight: '8px', opacity: 0.7 }} />
-                                    {t('deleteFilesOption')} ({t('gameFolder')})
+                                    {t('deleteFilesOption')}
                                 </span>
-                                {deleteLibraryFiles && (
+                                {plan?.refused && (
+                                    <div className="um-warning">
+                                        <span>{plan.refused}</span>
+                                    </div>
+                                )}
+                                {deleteLibraryFiles && filesMovable && (
                                     <>
                                         <div className="um-warning">
                                             <FontAwesomeIcon icon={faExclamationTriangle} style={{ marginTop: '2px' }} />
                                             <span>{t('deleteFilesWarning')}</span>
                                         </div>
-                                        {targetLibraryPath && (
+                                        {plan?.paths && plan.paths.length > 0 && (
                                             <div className="um-path-preview">
-                                                {targetLibraryPath}
-                                            </div>
-                                        )}
-                                        {/* DEPTH SELECTION */}
-                                        {paths.container !== paths.deepest && (
-                                            <div className="um-depth-selector">
-                                                <div className="um-selector-label">{t('cleanupLevel')}</div>
-                                                <div className="um-radio-group">
-                                                    <label className={`um-radio-item ${useContainerFolder ? 'active' : ''}`}>
-                                                        <input
-                                                            type="radio"
-                                                            name="cleanup-depth"
-                                                            checked={useContainerFolder}
-                                                            onChange={() => setUseContainerFolder(true)}
-                                                        />
-                                                        <span>{t('containerFolder')}</span>
-                                                    </label>
-                                                    <label className={`um-radio-item ${!useContainerFolder ? 'active' : ''}`}>
-                                                        <input
-                                                            type="radio"
-                                                            name="cleanup-depth"
-                                                            checked={!useContainerFolder}
-                                                            onChange={() => setUseContainerFolder(false)}
-                                                        />
-                                                        <span>{t('deepFolder')}</span>
-                                                    </label>
-                                                </div>
+                                                {plan.paths.map(p => <div key={p}>{p}</div>)}
                                             </div>
                                         )}
                                     </>
@@ -164,8 +136,8 @@ const UninstallModal: React.FC<UninstallModalProps> = ({
                             </div>
                         </label>
 
-                        {/* DOWNLOAD FOLDER CHECKBOX (IF DETECTED) */}
-                        {downloadPath && (
+                        {/* DOWNLOAD FOLDER CHECKBOX (IF THE SERVER FOUND THE GAME'S DOWNLOAD) */}
+                        {downloads.length > 0 && (
                             <label className="um-checkbox-container" style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(243, 139, 168, 0.1)' }}>
                                 <input
                                     type="checkbox"
@@ -175,16 +147,16 @@ const UninstallModal: React.FC<UninstallModalProps> = ({
                                 <div className="um-checkbox-content">
                                     <span className="um-checkbox-label">
                                         <FontAwesomeIcon icon={faDownload} style={{ marginRight: '8px', opacity: 0.7 }} />
-                                        {t('deleteDownloadFilesOption') || 'Delete download folder'}
+                                        {t('deleteDownloadFilesOption')}
                                     </span>
                                     {deleteDownloadFiles && (
                                         <>
                                             <div className="um-warning">
                                                 <FontAwesomeIcon icon={faExclamationTriangle} style={{ marginTop: '2px' }} />
-                                                <span>{t('deleteDownloadFilesWarning') || 'This will delete the original download files.'}</span>
+                                                <span>{t('deleteDownloadFilesWarning')}</span>
                                             </div>
                                             <div className="um-path-preview" style={{ color: 'var(--ctp-rosewater)' }}>
-                                                {downloadPath}
+                                                {downloads.map(p => <div key={p}>{p}</div>)}
                                             </div>
                                         </>
                                     )}
@@ -195,8 +167,10 @@ const UninstallModal: React.FC<UninstallModalProps> = ({
                         <div className="um-actions">
                             <button
                                 className="um-btn-delete"
+                                disabled={!plan}
                                 onClick={() => {
-                                    onDelete(deleteLibraryFiles, deleteDownloadFiles, targetLibraryPath, downloadPath);
+                                    if (!plan) return;
+                                    onDelete(deleteLibraryFiles && filesMovable, deleteDownloadFiles && downloads.length > 0, plan);
                                     onClose();
                                 }}
                             >

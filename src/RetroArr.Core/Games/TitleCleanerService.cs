@@ -106,17 +106,12 @@ namespace RetroArr.Core.Games
         };
 
         private static readonly Regex _regionBracketRegex = new Regex(
-            @"[\[\(\{]\s*([A-Za-z][A-Za-z,. \-]+?)\s*[\]\)\}]",
+            @"[\[\(\{]\s*([A-Za-z][A-Za-z0-9,. \-]+?)\s*[\]\)\}]",
             RegexOptions.Compiled);
 
-        // Revision patterns: (Rev A), (Rev-A), (Rev 1), (Rev 2)
+        // Revision patterns: (Rev A), (Rev-A), (Rev 1), (REV01); a word like (Revolution) is none
         private static readonly Regex _revisionRegex = new Regex(
-            @"^Rev[\s\-]?([A-Z0-9]+)$",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-        // Disc patterns: (Disc 1), (Disc 2)
-        private static readonly Regex _discRegex = new Regex(
-            @"^Disc\s+(\d+)$",
+            @"^Rev(?:[\s\-]|(?=\d))([A-Z0-9]+)$",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         // Version inside brackets: (v1.0), (v2.00), (v1.000)
@@ -467,7 +462,7 @@ namespace RetroArr.Core.Games
         /// Returns:
         ///   Region   - comma-separated region names (e.g. "USA", "USA, Europe", "Japan")
         ///   Languages - comma-separated language codes (e.g. "En, Fr, De, Es, It")
-        ///   Revision  - revision/variant tag (e.g. "Rev A", "Beta", "Disc 1", "v2.00")
+        ///   Revision  - revision/variant tag (e.g. "Rev A", "Beta", "v2.00"); a disc number is none
         /// Returns (null, null, null) if nothing detected.
         /// </summary>
         public static (string? Region, string? Languages, string? Revision) ExtractFilenameMetadata(string originalName)
@@ -537,7 +532,7 @@ namespace RetroArr.Core.Games
         }
 
         /// <summary>
-        /// Try to parse a bracketed token as a revision/variant/disc tag.
+        /// Try to parse a bracketed token as a revision/variant tag.
         /// Returns normalized revision string, or null if not a revision.
         /// </summary>
         private static string? TryParseRevisionToken(string content)
@@ -550,11 +545,6 @@ namespace RetroArr.Core.Games
             var revMatch = _revisionRegex.Match(content);
             if (revMatch.Success)
                 return "Rev " + revMatch.Groups[1].Value.ToUpper();
-
-            // Disc patterns: Disc 1, Disc 2
-            var discMatch = _discRegex.Match(content);
-            if (discMatch.Success)
-                return "Disc " + discMatch.Groups[1].Value;
 
             // Version inside brackets: v1.0, v2.00
             if (_bracketVersionRegex.IsMatch(content))

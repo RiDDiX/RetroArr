@@ -279,5 +279,125 @@ namespace RetroArr.Core.Test.Games
             Assert.That(all[0], Is.EqualTo(cuePath));
             Assert.That(Path.GetFileName(all[1]), Is.EqualTo("SCES_002.55.Tekken 2 (EU).bin"));
         }
+
+        [Test]
+        public void Resolve_GDI_QuotedTrackNames()
+        {
+            // Redump quotes track names with spaces
+            File.WriteAllText(Path.Combine(_tempDir, "Crazy Taxi (USA) (Track 1).bin"), "data");
+            File.WriteAllText(Path.Combine(_tempDir, "Crazy Taxi (USA) (Track 2).raw"), "data");
+            var gdiPath = Path.Combine(_tempDir, "Crazy Taxi (USA).gdi");
+            File.WriteAllText(gdiPath,
+                "2\n" +
+                "1 0 4 2352 \"Crazy Taxi (USA) (Track 1).bin\" 0\n" +
+                "2 756 0 2352 \"Crazy Taxi (USA) (Track 2).raw\" 0\n");
+
+            var set = FileSetResolver.Resolve(gdiPath);
+
+            Assert.That(set.CompanionFiles.Select(Path.GetFileName),
+                Is.EqualTo(new[] { "Crazy Taxi (USA) (Track 1).bin", "Crazy Taxi (USA) (Track 2).raw" }));
+        }
+
+        [Test]
+        public void Resolve_CueFileInAnotherCase_FindsTheBin()
+        {
+            File.WriteAllText(Path.Combine(_tempDir, "Track 01.bin"), "data");
+            var cuePath = Path.Combine(_tempDir, "Game.cue");
+            File.WriteAllText(cuePath, "FILE \"TRACK 01.BIN\" BINARY\n");
+
+            var set = FileSetResolver.Resolve(cuePath);
+
+            Assert.That(set.CompanionFiles.Select(Path.GetFileName), Is.EqualTo(new[] { "Track 01.bin" }).IgnoreCase);
+        }
+
+        [Test]
+        public void Resolve_SameStemInAnotherCase_IsClaimed()
+        {
+            var cuePath = Path.Combine(_tempDir, "Game.cue");
+            var binPath = Path.Combine(_tempDir, "GAME.bin");
+            File.WriteAllText(cuePath, string.Empty);
+            File.WriteAllText(binPath, "data");
+
+            Assert.That(FileSetResolver.Resolve(cuePath).CompanionFiles, Is.EqualTo(new[] { binPath }), "cue without usable FILE lines");
+            Assert.That(FileSetResolver.Resolve(binPath).CompanionFiles, Is.EqualTo(new[] { cuePath }), "bin pulls its cue");
+        }
+
+        [Test]
+        public void Resolve_M3UWrittenOnWindows_FindsItsDiscs()
+        {
+            var disc1 = Path.Combine(_tempDir, "Disc1", "Game (Disc 1).chd");
+            var disc2 = Path.Combine(_tempDir, "Game (Disc 2).chd");
+            Directory.CreateDirectory(Path.GetDirectoryName(disc1)!);
+            File.WriteAllText(disc1, "data");
+            File.WriteAllText(disc2, "data");
+            var m3uPath = Path.Combine(_tempDir, "Game.m3u");
+            File.WriteAllText(m3uPath, "Disc1\\Game (Disc 1).chd\r\nGAME (DISC 2).CHD\r\n");
+
+            var set = FileSetResolver.Resolve(m3uPath);
+
+            Assert.That(set.CompanionFiles, Is.EqualTo(new[] { disc1, disc2 }).IgnoreCase);
+        }
+
+        [Test]
+        public void Resolve_M3UFolderInAnotherCase_FindsItsDisc()
+        {
+            var disc = Path.Combine(_tempDir, "CD1", "Game (Disc 1).chd");
+            Directory.CreateDirectory(Path.GetDirectoryName(disc)!);
+            File.WriteAllText(disc, "data");
+            var m3uPath = Path.Combine(_tempDir, "Game.m3u");
+            File.WriteAllText(m3uPath, "cd1/game (disc 1).chd\n");
+
+            Assert.That(FileSetResolver.Resolve(m3uPath).CompanionFiles, Is.EqualTo(new[] { disc }).IgnoreCase);
+        }
+
+        // Another case is only looked for below the playlist's folder
+        [Test, Platform(Exclude = "Win,MacOsX")]
+        public void Resolve_M3UEntryOutsideItsFolder_OnlyAsWritten()
+        {
+            var shared = Directory.CreateDirectory(Path.Combine(_tempDir, "Shared")).FullName;
+            File.WriteAllText(Path.Combine(shared, "Game (Disc 1).chd"), "data");
+            var m3uPath = Path.Combine(Directory.CreateDirectory(Path.Combine(_tempDir, "Game")).FullName, "Game.m3u");
+            File.WriteAllText(m3uPath, "../Shared/GAME (DISC 1).CHD\n");
+
+            Assert.That(FileSetResolver.Resolve(m3uPath).CompanionFiles, Is.Empty);
+        }
+
+        [Test]
+        public void Resolve_M3UListingItself_IsNotFollowed()
+        {
+            // "ls > Game.m3u" lists the playlist too; following it overflowed the stack
+            var disc = Path.Combine(_tempDir, "Game (Disc 1).chd");
+            File.WriteAllText(disc, "data");
+            var m3uPath = Path.Combine(_tempDir, "Game.m3u");
+            File.WriteAllText(m3uPath, "Game (Disc 1).chd\nGame.m3u\n");
+
+            Assert.That(FileSetResolver.Resolve(m3uPath).CompanionFiles, Is.EqualTo(new[] { disc }));
+        }
+
+        [Test]
+        public void IsContent_DescriptorsOnlyTheResolverCanRead_Count()
+        {
+            // The missing-content check reads descriptors through the resolver. None of these data
+            // files is named after its descriptor, so without the resolver the game looked empty.
+            var m3uDir = Directory.CreateDirectory(Path.Combine(_tempDir, "m3u")).FullName;
+            Directory.CreateDirectory(Path.Combine(m3uDir, "Disc1"));
+            File.WriteAllText(Path.Combine(m3uDir, "Disc1", "Game (Disc 1).chd"), "data");
+            var m3uPath = Path.Combine(m3uDir, "Game.m3u");
+            File.WriteAllText(m3uPath, "Disc1\\Game (Disc 1).chd\n");
+
+            var cueDir = Directory.CreateDirectory(Path.Combine(_tempDir, "cue")).FullName;
+            File.WriteAllText(Path.Combine(cueDir, "Track 01.bin"), "data");
+            var cuePath = Path.Combine(cueDir, "Game.cue");
+            File.WriteAllText(cuePath, "FILE \"TRACK 01.BIN\" BINARY\n");
+
+            var gdiDir = Directory.CreateDirectory(Path.Combine(_tempDir, "gdi")).FullName;
+            File.WriteAllText(Path.Combine(gdiDir, "Crazy Taxi (USA) (Track 1).bin"), "data");
+            var gdiPath = Path.Combine(gdiDir, "disc.gdi");
+            File.WriteAllText(gdiPath, "1\n1 0 4 2352 \"Crazy Taxi (USA) (Track 1).bin\" 0\n");
+
+            Assert.That(MediaScannerService.IsContent(m3uPath), Is.True, "m3u with backslashes");
+            Assert.That(MediaScannerService.IsContent(cuePath), Is.True, "cue FILE in another case");
+            Assert.That(MediaScannerService.IsContent(gdiPath), Is.True, "quoted gdi track names");
+        }
     }
 }

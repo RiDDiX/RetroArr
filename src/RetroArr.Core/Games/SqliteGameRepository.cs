@@ -162,10 +162,9 @@ namespace RetroArr.Core.Games
             context.Entry(existing).CurrentValues.SetValues(game);
             existing.Genres = game.Genres;
 
-            // GameImages is OwnsOne (flattened into the Games table). Replacing
-            // the reference makes EF mark the old entity as Deleted + insert a
-            // new one - which blows up because there's no separate table to
-            // delete from. Copy the values into the tracked instance instead.
+            // SetValues copies Game's own properties, not the owned GameImages
+            // (OwnsOne, flattened into the Games table), so its values and
+            // lists are copied into the tracked instance here.
             if (game.Images != null)
             {
                 existing.Images ??= new GameImages();
@@ -174,6 +173,27 @@ namespace RetroArr.Core.Games
                 existing.Images.Artworks = game.Images.Artworks;
             }
 
+            await SaveAsync(context, id, game.Title);
+            return existing;
+        }
+
+        // Tracked, so the save writes only the columns change modified
+        public async Task<Game?> UpdateFieldsAsync(int id, Action<Game> change)
+        {
+            using var context = await _contextFactory.CreateDbContextAsync();
+            var existing = await context.Games.FindAsync(id);
+            if (existing == null) return null;
+
+            change(existing);
+            EnsureKnownPlatform(existing.PlatformId);
+            CanonicalizeRegion(existing);
+
+            await SaveAsync(context, id, existing.Title);
+            return existing;
+        }
+
+        private static async Task SaveAsync(RetroArrDbContext context, int id, string title)
+        {
             try
             {
                 await context.SaveChangesAsync();
@@ -192,13 +212,12 @@ namespace RetroArr.Core.Games
                     else if (msg.Contains("Games.IgdbId", StringComparison.OrdinalIgnoreCase)) field = "IgdbId+PlatformId";
                     throw new DuplicateGameException(
                         $"Another library entry already has this {field ?? "value"}.",
-                        field, game.Title, ex);
+                        field, title, ex);
                 }
 
                 throw new InvalidOperationException(
                     $"Could not save game {id}: {inner.Message}", ex);
             }
-            return existing;
         }
 
         public async Task<bool> DeleteAsync(int id)
@@ -300,23 +319,9 @@ namespace RetroArr.Core.Games
             var g = await context.Games.FindAsync(gameId);
             if (g == null) return null;
             // A loss at the path the check saw says nothing once the game was moved (an import, a path edit)
-            var changed = (content == GameContent.Present || SamePath(g.Path, checkedPath)) && g.ApplyContent(content, at);
+            var changed = (content == GameContent.Present || MediaScannerService.SamePath(g.Path, checkedPath)) && g.ApplyContent(content, at);
             if (changed) await context.SaveChangesAsync();
             return (changed, g.Status, g.MissingSince);
-        }
-
-        private static bool SamePath(string? a, string? b)
-        {
-            if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return false;
-            try
-            {
-                return string.Equals(System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(a)),
-                    System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(b)), StringComparison.OrdinalIgnoreCase);
-            }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or System.IO.IOException)
-            {
-                return false;
-            }
         }
 
         public async Task<List<Game>> GetMissingAsync()

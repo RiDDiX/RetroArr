@@ -10,8 +10,8 @@ if (!gameDetails.includes("t('downloadsQueue')")) {
   throw new Error('game details search results must render a visible queue button');
 }
 
-if (!gameDetails.includes("handleDownloadWithPlatform(result.magnetUrl || result.downloadUrl")) {
-  throw new Error('game details queue button must use the search result download source');
+if (!gameDetails.includes("handleDownloadWithPlatform(result.magnetUrl || result.downloadUrl, result.protocol, result.detectedPlatform, result.platformFolder, result.title)")) {
+  throw new Error('game details queue button must use the search result download source and hand on the release title');
 }
 
 const monitorPanel = fs.readFileSync(

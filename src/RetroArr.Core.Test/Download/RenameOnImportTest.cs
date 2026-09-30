@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
@@ -12,6 +13,7 @@ using RetroArr.Core.Download;
 using RetroArr.Core.Games;
 using RetroArr.Core.IO;
 using RetroArr.Core.Rename;
+using RetroArr.Core.Test.Games;
 
 namespace RetroArr.Core.Test.Download
 {
@@ -242,6 +244,53 @@ namespace RetroArr.Core.Test.Download
             Assert.That(patches, Is.EquivalentTo(new[] { "patchA", "patchB" }));
         }
 
+        // A game that is a single file keeps its path: a folder with nothing but the update in it
+        // looks emptied, and the game would count as missing and be searched again
+        [Test]
+        public async Task UpdateForASingleFileGame_KeepsItsPath()
+        {
+            var rom = Path.Combine(Library, "gba", "Advance Wars.gba");
+            var (processor, folder) = await SetUpAsync("Advance Wars", 52, seed: g =>
+            {
+                File.WriteAllText(rom, "rom");
+                g.Path = rom;
+                g.ExecutablePath = rom;
+                g.Status = GameStatus.Downloaded;
+            });
+
+            var result = await ImportFileAsync(processor, "Advance Wars Update v1.1.ips", "ips");
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            Assert.That(Names(folder), Is.EqualTo(new[] { "Patches/Advance Wars-Patch-v1.1.ips" }));
+            Assert.That(GameRow().Path, Is.EqualTo(rom));
+            Assert.That(MediaScannerService.CheckContent(GameRow(), new[] { Library }), Is.EqualTo(GameContent.Present));
+        }
+
+        // A game that moves into a folder of its own runs from there: an exe left on a library file outside it would
+        // have the scan take the game back and leave the folder behind. An installed game outside the library keeps its exe.
+        [TestCase("loose")]
+        [TestCase("platform")]
+        [TestCase("installed")]
+        public async Task GameMovingIntoItsOwnFolder_RunsFromThere(string before)
+        {
+            string? exe = null;
+            var (processor, folder) = await SetUpAsync("Wipeout", 20, seed: g =>
+            {
+                var platformFolder = Path.GetDirectoryName(g.Path)!;
+                exe = before == "installed" ? Path.Combine(_root, "installed", "Wipeout.exe") : Path.Combine(platformFolder, "Wipeout (USA).bin");
+                Directory.CreateDirectory(Path.GetDirectoryName(exe)!);
+                File.WriteAllText(exe, "old");
+                g.Path = before switch { "loose" => exe, "platform" => platformFolder, _ => null };
+                g.ExecutablePath = exe;
+            });
+
+            var result = await ImportFileAsync(processor, "Wipeout (Europe).bin", "new");
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            Assert.That(GameRow().Path, Is.EqualTo(folder));
+            Assert.That(GameRow().ExecutablePath, Is.EqualTo(before == "installed" ? exe : Path.Combine(folder, "Wipeout.bin")));
+        }
+
         [TestCase("Hades.Update.v1.2-RUNE", "Patches/Hades - Update 1.2 [RUNE].zip")]
         [TestCase("Hades DLC Soundtrack", "DLC/Hades - DLC - Soundtrack.zip")]
         public async Task PatchAndDlc_NamedByTheirTemplates(string release, string expected)
@@ -470,6 +519,122 @@ namespace RetroArr.Core.Test.Download
                     Assert.That(result.Success, Is.True, result.Reason);
                     break;
             }
+        }
+
+        // A download folder that holds the library (a wrong path mapping) is refused: nothing imported, nothing deleted
+        [Test]
+        public async Task GenericImport_DownloadFolderHoldingTheLibrary_IsRefused()
+        {
+            var data = Directory.CreateDirectory(Path.Combine(_root, "data")).FullName;
+            var library = Path.Combine(data, "library");
+            var libraryFile = Path.Combine(Directory.CreateDirectory(Path.Combine(library, "gba", "Advance Wars")).FullName, "Advance Wars.gba");
+            File.WriteAllText(libraryFile, "rom");
+            var loose = Path.Combine(data, "Golden Sun.gba");
+            File.WriteAllText(loose, "new");
+            var config = new ConfigurationService(_root);
+            config.SaveMediaSettings(new MediaSettings { FolderPath = library, DestinationPath = library });
+            config.SavePostDownloadSettings(new PostDownloadSettings { EnableAutoMove = true, EnableAutoExtract = false, EnableDeepClean = false });
+            _db = new DbContextOptionsBuilder<RetroArrDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+            var processor = new PostDownloadProcessor(config, new FileMoverService(),
+                new SqliteGameRepository(new DbFactory(_db)), new NoMetadata(), new ArchiveService(), new TitleCleanerService());
+
+            var result = await processor.ProcessCompletedDownloadAsync(new DownloadStatus
+            {
+                Id = "x", Name = "data", PlatformFolder = "gba", DownloadPath = data, State = DownloadState.Completed
+            });
+
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.Reason, Does.Contain("overlaps the library"));
+            Assert.That(File.ReadAllText(libraryFile), Is.EqualTo("rom"));
+            Assert.That(File.ReadAllText(loose), Is.EqualTo("new"));
+            Assert.That(Directory.GetDirectories(Path.Combine(library, "gba")).Select(Path.GetFileName), Is.EqualTo(new[] { "Advance Wars" }));
+        }
+
+        // A torrent that completes into the library: what extraction added there is imported where it lies and stays
+        [Test]
+        public async Task GenericImport_TorrentInTheLibrary_FilesExtractedThere_Stay()
+        {
+            var config = new ConfigurationService(_root);
+            config.SaveMediaSettings(new MediaSettings { FolderPath = Library, DestinationPath = Library });
+            config.SavePostDownloadSettings(new PostDownloadSettings { EnableAutoMove = true, EnableAutoExtract = true, EnableDeepClean = false });
+            config.SaveDownloadClients(new List<DownloadClient> { new DownloadClient { Id = 1, Name = "client", Implementation = "qBittorrent" } });
+            _db = new DbContextOptionsBuilder<RetroArrDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+            var processor = new PostDownloadProcessor(config, new FileMoverService(),
+                new SqliteGameRepository(new DbFactory(_db)), new NoMetadata(), new ArchiveService(), new TitleCleanerService());
+            var release = Directory.CreateDirectory(Path.Combine(Library, "gba", "Golden Sun")).FullName;
+            using (var zip = System.IO.Compression.ZipFile.Open(Path.Combine(release, "gs.zip"), System.IO.Compression.ZipArchiveMode.Create))
+            using (var writer = new StreamWriter(zip.CreateEntry("Golden Sun.gba").Open()))
+            {
+                writer.Write("rom");
+            }
+
+            var result = await processor.ProcessCompletedDownloadAsync(new DownloadStatus
+            {
+                Id = "x", ClientId = 1, Name = "Golden Sun", PlatformFolder = "gba", DownloadPath = release, State = DownloadState.Completed
+            });
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            Assert.That(Names(release), Is.EqualTo(new[] { "Golden Sun.gba", "gs.zip" }));
+        }
+
+        // Compressed Switch dumps are game files, a download of nothing else is imported
+        [TestCase("Super Mario Odyssey.nsz")]
+        [TestCase("Super Mario Odyssey.xcz")]
+        public async Task GenericImport_TakesCompressedSwitchDumps(string file)
+        {
+            var config = new ConfigurationService(_root);
+            config.SaveMediaSettings(new MediaSettings { FolderPath = Library, DestinationPath = Library });
+            config.SavePostDownloadSettings(new PostDownloadSettings { EnableAutoMove = true, EnableAutoExtract = false, EnableDeepClean = false });
+            _db = new DbContextOptionsBuilder<RetroArrDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+            var processor = new PostDownloadProcessor(config, new FileMoverService(),
+                new SqliteGameRepository(new DbFactory(_db)), new NoMetadata(), new ArchiveService(), new TitleCleanerService());
+            var release = MakeRelease("Super.Mario.Odyssey.NSW-VENOM", (file, Encoding.ASCII.GetBytes("dump")));
+
+            var result = await processor.ProcessCompletedDownloadAsync(new DownloadStatus
+            {
+                Id = "x", Name = "Super.Mario.Odyssey.NSW-VENOM", PlatformFolder = "switch", DownloadPath = release, State = DownloadState.Completed
+            });
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            Assert.That(Directory.GetFiles(Path.Combine(Library, "switch"), file, SearchOption.AllDirectories), Has.Length.EqualTo(1));
+        }
+
+        [Test]
+        public async Task GenericImport_OfAWantedGame_KeepsWhatChangedMeanwhile()
+        {
+            var config = new ConfigurationService(_root);
+            config.SaveMediaSettings(new MediaSettings { FolderPath = Library, DestinationPath = Library });
+            config.SavePostDownloadSettings(new PostDownloadSettings { EnableAutoMove = true, EnableAutoExtract = false, EnableDeepClean = false });
+            _db = new DbContextOptionsBuilder<RetroArrDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+            using (var ctx = new RetroArrDbContext(_db))
+            {
+                ctx.Games.Add(new Game { Id = 1, Title = "Advance Wars", PlatformId = 52, Monitored = true });
+                await ctx.SaveChangesAsync();
+            }
+            // The game is unmonitored after the import read it, right before it is written
+            var repo = DispatchProxy.Create<IGameRepository, MissingContentTest.HookedRepository>();
+            var hook = (MissingContentTest.HookedRepository)(object)repo;
+            hook.Inner = new SqliteGameRepository(new DbFactory(_db));
+            hook.Before = (method, _) =>
+            {
+                if (!method.Name.StartsWith("Update", StringComparison.Ordinal)) return;
+                using var ctx = new RetroArrDbContext(_db);
+                ctx.Games.Single().Monitored = false;
+                ctx.SaveChanges();
+            };
+            var processor = new PostDownloadProcessor(config, new FileMoverService(), repo, new NoMetadata(), new ArchiveService(), new TitleCleanerService());
+            var source = Path.Combine(Downloads, "Advance Wars.gba");
+            File.WriteAllText(source, "rom");
+
+            var result = await processor.ProcessCompletedDownloadAsync(new DownloadStatus
+            {
+                Id = "x", Name = "Advance Wars", PlatformFolder = "gba", DownloadPath = source, State = DownloadState.Completed
+            });
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            var game = GameRow();
+            Assert.That(game.Monitored, Is.False, "the import wrote back the game it read before");
+            Assert.That(game.ExecutablePath, Is.EqualTo(Path.Combine(Library, "gba", "Advance Wars", "Advance Wars.gba")));
         }
 
         // ── Multi-file releases ─────────────────────────────────────────
@@ -749,6 +914,214 @@ namespace RetroArr.Core.Test.Download
             Assert.That(Names(Path.Combine(Downloads, "Wipeout (Europe)")), Has.Length.EqualTo(3), "source was touched");
         }
 
+        // Kept names land one by one. When a disc fails, the ones that landed go again: the game stays wanted,
+        // the source stays in place and the retry lands them all.
+        [Test]
+        public async Task PartialImport_Fails_AndTheRetryCompletesIt()
+        {
+            var since = DateTime.UtcNow.AddDays(-3);
+            var (processor, folder) = await SetUpAsync("Final Fantasy VII", 20, mover: new FailingMover(2), seed: g =>
+            {
+                g.Status = GameStatus.Missing;
+                g.MissingSince = since;
+            });
+            var release = MakeRelease("FF7 (USA)", ("FF7 (Disc 1).chd", Encoding.ASCII.GetBytes("d1")),
+                ("FF7 (Disc 2).chd", Encoding.ASCII.GetBytes("d2")), ("FF7 (Disc 3).chd", Encoding.ASCII.GetBytes("d3")));
+            Task<PostDownloadResult> Import() => processor.ProcessCompletedDownloadAsync(new DownloadStatus
+            {
+                Id = "ff7", Name = "FF7 (USA)", DownloadPath = release, GameId = 1, State = DownloadState.Completed
+            });
+
+            var partial = await Import();
+
+            Assert.That(partial.Success, Is.False);
+            Assert.That(partial.Reason, Does.Contain("Partial import").And.Contain("disk full"));
+            Assert.That(Names(folder), Is.Empty);
+            Assert.That(Names(release), Has.Length.EqualTo(3), "source was touched");
+            Assert.That(GameRow().Status, Is.EqualTo(GameStatus.Missing));
+            Assert.That(GameRow().MissingSince, Is.EqualTo(since));
+            Assert.That(GameRow().ExecutablePath, Is.Null);
+
+            var retry = await Import();
+
+            Assert.That(retry.Success, Is.True, retry.Reason);
+            Assert.That(Names(folder), Is.EqualTo(new[] { "FF7 (Disc 1).chd", "FF7 (Disc 2).chd", "FF7 (Disc 3).chd" }));
+            Assert.That(Directory.Exists(release), Is.False, "usenet source was kept");
+            Assert.That(GameRow().Status, Is.EqualTo(GameStatus.Downloaded));
+            Assert.That(GameRow().MissingSince, Is.Null);
+        }
+
+        // A wanted game's folder is there before its files. Half a release in it would pass for the game,
+        // the monitor would stop searching and the missing disc never come.
+        [Test]
+        public async Task PartialImport_IntoTheWantedGamesFolder_LeavesItEmpty()
+        {
+            var (processor, folder) = await SetUpAsync("Final Fantasy VII", 20, mover: new FailingMover(2), seed: g =>
+            {
+                g.Status = GameStatus.Released;
+                g.Monitored = true;
+            });
+            var release = MakeRelease("FF7 (USA)", ("Disc 1/FF7.chd", Encoding.ASCII.GetBytes("d1")), ("Disc 2/FF7.chd", Encoding.ASCII.GetBytes("d2")));
+            Task<PostDownloadResult> Import() => processor.ProcessCompletedDownloadAsync(new DownloadStatus
+            {
+                Id = "ff7", Name = "FF7 (USA)", DownloadPath = release, GameId = 1, State = DownloadState.Completed
+            });
+
+            var partial = await Import();
+
+            Assert.That(partial.Success, Is.False);
+            Assert.That(partial.Reason, Does.Contain("disk full"));
+            Assert.That(Directory.GetFileSystemEntries(folder), Is.Empty);
+            Assert.That(Names(release), Is.EqualTo(new[] { "Disc 1/FF7.chd", "Disc 2/FF7.chd" }), "source was touched");
+            Assert.That(GameRow().Status, Is.EqualTo(GameStatus.Released));
+            Assert.That(GameRow().ExecutablePath, Is.Null);
+
+            var retry = await Import();
+
+            Assert.That(retry.Success, Is.True, retry.Reason);
+            Assert.That(Names(folder), Is.EqualTo(new[] { "Disc 1/FF7.chd", "Disc 2/FF7.chd" }));
+            Assert.That(GameRow().Status, Is.EqualTo(GameStatus.Downloaded));
+        }
+
+        // Undoing an import removes what it created. A link to the source that it replaced with the file was there before.
+        [Test]
+        [Platform(Exclude = "Win")]
+        public async Task PartialImport_KeepsWhatWasThereBefore()
+        {
+            var (processor, folder) = await SetUpAsync("Final Fantasy VII", 20, mover: new FailingMover(2));
+            var release = MakeRelease("FF7 (USA)", ("FF7 (Disc 1).chd", Encoding.ASCII.GetBytes("d1")), ("FF7 (Disc 2).chd", Encoding.ASCII.GetBytes("d2")));
+            var link = Path.Combine(folder, "FF7 (Disc 1).chd");
+            File.CreateSymbolicLink(link, Path.Combine(release, "FF7 (Disc 1).chd"));
+
+            var partial = await processor.ProcessCompletedDownloadAsync(new DownloadStatus
+            {
+                Id = "ff7", Name = "FF7 (USA)", DownloadPath = release, GameId = 1, State = DownloadState.Completed
+            });
+
+            Assert.That(partial.Success, Is.False);
+            Assert.That(Names(folder), Is.EqualTo(new[] { "FF7 (Disc 1).chd" }));
+            Assert.That(File.ReadAllText(link), Is.EqualTo("d1"));
+        }
+
+        // An import that stops before a file lands leaves no folders behind. Here the disk refuses the game folder's name.
+        [Test]
+        public async Task ImportFolderThatCannotBeMade_LeavesNoFolders()
+        {
+            var (processor, folder) = await SetUpAsync("Advance Wars", 52, seed: g =>
+            {
+                g.Title = new string('x', 300);
+                g.Path = null;
+            });
+            var platformFolder = Path.GetDirectoryName(folder)!;
+            Directory.Delete(platformFolder, true);
+
+            var result = await ImportFileAsync(processor, "Advance Wars (USA).gba", "rom");
+
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.Reason, Does.Contain("Cannot create import folder"));
+            Assert.That(Directory.Exists(platformFolder), Is.False);
+            Assert.That(File.Exists(Path.Combine(Downloads, "Advance Wars (USA).gba")), Is.True, "source was removed");
+        }
+
+        // Root may write anywhere, so the folder is made unwritable by length: it fits into the 4095 characters
+        // a Linux path may have, the write probe's file in it doesn't
+        [Test]
+        [Platform("Linux")]
+        public async Task ImportFolderThatIsNotWritable_LeavesNoFolders()
+        {
+            var library = _root;
+            while (library.Length < 3805) library = Path.Combine(library, new string('d', Math.Min(200, 3805 - library.Length)));
+            Directory.CreateDirectory(library);
+            var config = new ConfigurationService(_root);
+            config.SaveMediaSettings(new MediaSettings { FolderPath = library, DestinationPath = library });
+            config.SavePostDownloadSettings(new PostDownloadSettings { EnableAutoMove = true, EnableAutoExtract = false, EnableDeepClean = false });
+            _db = new DbContextOptionsBuilder<RetroArrDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+            using (var ctx = new RetroArrDbContext(_db))
+            {
+                ctx.Games.Add(new Game { Id = 1, Title = new string('x', 4060 - library.Length - "/gba/".Length), PlatformId = 52 });
+                await ctx.SaveChangesAsync();
+            }
+            var processor = new PostDownloadProcessor(config, new FileMoverService(), new SqliteGameRepository(new DbFactory(_db)), null!, new ArchiveService(), new TitleCleanerService());
+
+            var result = await ImportFileAsync(processor, "Advance Wars (USA).gba", "rom");
+
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.Reason, Does.Contain("Cannot write to"));
+            Assert.That(Directory.Exists(Path.Combine(library, "gba")), Is.False);
+        }
+
+        // A file where the import folder goes is not the import's to remove
+        [Test]
+        public async Task FileWhereTheImportFolderGoes_IsLeftAlone()
+        {
+            var (processor, folder) = await SetUpAsync("Hades", 1);
+            var patches = Path.Combine(folder, "Patches");
+            File.WriteAllText(patches, "mine");
+
+            var result = await ImportFileAsync(processor, "Hades Update v1.2.zip", "patch");
+
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.Reason, Does.Contain("Cannot create import folder"));
+            Assert.That(File.ReadAllText(patches), Is.EqualTo("mine"));
+        }
+
+        [Test]
+        public async Task EmptyDownload_LeavesNoFolders()
+        {
+            var (processor, folder) = await SetUpAsync("Hades", 1, seed: g => g.Path = null);
+            Directory.Delete(folder);
+
+            var result = await ImportFolderAsync(processor, "Hades-RUNE");
+
+            Assert.That(result.Success, Is.False);
+            Assert.That(Directory.Exists(folder), Is.False);
+        }
+
+        // With the release's own names a file's extension says nothing: an HTML or RPG Maker game runs on its png and
+        // html files. One that fails undoes the release, and the source stays for the retry.
+        [Test]
+        public async Task KeptNames_FileThatFailsToLand_UndoesTheRelease()
+        {
+            var (processor, folder) = await SetUpAsync("RPG Game", 1, mover: new FailingMover(2));
+
+            var result = await ImportFolderAsync(processor, "RPG.Game-GRP", ("Game.exe", "exe"), ("www/img/title.png", "png"), ("www/index.html", "html"));
+
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.Reason, Does.Contain("disk full"));
+            Assert.That(Names(folder), Is.Empty);
+            Assert.That(Names(Path.Combine(Downloads, "RPG.Game-GRP")), Has.Length.EqualTo(3), "source was touched");
+            Assert.That(GameRow().Status, Is.Not.EqualTo(GameStatus.Downloaded));
+        }
+
+        // A disc set lands whole, a readme in it included
+        [Test]
+        public async Task DiscSet_ExtraThatFailsToLand_UndoesTheSet()
+        {
+            var (processor, folder) = await SetUpAsync("Wipeout", 20, Rename("ps1"), new FailingMover(2));
+
+            var result = await ImportFolderAsync(processor, "Wipeout (Europe)",
+                ("Wipeout (Europe).cue", Cue("Wipeout (Europe).bin")), ("Wipeout (Europe).bin", "bin"), ("readme.txt", "readme"));
+
+            Assert.That(result.Success, Is.False);
+            Assert.That(Names(folder), Is.Empty);
+            Assert.That(Names(Path.Combine(Downloads, "Wipeout (Europe)")), Has.Length.EqualTo(3), "source was touched");
+        }
+
+        // Beside a single renamed file an extra is optional: one that can't be copied (a name the share refuses) is
+        // left out, and the source stays, it holds the only copy
+        [Test]
+        public async Task SingleRenamedFile_ExtraThatFailsToLand_IsLeftOut_AndTheSourceStays()
+        {
+            var (processor, folder) = await SetUpAsync("Advance Wars", 52, Rename("gba"), new FailingMover(2));
+
+            var result = await ImportFolderAsync(processor, "Advance Wars (USA)", ("Advance Wars (USA).gba", "rom"), ("manual.pdf", "pdf"));
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            Assert.That(Names(folder), Is.EqualTo(new[] { "Advance Wars.gba" }));
+            Assert.That(GameRow().ExecutablePath, Is.EqualTo(Path.Combine(folder, "Advance Wars.gba")));
+            Assert.That(File.ReadAllText(Path.Combine(Downloads, "Advance Wars (USA)", "manual.pdf")), Is.EqualTo("pdf"), "the only copy of the manual went with the source");
+        }
+
         [TestCase(null)]
         [TestCase("Patches")]
         public async Task SecondMultiFileRelease_SameInnerNames_LandsInReleaseFolder(string? subfolder)
@@ -779,6 +1152,99 @@ namespace RetroArr.Core.Test.Download
             Assert.That(File.ReadAllText(Path.Combine(target, "Hades.v1.1-GRP (2)", "setup.exe")), Is.EqualTo("c1"));
         }
 
+        // An extra whose name another file has comes in under the release's tags, else numbered: its content is kept.
+        // The same content under that name is already there.
+        [TestCase("FF7 (Europe)", "other", "readme (Europe).txt")]
+        [TestCase("FF7-GRP", "other", "readme (1).txt")]
+        [TestCase("FF7 (Europe)", "same", null)]
+        public async Task ExtraWhoseNameIsTaken_KeepsItsContent(string release, string content, string? expected)
+        {
+            var (processor, folder) = await SetUpAsync("Final Fantasy VII", 20);
+            File.WriteAllText(Path.Combine(folder, "readme.txt"), "same");
+
+            var result = await ImportFolderAsync(processor, release, ("FF7.chd", "disc"), ("readme.txt", content));
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            Assert.That(File.ReadAllText(Path.Combine(folder, "readme.txt")), Is.EqualTo("same"));
+            Assert.That(Names(folder), Is.EquivalentTo(expected == null ? new[] { "FF7.chd", "readme.txt" } : new[] { "FF7.chd", "readme.txt", expected }));
+            if (expected != null) Assert.That(File.ReadAllText(Path.Combine(folder, expected)), Is.EqualTo("other"));
+            Assert.That(Directory.Exists(Path.Combine(Downloads, release)), Is.False, "usenet source was kept");
+        }
+
+        // No name left for it: the source stays, it holds the only copy
+        [Test]
+        public async Task ExtraWithNoNameLeft_KeepsTheSource()
+        {
+            var (processor, folder) = await SetUpAsync("Final Fantasy VII", 20);
+            File.WriteAllText(Path.Combine(folder, "readme.txt"), "mine");
+            for (var i = 1; i <= 99; i++) File.WriteAllText(Path.Combine(folder, $"readme ({i}).txt"), "mine");
+
+            var result = await ImportFolderAsync(processor, "FF7-GRP", ("FF7.chd", "disc"), ("readme.txt", "theirs"));
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            Assert.That(File.ReadAllText(Path.Combine(folder, "FF7.chd")), Is.EqualTo("disc"));
+            Assert.That(File.ReadAllText(Path.Combine(Downloads, "FF7-GRP", "readme.txt")), Is.EqualTo("theirs"), "the readme exists nowhere any more");
+        }
+
+        // Two extras of one release on one name, as "Manual.pdf" and "MANUAL.pdf" are on a disk that ignores case:
+        // the second finds the name taken when it lands and comes in under another
+        [Test]
+        public async Task ExtrasOfOneReleaseOnOneName_BothLand()
+        {
+            var (processor, folder) = await SetUpAsync("Advance Wars", 52, Rename("gba"));
+
+            var result = await ImportFolderAsync(processor, "Advance Wars (USA)",
+                ("Advance Wars (USA).gba", "rom"), ("Advance Wars (USA).txt", "notes of the dump"), ("Advance Wars.txt", "other notes"));
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            Assert.That(Names(folder), Is.EqualTo(new[] { "Advance Wars (USA).txt", "Advance Wars.gba", "Advance Wars.txt" }));
+            Assert.That(File.ReadAllText(Path.Combine(folder, "Advance Wars.txt")), Is.EqualTo("notes of the dump"));
+            Assert.That(File.ReadAllText(Path.Combine(folder, "Advance Wars (USA).txt")), Is.EqualTo("other notes"));
+            Assert.That(Directory.Exists(Path.Combine(Downloads, "Advance Wars (USA)")), Is.False, "usenet source was kept");
+        }
+
+        // A PC program reads its "extras" by name: one whose name is taken sends the release to a folder of its own,
+        // as a taken program file does
+        [Test]
+        public async Task Software_TakenExtra_SendsTheReleaseToItsOwnFolder()
+        {
+            var (processor, folder) = await SetUpAsync("RPG Game", 1);
+            Directory.CreateDirectory(Path.Combine(folder, "www", "img"));
+            File.WriteAllText(Path.Combine(folder, "www", "img", "title.png"), "old title");
+
+            var result = await ImportFolderAsync(processor, "RPG.Game-GRP", ("Game.exe", "exe"), ("www/img/title.png", "new title"), ("www/index.html", "html"));
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            Assert.That(Names(folder), Is.EqualTo(new[] { "RPG.Game-GRP/Game.exe", "RPG.Game-GRP/www/img/title.png", "RPG.Game-GRP/www/index.html", "www/img/title.png" }));
+            Assert.That(File.ReadAllText(Path.Combine(folder, "www", "img", "title.png")), Is.EqualTo("old title"));
+            Assert.That(File.ReadAllText(Path.Combine(folder, "RPG.Game-GRP", "www", "img", "title.png")), Is.EqualTo("new title"));
+
+            // The release folder holds another title.png by now, so the next one gets a numbered folder
+            var again = await ImportFolderAsync(processor, "RPG.Game-GRP", ("Game.exe", "exe"), ("www/img/title.png", "newer title"), ("www/index.html", "html"));
+
+            Assert.That(again.Success, Is.True, again.Reason);
+            Assert.That(File.ReadAllText(Path.Combine(folder, "RPG.Game-GRP (2)", "www", "img", "title.png")), Is.EqualTo("newer title"));
+            Assert.That(File.ReadAllText(Path.Combine(folder, "RPG.Game-GRP", "www", "img", "title.png")), Is.EqualTo("new title"));
+        }
+
+        // Two of the program's files that land on one name (a disk that ignores case, here a linked folder) undo the
+        // release: a file the program reads by name is never renamed
+        [Test]
+        [Platform(Exclude = "Win")]
+        public async Task Software_TwoFilesOnOneName_UndoTheRelease()
+        {
+            var (processor, folder) = await SetUpAsync("RPG Game", 1);
+            var img = Directory.CreateDirectory(Path.Combine(folder, "www", "img")).FullName;
+            Directory.CreateSymbolicLink(Path.Combine(folder, "www", "IMG"), img);
+
+            var result = await ImportFolderAsync(processor, "RPG.Game-GRP", ("Game.exe", "exe"), ("www/IMG/title.png", "b"), ("www/img/title.png", "a"));
+
+            Assert.That(result.Success, Is.False);
+            Assert.That(File.Exists(Path.Combine(folder, "Game.exe")), Is.False);
+            Assert.That(Directory.GetFiles(img), Is.Empty);
+            Assert.That(Names(Path.Combine(Downloads, "RPG.Game-GRP")), Has.Length.EqualTo(3), "source was touched");
+        }
+
         [TestCase("off")]
         [TestCase("set")]
         [TestCase("single")]
@@ -798,11 +1264,14 @@ namespace RetroArr.Core.Test.Download
 
             Assert.That(first.Success && second.Success, Is.True, first.Reason + second.Reason);
             Assert.That(File.ReadAllText(Path.Combine(folder, "readme.txt")), Is.EqualTo("readme USA"));
+            // The second readme comes in under the release's tags: nothing is lost, and the usenet source goes
+            Assert.That(File.ReadAllText(Path.Combine(folder, "readme (Europe).txt")), Is.EqualTo("readme Europe"));
+            Assert.That(Directory.Exists(Path.Combine(Downloads, "FF7 (Europe)")), Is.False, "usenet source was kept");
             Assert.That(Names(folder), Is.EquivalentTo(mode switch
             {
-                "set" => new[] { "Final Fantasy VII.cue", "Final Fantasy VII.bin", "Final Fantasy VII (Europe).cue", "Final Fantasy VII (Europe).bin", "readme.txt" },
-                "single" => new[] { "Final Fantasy VII.gba", "Final Fantasy VII (Europe).gba", "readme.txt" },
-                _ => new[] { "FF7 (USA).chd", "FF7 (Europe).chd", "readme.txt" }
+                "set" => new[] { "Final Fantasy VII.cue", "Final Fantasy VII.bin", "Final Fantasy VII (Europe).cue", "Final Fantasy VII (Europe).bin", "readme.txt", "readme (Europe).txt" },
+                "single" => new[] { "Final Fantasy VII.gba", "Final Fantasy VII (Europe).gba", "readme.txt", "readme (Europe).txt" },
+                _ => new[] { "FF7 (USA).chd", "FF7 (Europe).chd", "readme.txt", "readme (Europe).txt" }
             }));
             Assert.That(Directory.GetFiles(folder).Select(File.ReadAllText), Does.Contain("eur"));
         }
@@ -977,6 +1446,39 @@ namespace RetroArr.Core.Test.Download
             Assert.That(results.All(r => r.Success), Is.True, string.Join(" ", results.Select(r => r.Reason)));
             Assert.That(File.ReadAllText(Path.Combine(folder, "Advance Wars.gba")), Is.EqualTo("usa"));
             Assert.That(File.ReadAllText(Path.Combine(folder, "Advance Wars (Europe).gba")), Is.EqualTo("eur"));
+        }
+
+        [Test]
+        public async Task Import_KeepsWhatChangedWhileTheFilesLanded()
+        {
+            var mover = new GatedMover();
+            var (processor, folder) = await SetUpAsync("Advance Wars", 52, null, mover, g =>
+            {
+                g.Path = null;
+                g.Monitored = true;
+            });
+            var file = Path.Combine(Downloads, "Advance Wars (USA).gba");
+            File.WriteAllText(file, "usa");
+            var import = Task.Run(() => processor.ProcessCompletedDownloadAsync(new DownloadStatus
+            {
+                Id = "x", Name = "Advance Wars (USA)", DownloadPath = file, GameId = 1, State = DownloadState.Completed
+            }));
+
+            Assert.That(await mover.Entered.WaitAsync(TimeSpan.FromSeconds(10)), Is.True);
+            using (var ctx = new RetroArrDbContext(_db))
+            {
+                ctx.Games.Single().Monitored = false;
+                await ctx.SaveChangesAsync();
+            }
+            mover.Release.Release();
+            var result = await import;
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            var game = GameRow();
+            Assert.That(game.Monitored, Is.False, "the import wrote back the game it read before the files landed");
+            Assert.That(game.Path, Is.EqualTo(folder));
+            Assert.That(game.ExecutablePath, Is.EqualTo(Path.Combine(folder, "Advance Wars.gba")));
+            Assert.That(game.Status, Is.EqualTo(GameStatus.Downloaded));
         }
 
         // ── Naming helpers ──────────────────────────────────────────────

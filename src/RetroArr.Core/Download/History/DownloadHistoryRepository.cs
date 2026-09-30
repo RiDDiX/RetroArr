@@ -130,6 +130,16 @@ namespace RetroArr.Core.Download.History
             return (items, totalCount);
         }
 
+        // Where each download was imported from, newest first
+        public async Task<List<DownloadHistoryEntry>> GetWithSourcePathAsync()
+        {
+            using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.DownloadHistory
+                .Where(h => h.SourcePath != null && h.SourcePath != "")
+                .OrderByDescending(h => h.ImportedAt)
+                .ToListAsync();
+        }
+
         public async Task<List<DownloadHistoryEntry>> GetFailedAsync()
         {
             using var context = await _contextFactory.CreateDbContextAsync();

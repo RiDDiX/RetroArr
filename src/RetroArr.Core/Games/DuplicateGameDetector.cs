@@ -100,21 +100,27 @@ namespace RetroArr.Core.Games
             }
 
             // 3) Same IGDB id on the same platform. Multi-platform releases
-            // share one IGDB id and are NOT duplicates across platforms.
+            // share one IGDB id and are NOT duplicates across platforms, and
+            // neither are two regions of a release. An entry without a region
+            // goes with the others while they are of one region.
             var igdbGroups = list
                 .Where(g => g.IgdbId.HasValue && g.IgdbId.Value > 0)
-                .GroupBy(g => (IgdbId: g.IgdbId!.Value, g.PlatformId))
-                .Where(g => g.Count() > 1);
+                .GroupBy(g => (IgdbId: g.IgdbId!.Value, g.PlatformId));
 
             foreach (var group in igdbGroups)
             {
-                clusters.Add(new DuplicateCluster
+                var byRegion = group.GroupBy(g => NormalizeRegion(g.Region)).ToList();
+                var sets = byRegion.Count(r => r.Key.Length > 0) > 1 ? byRegion.Select(r => r.ToList()) : new[] { group.ToList() };
+                foreach (var members in sets.Where(s => s.Count > 1))
                 {
-                    Reason = DuplicateReason.IgdbId,
-                    Key = group.Key.IgdbId.ToString(),
-                    PlatformId = group.Key.PlatformId,
-                    Games = group.Select(ToMember).ToList()
-                });
+                    clusters.Add(new DuplicateCluster
+                    {
+                        Reason = DuplicateReason.IgdbId,
+                        Key = group.Key.IgdbId.ToString(),
+                        PlatformId = group.Key.PlatformId,
+                        Games = members.Select(ToMember).ToList()
+                    });
+                }
             }
 
             // 4) Serial + platform.

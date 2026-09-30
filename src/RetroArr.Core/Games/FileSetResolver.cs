@@ -35,6 +35,32 @@ namespace RetroArr.Core.Games
     {
         private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(Logging.AppLoggerService.ScannerMedia);
 
+        private static readonly EnumerationOptions _anyCase = new() { MatchCasing = MatchCasing.CaseInsensitive };
+
+        // Descriptors are mostly written on Windows: backslashes, and names in any case. A name in another
+        // case is looked for one folder at a time, and only below the descriptor's folder.
+        private static string? FindFile(string dir, string reference)
+        {
+            var relative = reference.Replace('\\', Path.DirectorySeparatorChar);
+            var path = Path.Combine(dir, relative);
+            if (File.Exists(path)) return path;
+
+            var names = relative.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries).Where(n => n != ".").ToList();
+            if (Path.IsPathRooted(relative) || names.Count == 0 || names.Contains("..") || !Directory.Exists(dir)) return null;
+            try
+            {
+                string? found = dir;
+                for (var i = 0; i < names.Count && found != null; i++)
+                {
+                    var name = names[i];
+                    var entries = i == names.Count - 1 ? Directory.EnumerateFiles(found, name, _anyCase) : Directory.EnumerateDirectories(found, name, _anyCase);
+                    found = entries.FirstOrDefault(e => Path.GetFileName(e).Equals(name, StringComparison.OrdinalIgnoreCase));
+                }
+                return found;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { return null; }
+        }
+
         public static FileSet Resolve(string primaryPath)
         {
             if (string.IsNullOrEmpty(primaryPath))
@@ -98,14 +124,10 @@ namespace RetroArr.Core.Games
 
                     if (match.Success)
                     {
-                        var referenced = match.Groups[1].Value;
-                        var fullPath = Path.IsPathRooted(referenced)
-                            ? referenced
-                            : Path.Combine(dir, referenced);
-
-                        if (File.Exists(fullPath) && !fullPath.Equals(cuePath, StringComparison.OrdinalIgnoreCase))
+                        var found = FindFile(dir, match.Groups[1].Value);
+                        if (found != null && !found.Equals(cuePath, StringComparison.OrdinalIgnoreCase))
                         {
-                            set.CompanionFiles.Add(Path.GetFullPath(fullPath));
+                            set.CompanionFiles.Add(Path.GetFullPath(found));
                         }
                     }
                 }
@@ -122,7 +144,7 @@ namespace RetroArr.Core.Games
                 var stem = Path.GetFileNameWithoutExtension(cuePath);
                 if (!string.IsNullOrEmpty(stem))
                 {
-                    foreach (var sibling in Directory.GetFiles(dir, stem + ".*"))
+                    foreach (var sibling in Directory.GetFiles(dir, stem + ".*", _anyCase))
                     {
                         if (sibling.Equals(cuePath, StringComparison.OrdinalIgnoreCase)) continue;
                         if (!Path.GetFileNameWithoutExtension(sibling).Equals(stem, StringComparison.OrdinalIgnoreCase)) continue;
@@ -144,15 +166,14 @@ namespace RetroArr.Core.Games
                 var lines = File.ReadAllLines(gdiPath);
                 foreach (var line in lines)
                 {
-                    var parts = line.Trim().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                    if (parts.Length >= 5)
+                    // Fifth field is the track file, quoted when it has spaces (Redump)
+                    var match = Regex.Match(line, @"^\s*(?:\S+\s+){4}(?:""([^""]+)""|(\S+))");
+                    if (!match.Success) continue;
+
+                    var found = FindFile(dir, match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value);
+                    if (found != null)
                     {
-                        var trackFile = parts[4];
-                        var fullPath = Path.Combine(dir, trackFile);
-                        if (File.Exists(fullPath))
-                        {
-                            set.CompanionFiles.Add(Path.GetFullPath(fullPath));
-                        }
+                        set.CompanionFiles.Add(Path.GetFullPath(found));
                     }
                 }
             }
@@ -177,19 +198,16 @@ namespace RetroArr.Core.Games
                     var trimmed = line.Trim();
                     if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith("#")) continue;
 
-                    var fullPath = Path.IsPathRooted(trimmed)
-                        ? trimmed
-                        : Path.Combine(dir, trimmed);
+                    // A listed playlist is not a disc, and following it (or this one) never ends
+                    var found = FindFile(dir, trimmed);
+                    if (found == null || Path.GetExtension(found).Equals(".m3u", StringComparison.OrdinalIgnoreCase)) continue;
 
-                    if (File.Exists(fullPath))
+                    var referencedSet = Resolve(found);
+                    set.CompanionFiles.Add(Path.GetFullPath(found));
+                    foreach (var companion in referencedSet.CompanionFiles)
                     {
-                        var referencedSet = Resolve(fullPath);
-                        set.CompanionFiles.Add(Path.GetFullPath(fullPath));
-                        foreach (var companion in referencedSet.CompanionFiles)
-                        {
-                            if (!set.CompanionFiles.Contains(companion, StringComparer.OrdinalIgnoreCase))
-                                set.CompanionFiles.Add(companion);
-                        }
+                        if (!set.CompanionFiles.Contains(companion, StringComparer.OrdinalIgnoreCase))
+                            set.CompanionFiles.Add(companion);
                     }
                 }
             }
@@ -219,7 +237,7 @@ namespace RetroArr.Core.Games
             // Disc-image primary: claim same-stem siblings.
             if (_multiFileDiscExts.Contains(primaryExt) && Directory.Exists(dir) && !string.IsNullOrEmpty(stem))
             {
-                foreach (var sibling in Directory.GetFiles(dir, stem + ".*"))
+                foreach (var sibling in Directory.GetFiles(dir, stem + ".*", _anyCase))
                 {
                     if (sibling.Equals(filePath, StringComparison.OrdinalIgnoreCase)) continue;
                     if (!Path.GetFileNameWithoutExtension(sibling).Equals(stem, StringComparison.OrdinalIgnoreCase)) continue;

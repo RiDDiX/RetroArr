@@ -153,6 +153,23 @@ namespace RetroArr.Core.Test.Games
         }
 
         [Test]
+        public void Detect_SameIgdbIdSamePlatform_TwoRegions_NotClustered()
+        {
+            // The import, the scanner and the resort keep the regions of a release apart
+            var games = new List<DuplicateProbe>
+            {
+                new() { Id = 1, Title = "Advance Wars", PlatformId = 52, Region = "USA", Path = "/gba/Advance Wars", IgdbId = 7 },
+                new() { Id = 2, Title = "Advance Wars", PlatformId = 52, Region = "Europe", Path = "/gba/Advance Wars (Europe)", IgdbId = 7 },
+                new() { Id = 3, Title = "Advance Wars", PlatformId = 52, Path = "/gba/aw.gba", IgdbId = 7 }
+            };
+
+            Assert.That(DuplicateGameDetector.Detect(games).Any(c => c.Reason == DuplicateReason.IgdbId), Is.False);
+            // With one region left, the entry without one is a duplicate of it
+            Assert.That(DuplicateGameDetector.Detect(games.Where(g => g.Id != 2)).Single(c => c.Reason == DuplicateReason.IgdbId).Games.Select(g => g.GameId),
+                Is.EquivalentTo(new[] { 1, 3 }));
+        }
+
+        [Test]
         public void Detect_NullIgdbId_DoesNotCluster()
         {
             // Two unmatched rows shouldn't cluster on igdb id 0/null.

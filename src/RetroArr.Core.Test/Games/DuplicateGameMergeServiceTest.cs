@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using NUnit.Framework;
 using RetroArr.Core.Data;
@@ -94,6 +95,64 @@ namespace RetroArr.Core.Test.Games
                 var files = await ctx.GameFiles.ToListAsync();
                 Assert.That(files.Count, Is.EqualTo(2));
                 Assert.That(files.All(f => f.GameId == 11), Is.True);
+            }
+        }
+
+        // x takes over y (the same disc), then y and z are one title: z goes to the row that holds y by now.
+        // SQLite, so a second review on one row would break its unique index.
+        [TestCase(9, null, 1)]
+        [TestCase(null, 5, 3)]
+        public async Task MergeAsync_ChainOfClusters_EverythingEndsUpOnTheSurvivor(int? xIgdbId, int? zIgdbId, int survivor)
+        {
+            using var connection = new SqliteConnection("DataSource=:memory:");
+            connection.Open();
+            var options = new DbContextOptionsBuilder<RetroArrDbContext>().UseSqlite(connection).Options;
+            using (var ctx = new RetroArrDbContext(options))
+            {
+                ctx.Database.EnsureCreated();
+                ctx.Platforms.Add(new Platform { Id = 20, Name = "PlayStation 1", Slug = "ps1", FolderName = "psx" });
+                ctx.Games.AddRange(
+                    new Game { Id = 1, Title = "Alpha", PlatformId = 20, Path = "/psx/Game.cue", IgdbId = xIgdbId },
+                    new Game { Id = 2, Title = "Beta", PlatformId = 20, Path = "/psx/Game.bin" },
+                    new Game { Id = 3, Title = "Beta", PlatformId = 20, Path = "/other/Beta.iso", IgdbId = zIgdbId });
+                ctx.GameFiles.AddRange(
+                    new GameFile { Id = 100, GameId = 2, RelativePath = "Game.bin", Size = 1, FileType = "Main" },
+                    new GameFile { Id = 101, GameId = 3, RelativePath = "Beta.iso", Size = 1, FileType = "Main" });
+                ctx.GameReviews.AddRange(new GameReview { GameId = 2, Notes = "y" }, new GameReview { GameId = 3, Notes = "z" });
+                await ctx.SaveChangesAsync();
+            }
+
+            using (var ctx = new RetroArrDbContext(options))
+            {
+                var result = await DuplicateGameMergeService.MergeAsync(ctx);
+                Assert.That(result.RowsMerged, Is.EqualTo(2));
+            }
+
+            using (var ctx = new RetroArrDbContext(options))
+            {
+                Assert.That(ctx.Games.Select(g => g.Id), Is.EqualTo(new[] { survivor }));
+                Assert.That(ctx.GameFiles.AsEnumerable().Select(f => (f.Id, f.GameId)), Is.EquivalentTo(new[] { (100, survivor), (101, survivor) }));
+                Assert.That(ctx.GameReviews.Select(r => r.GameId), Is.EqualTo(new[] { survivor }));
+            }
+        }
+
+        // A database made before the unique IGDB index can hold both
+        [Test]
+        public async Task MergeAsync_TwoRegionsSharingAnIgdbId_BothStay()
+        {
+            using (var ctx = new RetroArrDbContext(_dbOptions))
+            {
+                ctx.Games.AddRange(
+                    new Game { Id = 1, Title = "Advance Wars", PlatformId = 52, Region = "USA", Path = "/gba/Advance Wars", IgdbId = 7 },
+                    new Game { Id = 2, Title = "Advance Wars", PlatformId = 52, Region = "Europe", Path = "/gba/Advance Wars (Europe)", IgdbId = 7 });
+                await ctx.SaveChangesAsync();
+            }
+
+            using (var ctx = new RetroArrDbContext(_dbOptions))
+            {
+                var result = await DuplicateGameMergeService.MergeAsync(ctx);
+                Assert.That(result.RowsMerged, Is.EqualTo(0));
+                Assert.That(await ctx.Games.CountAsync(), Is.EqualTo(2));
             }
         }
 

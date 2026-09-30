@@ -208,12 +208,25 @@ namespace RetroArr.Api.V3.Metadata
             game.MetadataReviewReason = null;
             game.MatchConfidence = request.Score;
 
-            // Guard: if the title changed, check for Title+PlatformId collision
+            // Guard: if the title changed, check for Title+PlatformId+Region collision. Another region of the
+            // title is a release of its own.
             var allGames = await _gameRepository.GetAllLightAsync();
             var collision = allGames.FirstOrDefault(g =>
                 g.Id != gameId &&
                 g.Title.Equals(game.Title, StringComparison.OrdinalIgnoreCase) &&
-                g.PlatformId == game.PlatformId);
+                g.PlatformId == game.PlatformId &&
+                string.Equals(g.Region ?? string.Empty, game.Region ?? string.Empty, StringComparison.OrdinalIgnoreCase));
+
+            // The id is another entry's on this platform (the other region of a release): one per platform, so it stays there
+            var holder = game.IgdbId > 0
+                ? allGames.FirstOrDefault(g => g.Id != gameId && g.Id != collision?.Id && g.PlatformId == game.PlatformId && g.IgdbId == game.IgdbId)
+                : null;
+            if (holder != null)
+            {
+                game.MetadataReviewReason = $"IGDB id {game.IgdbId} stays with entry {holder.Id} ('{holder.Title}'{(string.IsNullOrWhiteSpace(holder.Region) ? "" : $", {holder.Region}")}), one per platform";
+                _logger.Info($"[MetadataReview] Game {gameId} is confirmed without its IGDB id: {game.MetadataReviewReason}");
+                game.IgdbId = null;
+            }
 
             if (collision != null)
             {
@@ -226,7 +239,7 @@ namespace RetroArr.Api.V3.Metadata
                     collision.ExecutablePath = game.ExecutablePath;
 
                 // Apply confirmed metadata to the surviving entry
-                collision.IgdbId = game.IgdbId;
+                if (game.IgdbId.HasValue) collision.IgdbId = game.IgdbId;
                 collision.Overview = game.Overview;
                 collision.Storyline = game.Storyline;
                 collision.Developer = game.Developer;
@@ -241,7 +254,7 @@ namespace RetroArr.Api.V3.Metadata
                 collision.MetadataConfirmedByUser = true;
                 collision.MetadataConfirmedAt = DateTime.UtcNow;
                 collision.NeedsMetadataReview = false;
-                collision.MetadataReviewReason = null;
+                collision.MetadataReviewReason = game.MetadataReviewReason;
                 collision.MatchConfidence = request.Score;
 
                 await _gameRepository.UpdateAsync(collision.Id, collision);
@@ -258,7 +271,7 @@ namespace RetroArr.Api.V3.Metadata
             try { await _localMediaExport.ExportMediaForGameAsync(game); }
             catch (Exception ex) { _logger.Error($"[MetadataReview] Media export error: {ex.Message}"); }
 
-            return Ok(new { success = true, title = game.Title });
+            return Ok(new { success = true, title = game.Title, igdbIdKeptOn = holder?.Id, message = holder != null ? game.MetadataReviewReason : null });
         }
 
         // stops re-prompting for a configurable period

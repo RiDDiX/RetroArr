@@ -18,6 +18,17 @@ namespace RetroArr.Core.Games
         public DateTime DeletedAt { get; set; }
         public long SizeBytes { get; set; }
         public bool IsDirectory { get; set; }
+        // Until the source is gone, and for good when the move stops halfway: the entry may hold the only copy of part
+        // of the payload, so it is listed but never purged with the rest, only put back or deleted by hand
+        public bool Incomplete { get; set; }
+    }
+
+    // Part of a payload is in this entry, the rest is still where it was
+    public class TrashPartialMoveException : IOException
+    {
+        public TrashEntry Entry { get; }
+
+        public TrashPartialMoveException(string message, TrashEntry entry, Exception inner) : base(message, inner) => Entry = entry;
     }
 
     public class TrashService
@@ -25,10 +36,24 @@ namespace RetroArr.Core.Games
         private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(Logging.AppLoggerService.General);
         private readonly ConfigurationService _config;
 
+        // internal for unit tests: a rename that fails as it does across volumes, a delete that stops halfway, a full volume
+        internal Action<string, string> Rename = Directory.Move;
+        internal Action<string> Delete = path =>
+        {
+            if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
+            else File.Delete(path);
+        };
+        internal Func<string, long> FreeSpace = path => new DriveInfo(path).AvailableFreeSpace;
+
         public TrashService(ConfigurationService config)
         {
             _config = config;
         }
+
+        // Entries are folders named like 20260929-183000_1a2b3c4d, nothing else in the trash folder is RetroArr's
+        private static readonly System.Text.RegularExpressions.Regex _entryName = new(@"^\d{8}-\d{6}_[0-9a-f]{8}$");
+
+        private static bool IsEntry(string dir) => _entryName.IsMatch(Path.GetFileName(dir));
 
         private string GetTrashRoot()
         {
@@ -56,30 +81,9 @@ namespace RetroArr.Core.Games
             Directory.CreateDirectory(entryDir);
 
             var payloadName = isDir ? new DirectoryInfo(sourcePath).Name : Path.GetFileName(sourcePath);
+            // the sidecar would overwrite it
+            if (payloadName.Equals("meta.json", StringComparison.OrdinalIgnoreCase)) payloadName += ".payload";
             var destPath = Path.Combine(entryDir, payloadName);
-
-            try
-            {
-                if (isDir)
-                {
-                    MoveDirectoryCrossVolume(sourcePath, destPath);
-                }
-                else
-                {
-                    try { File.Move(sourcePath, destPath); }
-                    catch (IOException)
-                    {
-                        File.Copy(sourcePath, destPath, overwrite: true);
-                        File.Delete(sourcePath);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.Error($"[Trash] Move failed {sourcePath} -> {destPath}: {ex.Message}");
-                return null;
-            }
-
             var entry = new TrashEntry
             {
                 Id = entryId,
@@ -89,22 +93,49 @@ namespace RetroArr.Core.Games
                 TrashPath = destPath,
                 DeletedAt = DateTime.UtcNow,
                 IsDirectory = isDir,
-                SizeBytes = TryMeasure(destPath),
+                SizeBytes = TryMeasure(sourcePath),
+                Incomplete = true,
             };
 
+            // The sidecar comes first: a payload the trash can't list could never be put back
             try
             {
-                var sidecar = Path.Combine(entryDir, "meta.json");
-                await File.WriteAllTextAsync(sidecar, JsonSerializer.Serialize(entry, new JsonSerializerOptions { WriteIndented = true }));
+                await WriteSidecarAsync(entryDir, entry);
             }
             catch (Exception ex)
             {
-                _logger.Warn($"[Trash] Could not write sidecar for {entryId}: {ex.Message}");
+                try { Directory.Delete(entryDir, true); } catch { }
+                throw new IOException($"Could not write the trash entry for {sourcePath}, nothing was moved: {ex.Message}", ex);
             }
+
+            try
+            {
+                Move(sourcePath, destPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"[Trash] Move failed {sourcePath} -> {destPath}: {ex.Message}");
+                // Nothing reached the trash, the source is as it was
+                if (!File.Exists(destPath) && !Directory.Exists(destPath))
+                {
+                    try { Directory.Delete(entryDir, true); } catch { }
+                    throw;
+                }
+                // What got to the trash stays listed there, so it can be found and put back
+                throw new TrashPartialMoveException($"{sourcePath} could not be moved to the trash whole, what got there is kept in trash entry {entryId}: {ex.Message}", entry, ex);
+            }
+
+            // The source is gone, the entry holds all of it
+            entry.Incomplete = false;
+            try { await WriteSidecarAsync(entryDir, entry); }
+            catch (Exception ex) { _logger.Warn($"[Trash] Could not mark trash entry {entryId} complete, it stays until deleted by hand: {ex.Message}"); }
 
             _logger.Info($"[Trash] {(isDir ? "Directory" : "File")} moved to trash: {sourcePath} (entry {entryId})");
             return entry;
         }
+
+        private static Task WriteSidecarAsync(string entryDir, TrashEntry entry) =>
+            File.WriteAllTextAsync(Path.Combine(entryDir, "meta.json"), JsonSerializer.Serialize(entry, new JsonSerializerOptions { WriteIndented = true }));
 
         public List<TrashEntry> List()
         {
@@ -112,14 +143,18 @@ namespace RetroArr.Core.Games
             var entries = new List<TrashEntry>();
             if (!Directory.Exists(root)) return entries;
 
-            foreach (var dir in Directory.EnumerateDirectories(root))
+            foreach (var dir in Directory.EnumerateDirectories(root).Where(IsEntry))
             {
                 var sidecar = Path.Combine(dir, "meta.json");
                 if (!File.Exists(sidecar)) continue;
                 try
                 {
                     var entry = JsonSerializer.Deserialize<TrashEntry>(File.ReadAllText(sidecar));
-                    if (entry != null) entries.Add(entry);
+                    var payload = Path.GetFileName(entry?.TrashPath);
+                    if (entry == null || string.IsNullOrEmpty(payload)) continue;
+                    // The payload lies next to its sidecar, so a restore or purge never reaches outside the entry
+                    entry.TrashPath = Path.Combine(dir, payload);
+                    entries.Add(entry);
                 }
                 catch (Exception ex)
                 {
@@ -155,10 +190,7 @@ namespace RetroArr.Core.Games
                     return false;
                 }
 
-                if (entry.IsDirectory)
-                    MoveDirectoryCrossVolume(entry.TrashPath, target);
-                else
-                    File.Move(entry.TrashPath, target);
+                Move(entry.TrashPath, target);
 
                 // Drop the sidecar folder (meta.json + now-empty payload name).
                 var entryDir = Path.GetDirectoryName(entry.TrashPath);
@@ -179,32 +211,37 @@ namespace RetroArr.Core.Games
         public bool PurgeOne(string id)
         {
             var entry = Get(id);
-            if (entry == null) return false;
+            return entry != null && Purge(entry);
+        }
+
+        private static bool Purge(TrashEntry entry)
+        {
             var entryDir = Path.GetDirectoryName(entry.TrashPath);
             if (string.IsNullOrEmpty(entryDir)) return false;
             try
             {
                 if (Directory.Exists(entryDir)) Directory.Delete(entryDir, true);
-                _logger.Info($"[Trash] Purged {id}");
+                _logger.Info($"[Trash] Purged {entry.Id}");
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.Error($"[Trash] Purge failed for {id}: {ex.Message}");
+                _logger.Error($"[Trash] Purge failed for {entry.Id}: {ex.Message}");
                 return false;
             }
         }
 
+        // What the trash lists as moved whole. An incomplete entry stays, only the user puts it back or deletes it.
         public int PurgeAll()
         {
-            var root = GetTrashRoot();
             var count = 0;
-            foreach (var dir in Directory.EnumerateDirectories(root))
+            var kept = 0;
+            foreach (var entry in List())
             {
-                try { Directory.Delete(dir, true); count++; }
-                catch (Exception ex) { _logger.Warn($"[Trash] Could not delete {dir}: {ex.Message}"); }
+                if (entry.Incomplete) kept++;
+                else if (Purge(entry)) count++;
             }
-            _logger.Info($"[Trash] Emptied: {count} entries");
+            _logger.Info($"[Trash] Emptied: {count} entries{(kept > 0 ? $", kept {kept} whose move did not complete" : "")}");
             return count;
         }
 
@@ -218,37 +255,52 @@ namespace RetroArr.Core.Games
             var count = 0;
             foreach (var entry in List())
             {
-                if (entry.DeletedAt > cutoff) continue;
-                if (PurgeOne(entry.Id)) count++;
+                if (entry.DeletedAt > cutoff || entry.Incomplete) continue;
+                if (Purge(entry)) count++;
             }
             if (count > 0) _logger.Info($"[Trash] Auto-purged {count} entries older than {days}d");
             return count;
         }
 
-        private static void MoveDirectoryCrossVolume(string src, string dst)
+        // Across volumes a move is a copy and a delete. The copy only starts when it fits, and when the delete stops
+        // halfway the source gets back what it lost before the copy goes, so the payload is whole on one side at all times.
+        private void Move(string src, string dst)
         {
             try
             {
-                Directory.Move(src, dst);
+                // Renames files too and, unlike File.Move, never copies to another volume by itself
+                Rename(src, dst);
                 return;
             }
             catch (IOException)
             {
-                // fall through to copy+delete
+                // another volume
             }
 
-            CopyDirRecursive(src, dst);
+            var need = TryMeasure(src);
+            var dir = Path.GetDirectoryName(Path.GetFullPath(dst))!;
+            long free;
+            try { free = FreeSpace(dir); }
+            catch { free = long.MaxValue; }
+            if (need > free)
+                throw new IOException($"Not enough free space in {dir}: {need / 1048576.0:0.#} MB needed, {free / 1048576.0:0.#} MB free.");
 
-            // If the source delete fails after a successful copy, we've left
-            // a duplicate on disk. Retry a few times, then roll the trash
-            // copy back out so the user isn't stuck with an orphaned entry
-            // pointing at a path they can't restore to.
+            try
+            {
+                Copy(src, dst, strict: true);
+            }
+            catch
+            {
+                try { Delete(dst); } catch { }
+                throw;
+            }
+
             Exception? lastDeleteError = null;
             for (int attempt = 1; attempt <= 3; attempt++)
             {
                 try
                 {
-                    Directory.Delete(src, recursive: true);
+                    Delete(src);
                     return;
                 }
                 catch (Exception ex)
@@ -258,26 +310,53 @@ namespace RetroArr.Core.Games
                 }
             }
 
-            try { Directory.Delete(dst, recursive: true); } catch { }
-            throw new IOException($"Source delete failed after copy: {lastDeleteError?.Message}", lastDeleteError);
+            Copy(dst, src, strict: false);
+            Delete(dst);
+            throw new IOException($"Could not remove {src} after copying it, it stays where it was: {lastDeleteError?.Message}", lastDeleteError);
         }
 
-        private static void CopyDirRecursive(string src, string dst)
+        // Copies src to dst. A link is copied as the link and never followed, so a restore brings the link back and a
+        // link to a folder above can't loop. The copy of a payload is strict: a name that is there already fails it, as
+        // a volume that ignores case folds Data and data into one and the source would then go with one of them lost.
+        // The copy back into a source only fills in what it lacks.
+        private static void Copy(string src, string dst, bool strict)
         {
+            var taken = File.Exists(dst) || Directory.Exists(dst);
+            if (taken && strict)
+                throw new IOException($"{dst} is there already: that volume doesn't tell apart names that differ only in case or form");
+            var link = LinkTarget(src);
+            if (link != null)
+            {
+                if (!taken)
+                {
+                    if (Directory.Exists(src)) Directory.CreateSymbolicLink(dst, link);
+                    else File.CreateSymbolicLink(dst, link);
+                }
+                return;
+            }
+            if (File.Exists(src))
+            {
+                if (!taken) File.Copy(src, dst);
+                return;
+            }
             Directory.CreateDirectory(dst);
-            foreach (var file in Directory.GetFiles(src))
-                File.Copy(file, Path.Combine(dst, Path.GetFileName(file)), overwrite: true);
-            foreach (var sub in Directory.GetDirectories(src))
-                CopyDirRecursive(sub, Path.Combine(dst, Path.GetFileName(sub)));
+            foreach (var entry in Directory.GetFileSystemEntries(src))
+                Copy(entry, Path.Combine(dst, Path.GetFileName(entry)), strict);
         }
 
+        private static string? LinkTarget(string path) =>
+            (Directory.Exists(path) ? (FileSystemInfo)new DirectoryInfo(path) : new FileInfo(path)).LinkTarget;
+
+        // Links take no room, they are copied as links
         private static long TryMeasure(string path)
         {
             try
             {
+                if (LinkTarget(path) != null) return 0;
                 if (File.Exists(path)) return new FileInfo(path).Length;
                 if (Directory.Exists(path))
-                    return new DirectoryInfo(path).EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
+                    return new DirectoryInfo(path).EnumerateFiles("*", new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint })
+                        .Sum(f => f.Length);
             }
             catch { }
             return 0;

@@ -66,6 +66,14 @@ namespace RetroArr.Core.Cache
             return result;
         }
 
+        public async Task<Game?> UpdateFieldsAsync(int id, Action<Game> change)
+        {
+            var result = await _inner.UpdateFieldsAsync(id, change);
+            await _cache.RemoveAsync(CacheKeys.GameDetail(id));
+            await InvalidateListCaches();
+            return result;
+        }
+
         public async Task<bool> DeleteAsync(int id)
         {
             var result = await _inner.DeleteAsync(id);

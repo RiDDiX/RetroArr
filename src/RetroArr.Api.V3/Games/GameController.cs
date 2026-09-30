@@ -32,10 +32,11 @@ namespace RetroArr.Api.V3.Games
         private readonly MediaScannerService _scannerService;
         private readonly RetroArr.Core.Download.PostDownloadProcessor _postDownloadProcessor;
         private readonly IProgressNotifier? _progressNotifier;
+        private readonly RetroArr.Core.Download.History.DownloadHistoryRepository? _history;
 
         private readonly ApiKeyService _apiKeyService;
 
-        public GameController(IGameRepository repository, IGameMetadataServiceFactory metadataServiceFactory, RetroArr.Core.IO.IArchiveService archiveService, ILauncherService launcherService, ConfigurationService configService, InstallerScannerService installerScanner, LocalMediaExportService localMediaExport, RetroArr.Core.MetadataSource.Gog.GogDownloadTracker gogDownloadTracker, TrashService trash, MediaScannerService scannerService, RetroArr.Core.Download.PostDownloadProcessor postDownloadProcessor, ApiKeyService apiKeyService, IProgressNotifier? progressNotifier = null)
+        public GameController(IGameRepository repository, IGameMetadataServiceFactory metadataServiceFactory, RetroArr.Core.IO.IArchiveService archiveService, ILauncherService launcherService, ConfigurationService configService, InstallerScannerService installerScanner, LocalMediaExportService localMediaExport, RetroArr.Core.MetadataSource.Gog.GogDownloadTracker gogDownloadTracker, TrashService trash, MediaScannerService scannerService, RetroArr.Core.Download.PostDownloadProcessor postDownloadProcessor, ApiKeyService apiKeyService, IProgressNotifier? progressNotifier = null, RetroArr.Core.Download.History.DownloadHistoryRepository? history = null)
         {
             _apiKeyService = apiKeyService;
             _repository = repository;
@@ -50,6 +51,7 @@ namespace RetroArr.Api.V3.Games
             _scannerService = scannerService;
             _postDownloadProcessor = postDownloadProcessor;
             _progressNotifier = progressNotifier;
+            _history = history;
         }
 
         [HttpGet]
@@ -233,7 +235,6 @@ namespace RetroArr.Api.V3.Games
             game.IsInstallable = IsPathInstallable(game.Path);
 
             var uninstallerPath = FindUninstaller(game.Path);
-            var downloadPathHint = FindDownloadFolder(game.Title, game.Path);
 
             var isInstaller = game.Status == GameStatus.InstallerDetected || 
                               (!string.IsNullOrEmpty(game.ExecutablePath) && 
@@ -283,7 +284,6 @@ namespace RetroArr.Api.V3.Games
                 game.Revision,
                 game.ProtonDbTier,
                 uninstallerPath,
-                downloadPath = downloadPathHint,
                 canPlay = canPlay // Explicit property name
             });
         }
@@ -553,134 +553,101 @@ namespace RetroArr.Api.V3.Games
             return Ok(new { changed = true, platformId = resolved.Id, platformName = resolved.Name, previousPlatformId = previous });
         }
 
+        // What the dialog showed: the delete only goes when that is still what would move
+        public class DeleteExpectation
+        {
+            public List<string>? Paths { get; set; }
+            public List<string>? Downloads { get; set; }
+        }
+
         [HttpDelete("{id}")]
-        public async Task<ActionResult> Delete(int id, [FromQuery] bool deleteFiles = false, [FromQuery] string? targetPath = null, [FromQuery] bool deleteDownloadFiles = false, [FromQuery] string? downloadPath = null)
+        public async Task<ActionResult> Delete(int id, [FromQuery] bool deleteFiles = false, [FromQuery] string? targetPath = null, [FromQuery] bool deleteDownloadFiles = false, [FromQuery] string? downloadPath = null,
+            [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] DeleteExpectation? expected = null)
         {
             var game = await _repository.GetByIdAsync(id);
             if (game == null) return NotFound();
 
+            var others = deleteFiles || deleteDownloadFiles ? (await _repository.GetAllLightAsync()).Where(g => g.Id != id).ToList() : new List<Game>();
+            var paths = new List<string>();
             if (deleteFiles && !string.IsNullOrEmpty(game.Path))
             {
-                // Determine what to delete: targetPath override or game.Path default
-                string pathToDelete = !string.IsNullOrEmpty(targetPath) ? targetPath : game.Path;
-                
-                // Security/Safety Check:
-                // 1. If targetPath is provided, it MUST contain the game.Path (i.e. be a parent or the same path)
-                //    Wait, checking "Contains" might be tricky with normalization. 
-                //    A parent path P contains child C? No, C starts with P.
-                //    game.Path (Child) starts with pathToDelete (Parent).
-                
-                bool isSafe = false;
-
-                if (string.IsNullOrEmpty(targetPath) || targetPath == game.Path)
+                var planned = PathsToTrash(game, targetPath, others);
+                if (planned == null)
                 {
-                    isSafe = true; // Default behavior is safe-ish (deletes what we know)
-                }
-                else
-                {
-                    // Validate relationship
-                    var normalizedGamePath = System.IO.Path.GetFullPath(game.Path).TrimEnd(System.IO.Path.DirectorySeparatorChar);
-                    var normalizedTarget = System.IO.Path.GetFullPath(pathToDelete).TrimEnd(System.IO.Path.DirectorySeparatorChar);
-                    
-                    if (normalizedGamePath.StartsWith(normalizedTarget, StringComparison.OrdinalIgnoreCase))
-                    {
-                        isSafe = true;
-                    }
+                    _logger.Error($"[Delete] REFUSED to delete {game.Path}: it is a library or platform folder or holds other library entries.");
+                    return Refused(game, others);
                 }
 
-                // Global Safety Blocklist to prevent deleting roots or critical folders
-                if (IsCriticalPath(pathToDelete))
+                // A picked folder goes as it is or nothing happens, never something else in its place
+                if (!string.IsNullOrEmpty(targetPath) && !(planned.Count == 1 && SamePath(planned[0], targetPath)))
                 {
-                    _logger.Info($"[Delete] BLOCKED deletion of critical path: {pathToDelete}");
-                    isSafe = false;
+                    _logger.Warn($"[Delete] REFUSED picked folder {targetPath} for {game.Path}");
+                    return Conflict(new { message = $"Not moving '{targetPath}' to the trash: only the game's folder, or a folder above it named after the game that holds no other games, can go as a whole. Nothing was deleted." });
                 }
+                paths = planned;
+            }
 
-                if (isSafe)
+            // The game's downloads are found here, a folder the caller names only goes when it is one of them
+            var downloads = new List<string>();
+            if (deleteDownloadFiles)
+            {
+                downloads = await DownloadsOfAsync(game, others);
+                if (!string.IsNullOrEmpty(downloadPath) && !downloads.Any(d => SamePath(d, downloadPath)))
                 {
-                    // Defence in depth: never wipe a directory that still holds
-                    // other games (happens when game.Path is the platform folder
-                    // for single-file ROM systems - e.g. NDS rom sits at
-                    // /media/nds/foo.nds but game.Path got set to /media/nds).
-                    // Prefer the specific file via ExecutablePath when we can.
-                    if (System.IO.Directory.Exists(pathToDelete))
-                    {
-                        if (!string.IsNullOrEmpty(game.ExecutablePath)
-                            && System.IO.File.Exists(game.ExecutablePath)
-                            && IsSubPath(game.ExecutablePath, pathToDelete)
-                            && !System.IO.Path.GetFullPath(pathToDelete).Equals(System.IO.Path.GetFullPath(game.ExecutablePath), StringComparison.OrdinalIgnoreCase))
-                        {
-                            // game.Path is a folder, ExecutablePath is the actual ROM - delete just the file.
-                            pathToDelete = game.ExecutablePath;
-                        }
-                        else
-                        {
-                            var allGames = await _repository.GetAllLightAsync();
-                            var collisions = allGames
-                                .Where(g => g.Id != id)
-                                .Where(g =>
-                                    (!string.IsNullOrEmpty(g.Path) && IsSubPath(g.Path, pathToDelete)) ||
-                                    (!string.IsNullOrEmpty(g.ExecutablePath) && IsSubPath(g.ExecutablePath, pathToDelete)))
-                                .Select(g => g.Id)
-                                .Take(5)
-                                .ToList();
-                            if (collisions.Count > 0)
-                            {
-                                _logger.Error($"[Delete] REFUSED to delete directory {pathToDelete}: it still holds {collisions.Count}+ other library entries (sample ids: {string.Join(", ", collisions)}).");
-                                return Conflict(new
-                                {
-                                    message = $"Refusing to delete '{pathToDelete}' - it contains other games in the library. Fix the game's path in Settings or use file-level delete.",
-                                    otherGameIds = collisions,
-                                });
-                            }
-                        }
-                    }
-
-                    try
-                    {
-                        var entry = await _trash.MoveAsync(pathToDelete, id, game.Title);
-                        if (entry != null)
-                        {
-                            _logger.Info($"[Delete] Moved {(entry.IsDirectory ? "directory" : "file")} to trash: {pathToDelete} (entry {entry.Id})");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.Error($"[Delete] Error moving library files to trash at {pathToDelete}: {ex.Message}");
-                    }
-                }
-                else
-                {
-                    _logger.Error($"[Delete] Safety check failed for library path: {pathToDelete}");
-                    // We don't abort the metadata delete, but we warn? 
-                    // Or we shout abort? Ideally abort if user explicitly requested file delete and it failed safety.
-                    // But for now, let's proceed to delete metadata so the "broken" game is gone.
+                    _logger.Warn($"[Delete] REFUSED download folder {downloadPath} for {game.Title}");
+                    return Conflict(new { message = $"Not moving '{downloadPath}' to the trash: it is not a download of this game. Only the game's own folder inside the download folder, holding no other download, can go. Nothing was deleted." });
                 }
             }
 
-            // --- Download Folder Deletion Logic ---
-            if (deleteDownloadFiles && !string.IsNullOrEmpty(downloadPath))
+            // What goes is what the dialog showed, or nothing
+            if (expected != null && ((deleteFiles && !SameSet(paths, expected.Paths)) || (deleteDownloadFiles && !SameSet(downloads, expected.Downloads))))
             {
-                bool isDownloadSafe = !IsCriticalPath(downloadPath);
-                
-                if (isDownloadSafe && System.IO.Directory.Exists(downloadPath))
+                _logger.Warn($"[Delete] REFUSED {game.Title}: what would go to the trash changed since the dialog showed it");
+                return Conflict(new { message = "What would go to the trash changed since the dialog showed it. Nothing was deleted, open the dialog again to see what goes now.", paths, downloads });
+            }
+
+            var toTrash = paths.Concat(downloads).ToList();
+            var moved = new List<TrashEntry>();
+            var stuck = new List<TrashEntry>();
+            string? error = null;
+            foreach (var path in toTrash)
+            {
+                try
                 {
-                    try
+                    var entry = await _trash.MoveAsync(path, id, game.Title);
+                    if (entry != null)
                     {
-                        var entry = await _trash.MoveAsync(downloadPath, id, game.Title);
-                        if (entry != null)
-                        {
-                            _logger.Info($"[Delete] Moved download directory to trash: {downloadPath} (entry {entry.Id})");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.Error($"[Delete] Error moving download folder to trash at {downloadPath}: {ex.Message}");
+                        moved.Add(entry);
+                        _logger.Info($"[Delete] Moved {(entry.IsDirectory ? "directory" : "file")} to trash: {path} (entry {entry.Id})");
                     }
                 }
-                else if (!isDownloadSafe)
+                catch (Exception ex)
                 {
-                    _logger.Info($"[Delete] BLOCKED deletion of critical download path: {downloadPath}");
+                    error = ex.Message;
+                    if (ex is TrashPartialMoveException partial) stuck.Add(partial.Entry);
+                    _logger.Error($"[Delete] Error moving {path} to the trash: {ex.Message}");
+                    break;
                 }
+            }
+
+            // A path left behind means a move failed: what went comes back and the game stays, with all of its files
+            var left = toTrash.FirstOrDefault(p => System.IO.File.Exists(p) || Directory.Exists(p));
+            if (left != null)
+            {
+                foreach (var entry in moved)
+                {
+                    if (_trash.Restore(entry.Id)) continue;
+                    stuck.Add(entry);
+                    _logger.Error($"[Delete] Could not put {entry.OriginalPath} back from trash entry {entry.Id}");
+                }
+                var failed = $"Could not move '{left}' to the trash{(error == null ? "" : ": " + error)}.";
+                return StatusCode(500, new
+                {
+                    message = stuck.Count == 0
+                        ? $"{failed} The game stays in the library."
+                        : $"{failed} The game stays in the library, but these are still in the trash: {string.Join(", ", stuck.Select(e => $"{e.OriginalPath} (entry {e.Id})"))}.",
+                    stuck = stuck.Select(e => new { e.Id, e.OriginalPath }).ToList(),
+                });
             }
 
             var removed = await _repository.DeleteAsync(id);
@@ -692,20 +659,239 @@ namespace RetroArr.Api.V3.Games
             return NoContent();
         }
 
-        private static bool IsSubPath(string candidate, string root)
+        private static bool SameSet(List<string> planned, List<string>? shown) =>
+            planned.Count == (shown?.Count ?? 0) && planned.All(p => shown!.Any(s => SamePath(p, s)));
+
+        // What deleting the game moves to the trash, so the dialog can show it before anything happens: its files
+        // (none, with the reason, when they can't go on their own) and its downloads
+        [HttpGet("{id}/delete-plan")]
+        public async Task<ActionResult> DeletePlan(int id)
+        {
+            var game = await _repository.GetByIdAsync(id);
+            if (game == null) return NotFound();
+
+            var others = (await _repository.GetAllLightAsync()).Where(g => g.Id != id).ToList();
+            var paths = string.IsNullOrEmpty(game.Path) ? new List<string>() : PathsToTrash(game, null, others);
+            return Ok(new { paths, refused = paths == null ? RefusedMessage(game) : null, downloads = await DownloadsOfAsync(game, others) });
+        }
+
+        private static string RefusedMessage(Game game) =>
+            $"Refusing to delete '{game.Path}' - it is a library or platform folder or contains other games in the library. Fix the game's path or remove the game without deleting files.";
+
+        private ActionResult Refused(Game game, List<Game> others)
+        {
+            var places = Places(game.Path!);
+            return Conflict(new
+            {
+                message = RefusedMessage(game),
+                otherGameIds = Held(others).Where(h => places.Any(p => IsSubPath(h.Path, p))).Select(h => h.Id).Distinct().Take(5).ToList(),
+            });
+        }
+
+        // The downloads a game came from: where its grabs were imported from, else a folder in the download folder
+        // named exactly like the game. Only paths inside a download folder that hold nothing of the library, no other
+        // entry's files and no other download, so never a download root, category or platform folder.
+        private async Task<List<string>> DownloadsOfAsync(Game game, List<Game> others)
+        {
+            var settings = _configService.LoadMediaSettings();
+            var clients = _configService.LoadDownloadClients();
+            var roots = new[] { settings.DownloadPath }.Concat(clients.Select(c => c.LocalPathMapping))
+                .Where(r => !string.IsNullOrWhiteSpace(r) && Path.IsPathRooted(r)).Select(r => r!).ToList();
+            if (roots.Count == 0) return new List<string>();
+
+            var library = LibraryRoots().Select(l => RealDir(l)).ToList();
+            var held = Held(others);
+            var own = new[] { game.Path, game.ExecutablePath }.Where(p => !string.IsNullOrEmpty(p)).SelectMany(p => Places(p!)).ToList();
+            var history = _history == null ? new List<RetroArr.Core.Download.History.DownloadHistoryEntry>() : await _history.GetWithSourcePathAsync();
+            bool Own(string path)
+            {
+                if (!System.IO.File.Exists(path) && !Directory.Exists(path)) return false;
+                var places = Places(path);
+                return roots.Any(r => IsSubPath(path, r, PathCase) && !SamePath(path, r))
+                    && !IsCriticalPath(path)
+                    && !IsLibraryFolder(path, LibraryRoots()) && !places.Any(p => library.Any(l => IsSubPath(p, l)))
+                    // a download named like a platform or a category is where the client sorts them
+                    && !PlatformDefinitions.AllPlatforms.Any(p => p.MatchesFolderName(FolderName(path)))
+                    && !clients.Any(c => string.Equals(c.Category, FolderName(path), StringComparison.OrdinalIgnoreCase))
+                    // no other entry's files, and not the game's own library files either
+                    && !held.Any(h => places.Any(p => IsSubPath(h.Path, p)))
+                    && !places.Any(p => own.Any(o => IsSubPath(o, p) || IsSubPath(p, o)))
+                    // not another game's download, and holding no other download
+                    && !history.Any(h => h.GameId != game.Id && (IsSubPath(h.SourcePath!, path) || IsSubPath(path, h.SourcePath!)))
+                    && !history.Any(h => IsSubPath(h.SourcePath!, path) && !SamePath(h.SourcePath!, path));
+            }
+
+            // A grab counts when its files went to this game: the import may have taken another entry of the title
+            bool ImportedHere(RetroArr.Core.Download.History.DownloadHistoryEntry h) =>
+                string.IsNullOrEmpty(h.DestinationPath) || IsSubPath(h.DestinationPath, game.Path ?? "") || IsSubPath(game.Path ?? "", h.DestinationPath);
+            var grabbed = history.Where(h => h.GameId == game.Id && ImportedHere(h)).Select(h => h.SourcePath!).Where(Own).Distinct().ToList();
+            if (grabbed.Count > 0) return grabbed;
+
+            var title = NameKey(game.Title);
+            if (title.Length == 0) return new List<string>();
+            try
+            {
+                var level1 = Directory.Exists(settings.DownloadPath) ? Directory.GetDirectories(settings.DownloadPath) : Array.Empty<string>();
+                var match = level1.Concat(level1.SelectMany(d => { try { return Directory.GetDirectories(d); } catch { return Array.Empty<string>(); } }))
+                    .FirstOrDefault(d => NameKey(Path.GetFileName(d)) == title && Own(d));
+                return match == null ? new List<string>() : new List<string> { match };
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn($"[Delete] Could not look for the download folder of '{game.Title}': {ex.Message}");
+                return new List<string>();
+            }
+        }
+
+        // Linux tells /psx/FF7 from /psx/ff7, Windows and macOS usually do not
+        private static readonly StringComparison PathCase =
+            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+        internal static bool IsSubPath(string candidate, string root, StringComparison comparison = StringComparison.OrdinalIgnoreCase)
         {
             if (string.IsNullOrEmpty(candidate) || string.IsNullOrEmpty(root)) return false;
             try
             {
                 var r = System.IO.Path.GetFullPath(root).TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar) + System.IO.Path.DirectorySeparatorChar;
                 var c = System.IO.Path.GetFullPath(candidate);
-                return c.Equals(r.TrimEnd(System.IO.Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)
-                    || c.StartsWith(r, StringComparison.OrdinalIgnoreCase);
+                return c.Equals(r.TrimEnd(System.IO.Path.DirectorySeparatorChar), comparison)
+                    || c.StartsWith(r, comparison);
             }
             catch { return false; }
         }
 
-        private bool IsCriticalPath(string path)
+        private static bool SamePath(string a, string b)
+        {
+            try { return string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(a)), Path.TrimEndingDirectorySeparator(Path.GetFullPath(b)), PathCase); }
+            catch { return false; }
+        }
+
+        // Folders with the links on the way to them resolved, once per request
+        private readonly Dictionary<string, string> _realDirs = new(StringComparer.Ordinal);
+
+        // The path with every link on the way and the path itself resolved, a few hops at most so a loop ends
+        private string RealDir(string path, int hops = 0)
+        {
+            string full;
+            try { full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)); }
+            catch { return path; }
+            if (_realDirs.TryGetValue(full, out var known)) return known;
+            var parent = Path.GetDirectoryName(full);
+            var real = parent == null ? full : Path.Combine(RealDir(parent, hops), Path.GetFileName(full));
+            string? target = null;
+            try { target = hops < 8 ? (Directory.Exists(real) ? (FileSystemInfo)new DirectoryInfo(real) : new FileInfo(real)).LinkTarget : null; }
+            catch { }
+            if (target != null) real = RealDir(Path.Combine(Path.GetDirectoryName(real) ?? real, target), hops + 1);
+            return _realDirs[full] = real;
+        }
+
+        // Where a path lies: the links on the way resolved, the path itself kept, as a move takes a link as it is
+        private string Located(string path)
+        {
+            string full;
+            try { full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)); }
+            catch { return path; }
+            var parent = Path.GetDirectoryName(full);
+            return parent == null ? full : Path.Combine(RealDir(parent), Path.GetFileName(full));
+        }
+
+        // A path both where it lies and where it leads: a library reached through a link and its real folder are one place
+        private string[] Places(string path) => new[] { Located(path), RealDir(path) }.Distinct().ToArray();
+
+        // Where the other entries' paths are
+        private List<(int Id, string Path)> Held(List<Game> others) =>
+            others.SelectMany(g => new[] { g.Path, g.ExecutablePath }.Where(p => !string.IsNullOrEmpty(p)).SelectMany(p => Places(p!)).Distinct().Select(p => (g.Id, p))).ToList();
+
+        private bool Holds(List<(int Id, string Path)> held, string path)
+        {
+            var places = Places(path);
+            return held.Any(h => places.Any(p => IsSubPath(h.Path, p)));
+        }
+
+        private List<string> LibraryRoots()
+        {
+            var settings = _configService.LoadMediaSettings();
+            return new[] { settings.FolderPath, settings.DestinationPath }
+                .Where(r => !string.IsNullOrWhiteSpace(r) && Path.IsPathRooted(r))
+                .ToList();
+        }
+
+        // Letters and digits only, so "Half-Life" and "half life" are the same name
+        private static string NameKey(string? name) => new string((name ?? "").Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
+
+        private static string FolderName(string path) => Path.GetFileName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)));
+
+        // The game folder, or a folder above it inside the library that the caller picked and that is named after
+        // the game, goes as a whole unless it is a library or platform folder or holds other library entries.
+        // Otherwise only the game's own file set goes. Null when there are files but none of them can go on their own.
+        private List<string>? PathsToTrash(Game game, string? targetPath, List<Game> others)
+        {
+            var roots = LibraryRoots();
+            var held = Held(others);
+
+            var folders = new List<string> { game.Path! };
+            // A folder named otherwise may hold more than this game: untracked files, other collections, saves
+            if (!string.IsNullOrEmpty(targetPath) && Directory.Exists(game.Path) && IsSubPath(game.Path!, targetPath, PathCase)
+                && roots.Any(r => IsSubPath(targetPath, r) && !IsSubPath(r, targetPath))
+                && NameKey(FolderName(targetPath)) == NameKey(game.Title))
+            {
+                folders.Insert(0, targetPath);
+            }
+
+            foreach (var folder in folders)
+            {
+                if (IsCriticalPath(folder) || IsLibraryFolder(folder, roots) || Holds(held, folder)) continue;
+                if (Directory.Exists(folder)) return new List<string> { folder };
+                if (System.IO.File.Exists(folder)) return FileSetOf(folder, others);
+            }
+
+            var exe = game.ExecutablePath;
+            if (!string.IsNullOrEmpty(exe) && System.IO.File.Exists(exe) && IsSubPath(Located(exe), RealDir(game.Path!), PathCase) && !Holds(held, exe))
+            {
+                return FileSetOf(exe, others);
+            }
+
+            return System.IO.File.Exists(game.Path) || Directory.Exists(game.Path) ? null : new List<string>();
+        }
+
+        // Library roots, the folders above them and folders named like a platform never belong to one game, unless the
+        // folder lies where a game's own does: in a platform folder right below a root (windows/Pegasus).
+        // Compared where links lead, so a root set through a link and its real folder are one place.
+        private bool IsLibraryFolder(string path, List<string> roots)
+        {
+            var realRoots = roots.Select(r => RealDir(r)).ToList();
+            bool Named(string folder) => PlatformDefinitions.AllPlatforms.Any(p => p.MatchesFolderName(Path.GetFileName(folder)));
+            bool PlatformFolder(string? folder) => folder != null && Named(folder)
+                && Path.GetDirectoryName(folder) is { } up && realRoots.Any(r => IsSubPath(r, up) && IsSubPath(up, r));
+            return Places(path).Any(place => realRoots.Any(r => IsSubPath(r, place))
+                || (Named(place) && !PlatformFolder(Path.GetDirectoryName(place))));
+        }
+
+        // Saves, states, screenshots, art and docs named like a disc image are the player's, not part of the game
+        private static readonly Regex _playerFiles = new(@"^\.(srm|sav|dsv|mcr|mcd|rtc|state\d*|png|jpe?g|gif|bmp|webp|mp4|mkv|avi|webm|txt|nfo|pdf|md|html?|docx?)$", RegexOptions.IgnoreCase);
+
+        // The file plus the tracks, discs and same-name files the resolver ties to it, taken only from its own
+        // folder and only when no other library entry points at them or holds them in its own file set
+        private List<string> FileSetOf(string file, List<Game> others)
+        {
+            var folder = RealDir(Path.GetDirectoryName(Path.GetFullPath(file))!);
+            // a leftover entry for disc 2 keeps its cue and the tracks the cue names, and a playlist or cue in a folder
+            // above keeps what it names from here
+            var theirs = others.SelectMany(g => new[] { g.Path, g.ExecutablePath })
+                .Where(p => System.IO.File.Exists(p) && Places(p!).Any(x => IsSubPath(x, folder)
+                    || (Path.GetExtension(x).ToLowerInvariant() is ".m3u" or ".cue" or ".gdi" && IsSubPath(folder, Path.GetDirectoryName(x) ?? ""))))
+                .SelectMany(p => FileSetResolver.Resolve(p!).AllFiles.Prepend(p!))
+                .SelectMany(Places)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var set = FileSetResolver.Resolve(file);
+            return set.CompanionFiles.Where(f => !_playerFiles.IsMatch(Path.GetExtension(f))).Prepend(set.PrimaryFile)
+                .Select(f => Path.GetFullPath(f))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Where(f => System.IO.File.Exists(f) && IsSubPath(Located(f), folder, PathCase) && !Places(f).Any(theirs.Contains))
+                .ToList();
+        }
+
+        internal static bool IsCriticalPath(string path)
         {
             if (string.IsNullOrEmpty(path)) return true;
             var full = System.IO.Path.GetFullPath(path).TrimEnd(System.IO.Path.DirectorySeparatorChar);
@@ -1142,61 +1328,6 @@ namespace RetroArr.Api.V3.Games
             catch { return null; }
         }
 
-        private string? FindDownloadFolder(string gameTitle, string? gamePath)
-        {
-            try
-            {
-                var settings = _configService.LoadMediaSettings();
-                var downloadRoot = settings.DownloadPath;
-
-                if (string.IsNullOrEmpty(downloadRoot) || !System.IO.Directory.Exists(downloadRoot)) return null;
-
-                // Look for directories in downloadRoot (Level 1 and Level 2)
-                var level1Dirs = System.IO.Directory.GetDirectories(downloadRoot);
-                var allDirs = new List<string>(level1Dirs);
-                
-                foreach (var l1 in level1Dirs)
-                {
-                    try { allDirs.AddRange(System.IO.Directory.GetDirectories(l1)); } catch { }
-                }
-
-                // Strategy 1: Match by immediate parent folder name of game.Path
-                if (!string.IsNullOrEmpty(gamePath))
-                {
-                    var parentDir = System.IO.Path.GetDirectoryName(gamePath);
-                    if (!string.IsNullOrEmpty(parentDir))
-                    {
-                        var folderName = new System.IO.DirectoryInfo(parentDir).Name;
-                        var match = allDirs.FirstOrDefault(d => 
-                            string.Equals(System.IO.Path.GetFileName(d), folderName, StringComparison.OrdinalIgnoreCase));
-                        
-                        if (match != null) return match;
-                    }
-                }
-
-                // Strategy 2: Match by game title
-                var titleMatch = allDirs.FirstOrDefault(d => 
-                    System.IO.Path.GetFileName(d).Contains(gameTitle, StringComparison.OrdinalIgnoreCase));
-                
-                if (titleMatch != null) return titleMatch;
-
-                // Strategy 3: Fuzzy match (alphanumeric only)
-                var cleanTitle = System.Text.RegularExpressions.Regex.Replace(gameTitle, @"[^a-zA-Z0-9]", "");
-                if (cleanTitle.Length > 2)
-                {
-                     var fuzzyMatch = allDirs.FirstOrDefault(d => {
-                         var cleanDirName = System.Text.RegularExpressions.Regex.Replace(System.IO.Path.GetFileName(d), @"[^a-zA-Z0-9]", "");
-                         return cleanDirName.Contains(cleanTitle, StringComparison.OrdinalIgnoreCase);
-                     });
-                     
-                     if (fuzzyMatch != null) return fuzzyMatch;
-                }
-
-                return null;
-            }
-            catch { return null; }
-        }
-
         [HttpGet("{id}/similar")]
         public async Task<ActionResult> GetSimilarGames(int id, [FromQuery] int limit = 10)
         {
@@ -1305,42 +1436,41 @@ namespace RetroArr.Api.V3.Games
 
                 _logger.Info($"[GetGameFiles] gamePath='{gamePath ?? "null"}', folderExists={folderExists}, resolvedFromSettings={resolvedFromSettings}");
 
-                // Check single-file BEFORE any auto-persist to avoid overwriting file paths with parent dir
                 bool isSingleFile = !string.IsNullOrEmpty(game.Path) && System.IO.File.Exists(game.Path) && !Directory.Exists(game.Path);
 
-                // Auto-persist game.Path when folder was found via settings but game.Path was truly empty/missing
-                // Do NOT overwrite when game.Path is a valid file (e.g. a ROM file in file-mode console scanning)
-                if (folderExists && !isSingleFile && (string.IsNullOrEmpty(game.Path) || (!System.IO.File.Exists(game.Path) && !Directory.Exists(game.Path))))
-                {
-                    game.Path = gamePath;
-                    await _repository.UpdateAsync(game.Id, game);
-                    _logger.Info($"[GetGameFiles] Auto-set game.Path for '{game.Title}' -> {gamePath}");
-                }
-
+                // A folder computed from the settings only serves the listing. The scanner links a game to its files.
                 if (string.IsNullOrEmpty(gamePath) && !isSingleFile)
                     return Ok(new { files = Array.Empty<object>(), gamePath = (string?)null, resolvedPath = (string?)null, folderExists = false });
 
                 var files = new List<object>();
                 long totalSizeBytes = 0;
 
-                if (isSingleFile)
+                // A game without a folder of its own (a single file, or one in a library or platform folder) lists what
+                // the download serves: the file set of its main file
+                var shared = !isSingleFile && folderExists && (IsCriticalPath(gamePath!) || IsLibraryFolder(gamePath!, LibraryRoots()));
+                var main = isSingleFile ? game.Path : shared && System.IO.File.Exists(game.ExecutablePath) ? game.ExecutablePath : null;
+
+                if (main != null)
                 {
                     // pull cue/gdi/m3u companions so the bin tracks show up too
-                    var fileSet = FileSetResolver.Resolve(game.Path!);
+                    var fileSet = FileSetResolver.Resolve(main);
+                    var parentDir = gamePath!;
                     var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     foreach (var member in fileSet.AllFiles)
                     {
                         if (string.IsNullOrEmpty(member)) continue;
                         if (!System.IO.File.Exists(member)) continue;
                         var fullMember = Path.GetFullPath(member);
-                        if (!seen.Add(fullMember)) continue;
+                        // only what the download serves: members inside the game's folder
+                        if (!IsSubPath(fullMember, parentDir, PathCase) || !seen.Add(fullMember)) continue;
 
                         var fi = new FileInfo(member);
                         totalSizeBytes += fi.Length;
                         files.Add(new
                         {
                             name = fi.Name,
-                            relativePath = fi.Name,
+                            // relative to the folder the download resolves against, so a disc in CD1/ keeps its folder
+                            relativePath = Path.GetRelativePath(parentDir, fi.FullName).Replace('\\', '/'),
                             fullPath = fi.FullName,
                             size = fi.Length,
                             formattedSize = FormatFileSize(fi.Length),
@@ -1350,7 +1480,7 @@ namespace RetroArr.Api.V3.Games
                         });
                     }
                 }
-                else if (folderExists)
+                else if (folderExists && !shared)
                 {
                     try
                     {
@@ -1491,25 +1621,22 @@ namespace RetroArr.Api.V3.Games
             var gameFolderPath = ResolveGameFolder(game);
             if (string.IsNullOrEmpty(gameFolderPath))
                 return BadRequest("Game has no file path configured");
-
-            // Resolve full path
-            string fullPath;
-            if (Directory.Exists(gameFolderPath))
-            {
-                fullPath = Path.GetFullPath(Path.Combine(gameFolderPath, path));
-                // Block symlink/.. escape out of the game folder
-                var normalizedGamePath = Path.GetFullPath(gameFolderPath).TrimEnd(Path.DirectorySeparatorChar);
-                if (!fullPath.StartsWith(normalizedGamePath, StringComparison.OrdinalIgnoreCase))
-                    return BadRequest("Invalid file path");
-            }
-            else if (System.IO.File.Exists(gameFolderPath))
-            {
-                fullPath = Path.GetFullPath(gameFolderPath);
-            }
-            else
-            {
+            if (!Directory.Exists(gameFolderPath))
                 return NotFound("Game folder does not exist");
-            }
+
+            var folder = Path.GetFullPath(gameFolderPath);
+            var fullPath = Path.GetFullPath(Path.Combine(folder, path));
+            // Block .. escape out of the game folder, also into a sibling whose name starts with the folder's or differs
+            // only in case, and links in it that lead out
+            if (!IsSubPath(fullPath, folder, PathCase) || LeadsOut(fullPath, folder))
+                return BadRequest("Invalid file path");
+
+            // A game without a folder of its own (a single file, or one in a library or platform folder) serves only
+            // the file set of its main file
+            var shared = IsCriticalPath(folder) || IsLibraryFolder(folder, LibraryRoots());
+            var main = System.IO.File.Exists(game.Path) && !Directory.Exists(game.Path) ? game.Path : shared ? game.ExecutablePath : null;
+            if (main != null ? !FileSetResolver.Resolve(main).AllFiles.Any(f => SamePath(f, fullPath)) : shared)
+                return BadRequest("Invalid file path");
 
             if (!System.IO.File.Exists(fullPath))
                 return NotFound("File not found");
@@ -1518,6 +1645,21 @@ namespace RetroArr.Api.V3.Games
             var contentType = "application/octet-stream";
             var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
             return File(stream, contentType, fileName, enableRangeProcessing: true);
+        }
+
+        // A link below the folder can point anywhere, so each one on the way has to resolve back inside it
+        private static bool LeadsOut(string fullPath, string folder)
+        {
+            try
+            {
+                for (string? p = fullPath; p != null && !SamePath(p, folder); p = Path.GetDirectoryName(p))
+                {
+                    FileSystemInfo info = Directory.Exists(p) ? new DirectoryInfo(p) : new FileInfo(p);
+                    if (info.LinkTarget != null && !IsSubPath(info.ResolveLinkTarget(true)?.FullName ?? "", folder, PathCase)) return true;
+                }
+                return false;
+            }
+            catch { return true; }
         }
 
         // RetroBat/Batocera convention: {platform}/images/ + {platform}/videos/,

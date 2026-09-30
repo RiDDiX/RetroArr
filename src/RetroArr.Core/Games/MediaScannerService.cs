@@ -574,6 +574,22 @@ namespace RetroArr.Core.Games
             return path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
         }
 
+        // Case is ignored only on Windows and macOS, whose file systems usually ignore it: elsewhere a lost game
+        // at /snes/Game.sfc is not the file at /SNES/Game.sfc.
+        private static readonly StringComparer PathComparer =
+            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
+        // The same file or folder however the path is written
+        internal static bool SamePath(string? a, string? b)
+        {
+            if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return false;
+            try
+            {
+                return PathComparer.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath(a)), Path.TrimEndingDirectorySeparator(Path.GetFullPath(b)));
+            }
+            catch (Exception ex) when (IsPathError(ex)) { return false; }
+        }
+
         private static bool IsIgnoredEntry(string name) => name.StartsWith('.') || _ignoredEntryNames.Contains(name);
 
         private static bool HasEntries(string folder) =>
@@ -585,8 +601,8 @@ namespace RetroArr.Core.Games
                 .Any(_supplementaryFolderNames.Contains);
 
         // Documents, saves and subchannel data never count; a descriptor only counts while a data track it
-        // points to is there. The resolver misses quoted gdi names and track names in another case, so a
-        // data file next to the descriptor and named after it counts too.
+        // points to is there. One that points nowhere (tracks renamed since it was written, paths from another
+        // machine) counts while a data file next to it is named after it.
         internal static bool IsContent(string file)
         {
             if (!_descriptorExtensions.Contains(Path.GetExtension(file))) return IsData(file);
@@ -739,6 +755,8 @@ namespace RetroArr.Core.Games
             finally
             {
                 _metadataSourceOverride = null;
+                // The next import checks the library again; a running scan keeps its own check
+                if (!IsScanning) _libraryContent = null;
             }
         }
 
@@ -1011,9 +1029,10 @@ namespace RetroArr.Core.Games
                     var (cleanName, serial) = _titleCleaner.CleanGameTitle(baseFolderName);
                     
                     // Same title on a different platform OR a different region is a separate game
-                    if (!existingGames.Any(g => g.Title.Equals(cleanName, StringComparison.OrdinalIgnoreCase) &&
+                    var existingGame = HoldingGame(existingGames, g => g.Title.Equals(cleanName, StringComparison.OrdinalIgnoreCase) &&
                         (scanPlatformId == 0 || g.PlatformId == scanPlatformId) &&
-                        SameRegion(g.Region, region)))
+                        SameRegion(g.Region, region));
+                    if (existingGame == null)
                     {
                         var candidate = new GameCandidate
                         {
@@ -1029,16 +1048,15 @@ namespace RetroArr.Core.Games
                         };
                         candidates.Add(candidate);
                     }
+                    else if (SamePath(dir, existingGame.Path))
+                    {
+                        await SyncGameFilesFromDisk(existingGame.Id, dir);
+                        Log($"Game already exists in DB (resynced files): {cleanName}");
+                    }
                     else
                     {
-                        var existingGame = existingGames.FirstOrDefault(g => g.Title.Equals(cleanName, StringComparison.OrdinalIgnoreCase) &&
-                            (scanPlatformId == 0 || g.PlatformId == scanPlatformId) &&
-                            SameRegion(g.Region, region));
-                        if (existingGame != null)
-                        {
-                            await SyncGameFilesFromDisk(existingGame.Id, dir);
-                            Log($"Game already exists in DB (resynced files): {cleanName}");
-                        }
+                        // Its files are not the game's, whose own folder may be offline right now
+                        Log($"[Scanner] '{existingGame.Title}' stays at {existingGame.Path}; {dir} is another copy of it");
                     }
                 }
                 catch (OperationCanceledException) { throw; }
@@ -1296,9 +1314,9 @@ namespace RetroArr.Core.Games
                             var (fileRegion, fileLangs, fileRevision) = TitleCleanerService.ExtractFilenameMetadata(rawFileName);
                             var (cleanTitle, serial) = _titleCleaner.CleanGameTitle(rawFileName);
 
-                            if (!existingGames.Any(g => g.Title.Equals(cleanTitle, StringComparison.OrdinalIgnoreCase) &&
+                            if (HoldingGame(existingGames, g => g.Title.Equals(cleanTitle, StringComparison.OrdinalIgnoreCase) &&
                                 (fileScanPlatformId == 0 || g.PlatformId == fileScanPlatformId) &&
-                                SameRegion(g.Region, fileRegion)))
+                                SameRegion(g.Region, fileRegion)) == null)
                             {
                                 var candidate = new GameCandidate 
                                 { 
@@ -1743,6 +1761,8 @@ namespace RetroArr.Core.Games
             const int delayMs = 500;
 
             Log($"Processing {candidates.Count} candidates in batches of {batchSize}...");
+            ILookup<string, Game>? gamesByPath = null;
+            List<string>? stops = null;
 
             for (int i = 0; i < candidates.Count; i += batchSize)
             {
@@ -1755,6 +1775,16 @@ namespace RetroArr.Core.Games
 
                     try
                     {
+                        // Another region or a disc in the folder of a game of its title is part of that game; its files are
+                        // synced with it. Anything else there may still be a game of its own.
+                        gamesByPath ??= GamesByPath(existingGames);
+                        stops ??= WalkStops();
+                        if (FolderOwner(candidate.Path, gamesByPath, stops) is { } owner && owner.Title.Equals(candidate.Title, StringComparison.OrdinalIgnoreCase))
+                        {
+                            Log($"[Scanner] Skipping '{candidate.Path}': it lies in the folder of '{owner.Title}' in the library");
+                            continue;
+                        }
+
                         // Re-evaluate executable for Folder candidates (Lazy evaluation)
                         string? exePath = candidate.ExecutablePath;
                         bool isInstaller = candidate.IsInstaller;
@@ -1865,14 +1895,81 @@ namespace RetroArr.Core.Games
             return added;
         }
 
+        // A file matching a game in the library is that game's, and is left alone while the game may still have
+        // its content. A game without a path takes the file, and so does one whose content is known to be gone
+        // (the game was moved), but not while its library may be offline: the game comes back with it.
+        private Game? HoldingGame(List<Game> existingGames, Func<Game, bool> matches) =>
+            existingGames.Where(matches).FirstOrDefault(g => !string.IsNullOrEmpty(g.Path) && !Lost(g, existingGames));
+
+        // Gone or emptied on disk now, and not held back by the breaker when the scan checked the library
+        private bool Lost(Game game, List<Game> existingGames) =>
+            CheckContent(game, Roots) is GameContent.Gone or GameContent.Empty
+            && (!LibraryContent(existingGames).TryGetValue(game.Id, out var found) || found is GameContent.Gone or GameContent.Empty);
+
+        // The breaker judges the whole library, so an outage of a share is seen even by a small platform in it
+        private Dictionary<int, GameContent> LibraryContent(List<Game> existingGames)
+        {
+            if (_libraryContent == null)
+            {
+                _libraryContent = new Dictionary<int, GameContent>();
+                foreach (var (game, content) in CheckAllLogged(existingGames.Where(g => !string.IsNullOrEmpty(g.Path)).ToList()))
+                    _libraryContent[game.Id] = content;
+            }
+            return _libraryContent;
+        }
+
+        private static ILookup<string, Game> GamesByPath(IEnumerable<Game> games)
+        {
+            var paths = new List<(string Path, Game Game)>();
+            foreach (var game in games)
+            {
+                if (string.IsNullOrEmpty(game.Path)) continue;
+                try { paths.Add((Path.TrimEndingDirectorySeparator(Path.GetFullPath(game.Path)), game)); }
+                catch (Exception ex) when (IsPathError(ex)) { }
+            }
+            return paths.ToLookup(p => p.Path, p => p.Game, PathComparer);
+        }
+
+        // The game in whose folder the file or folder lies, below the stops. A platform folder or a container holds
+        // many games and belongs to none of them.
+        private static Game? FolderOwner(string? path, ILookup<string, Game> gamesByPath, List<string> stops)
+        {
+            if (string.IsNullOrEmpty(path)) return null;
+            try
+            {
+                for (var dir = Path.GetDirectoryName(Path.GetFullPath(path)); dir != null; dir = Path.GetDirectoryName(dir))
+                {
+                    if (stops.Any(r => IsUnder(r, dir))) return null;
+                    var name = Path.GetFileName(dir);
+                    if (_containerNames.Contains(name) || PlatformDefinitions.AllPlatforms.Any(p => p.MatchesFolderName(name))) continue;
+                    if (gamesByPath[dir].FirstOrDefault() is { } owner) return owner;
+                }
+            }
+            catch (Exception ex) when (IsPathError(ex)) { }
+            return null;
+        }
+
+        // Nothing at or above a library root or the Wine prefix owns what lies in them
+        private List<string> WalkStops()
+        {
+            var stops = Roots.ToList();
+            var wine = _configService.LoadMediaSettings().WinePrefixPath;
+            try
+            {
+                if (Path.IsPathRooted(wine)) stops.Add(Path.TrimEndingDirectorySeparator(Path.GetFullPath(wine)));
+            }
+            catch (Exception ex) when (IsPathError(ex)) { }
+            return stops;
+        }
+
         private async Task<bool> ProcessPotentialGame(string gameTitle, List<Game> existingGames, GameMetadataService metadataService, string? localPath = null, string? platformKey = null, string? serial = null, string? executablePath = null, bool isInstaller = false, bool isExternal = false, string? region = null, string? languages = null, string? revision = null)
         {
             Log($"[Scanner-Trace] Processing Candidate: '{localPath}' (Title: {gameTitle})");
             
-            var existingByPath = existingGames.FirstOrDefault(g => g.Path == localPath);
+            var existingByPath = existingGames.FirstOrDefault(g => SamePath(g.Path, localPath));
             if (existingByPath != null)
             {
-                bool needsUpdate = false;
+                int? correctedPlatformId = null;
 
                 // Path is authoritative: the file lives where it lives, so the
                 // folder dictates the platform. If a rival row already owns
@@ -1892,7 +1989,7 @@ namespace RetroArr.Core.Games
                         {
                             Log($"[Scanner] Correcting platform for '{existingByPath.Title}': {existingByPath.PlatformId} → {correctPlatform.Id} ({correctPlatform.Name})");
                             existingByPath.PlatformId = correctPlatform.Id;
-                            needsUpdate = true;
+                            correctedPlatformId = correctPlatform.Id;
                         }
                         else
                         {
@@ -1909,28 +2006,21 @@ namespace RetroArr.Core.Games
                 }
 
                 // Backfill: fill in missing region/languages/revision from filename
-                if (!string.IsNullOrEmpty(region) && string.IsNullOrEmpty(existingByPath.Region))
-                {
-                    existingByPath.Region = region;
-                    needsUpdate = true;
-                }
-                if (!string.IsNullOrEmpty(languages) && string.IsNullOrEmpty(existingByPath.Languages))
-                {
-                    existingByPath.Languages = languages;
-                    needsUpdate = true;
-                }
-                if (!string.IsNullOrEmpty(revision) && string.IsNullOrEmpty(existingByPath.Revision))
-                {
-                    existingByPath.Revision = revision;
-                    needsUpdate = true;
-                }
+                var backfilled = FillFilenameMetadata(existingByPath, region, languages, revision);
 
                 // Rediscovered on disk. The path alone doesn't prove content; losses are left to the cleanup.
                 await MarkPresentAsync(existingByPath);
 
-                if (needsUpdate)
+                if (backfilled || correctedPlatformId != null)
                 {
-                    try { await _gameRepository.UpdateAsync(existingByPath.Id, existingByPath); }
+                    try
+                    {
+                        await _gameRepository.UpdateFieldsAsync(existingByPath.Id, g =>
+                        {
+                            if (correctedPlatformId != null) g.PlatformId = correctedPlatformId.Value;
+                            FillFilenameMetadata(g, region, languages, revision);
+                        });
+                    }
                     catch (Exception ex) { Log($"[Scanner] Backfill update failed for '{existingByPath.Title}': {ex.Message}"); }
                 }
 
@@ -1975,15 +2065,19 @@ namespace RetroArr.Core.Games
 
             if (existingByTitle != null && existingByTitle.IgdbId.HasValue && existingByTitle.IgdbId != 0)
             {
-                return await UpdateExistingGamePaths(existingByTitle, localPath, executablePath, isExternal, isInstaller, platformKey, region, languages, revision);
+                return await UpdateExistingGamePaths(existingByTitle, existingGames, localPath, executablePath, isExternal, isInstaller, platformKey, region, languages, revision);
             }
 
-            Game? finalGame = await TryFetchMetadata(gameTitle, existingGames, metadataService, localPath, platformKey, serial, executablePath, isExternal);
+            Game? finalGame = await TryFetchMetadata(gameTitle, existingGames, metadataService, localPath, platformKey, serial, executablePath, isExternal, region);
 
             // TryFetchMetadata may have matched an existing game by IgdbId and already updated it.
             // In that case finalGame.Id > 0 - do not try to insert again.
             if (finalGame != null && finalGame.Id > 0)
-                return true;
+                return Linked(finalGame, localPath);
+
+            // Without a metadata match the game in the library keeps its own, and only takes the file
+            if (finalGame == null && existingByTitle != null)
+                return await MergePathsIntoExisting(existingByTitle, existingGames, localPath, executablePath, isExternal);
 
             if (finalGame == null)
                 finalGame = await CreateOfflineFallback(gameTitle, localPath, executablePath, isExternal, platformKey);
@@ -2001,54 +2095,57 @@ namespace RetroArr.Core.Games
                 await metadataService.EnrichImagesFromSteamGridDbAsync(finalGame);
 
             if (existingByTitle != null)
-                return await MergeMetadataIntoExisting(existingByTitle, finalGame, platformKey);
+            {
+                // IGDB results carry none of the candidate's files; the game takes them unless its own content is still there
+                FillPaths(finalGame, localPath, executablePath);
+                finalGame.IsExternal = isExternal;
+                return await MergeMetadataIntoExisting(existingByTitle, existingGames, finalGame, platformKey);
+            }
 
             return await PersistNewGame(finalGame, existingGames, localPath, executablePath, isExternal, isInstaller, platformKey, gameTitle);
         }
 
-        private async Task<bool> UpdateExistingGamePaths(Game existing, string? localPath, string? executablePath, bool isExternal, bool isInstaller, string? platformKey = null, string? region = null, string? languages = null, string? revision = null)
+        private async Task<bool> UpdateExistingGamePaths(Game existing, List<Game> existingGames, string? localPath, string? executablePath, bool isExternal, bool isInstaller, string? platformKey = null, string? region = null, string? languages = null, string? revision = null)
         {
             Log($"Updating existing game '{existing.Title}' path to: {localPath}");
-            existing.Path = localPath;
-            existing.ExecutablePath = executablePath;
-            existing.IsExternal = isExternal;
-            if (isInstaller) existing.Status = GameStatus.InstallerDetected;
 
             // Correct platform if folder-based detection disagrees
+            int? correctedPlatformId = null;
             if (!string.IsNullOrEmpty(platformKey) && platformKey != "default")
             {
                 var correctPlatform = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.MatchesFolderName(platformKey));
                 if (correctPlatform != null && existing.PlatformId != correctPlatform.Id)
                 {
                     Log($"[Scanner] Correcting platform for '{existing.Title}': {existing.PlatformId} → {correctPlatform.Id} ({correctPlatform.Name})");
-                    existing.PlatformId = correctPlatform.Id;
+                    correctedPlatformId = correctPlatform.Id;
                 }
             }
 
-            // Rediscovered on disk: saved with the update below
-            if (CheckContent(existing, Roots) == GameContent.Present)
-                existing.ApplyContent(GameContent.Present, DateTime.UtcNow);
-
-            // Backfill missing metadata from filename
-            if (!string.IsNullOrEmpty(region) && string.IsNullOrEmpty(existing.Region))
-                existing.Region = region;
-            if (!string.IsNullOrEmpty(languages) && string.IsNullOrEmpty(existing.Languages))
-                existing.Languages = languages;
-            if (!string.IsNullOrEmpty(revision) && string.IsNullOrEmpty(existing.Revision))
-                existing.Revision = revision;
-
             try
             {
-                await _gameRepository.UpdateAsync(existing.Id, existing);
-                await SyncGameFilesFromDisk(existing.Id, localPath);
+                if (!await UpdateGameAsync(existing, g =>
+                {
+                    if (correctedPlatformId != null) g.PlatformId = correctedPlatformId.Value;
+                    if (!TakePath(g, existingGames, localPath, executablePath, isExternal)) return;
+                    if (isInstaller) g.Status = GameStatus.InstallerDetected;
+                    // Rediscovered on disk
+                    if (CheckContent(g, Roots) == GameContent.Present)
+                        g.ApplyContent(GameContent.Present, DateTime.UtcNow);
+                    FillFilenameMetadata(g, region, languages, revision);
+                })) return false;
+                await SyncGameFilesFromDisk(existing.Id, existing.Path);
+                return Linked(existing, localPath);
             }
-            catch (Exception ex) { Log($"[Scanner] Update failed for '{existing.Title}': {ex.Message}"); }
-            return true;
+            catch (Exception ex)
+            {
+                Log($"[Scanner] Update failed for '{existing.Title}': {ex.Message}");
+                return false;
+            }
         }
 
         private const double AutoAcceptThreshold = 0.85;
 
-        private async Task<Game?> TryFetchMetadata(string gameTitle, List<Game> existingGames, GameMetadataService metadataService, string? localPath, string? platformKey, string? serial, string? executablePath, bool isExternal)
+        private async Task<Game?> TryFetchMetadata(string gameTitle, List<Game> existingGames, GameMetadataService metadataService, string? localPath, string? platformKey, string? serial, string? executablePath, bool isExternal, string? region)
         {
             // Resolve internal platform ID for cross-platform checks
             int scanPlatformId = 0;
@@ -2160,8 +2257,10 @@ namespace RetroArr.Core.Games
                     var best = scored.First();
                     Log($"[Scanner] Best match: '{best.Game.Name}' (IGDB {best.Game.Id}) confidence={best.Score:F2}");
 
-                    // Check if already in library - but only for the SAME platform
-                    var existing = existingGames.FirstOrDefault(g => g.IgdbId == best.Game.Id);
+                    // Check if already in library - but only for the SAME platform, whose row comes first
+                    var existing = existingGames.FirstOrDefault(g => g.IgdbId == best.Game.Id && g.PlatformId == scanPlatformId)
+                        ?? existingGames.FirstOrDefault(g => g.IgdbId == best.Game.Id);
+                    Game? otherRegion = null;
                     if (existing != null)
                     {
                         if (scanPlatformId > 0 && existing.PlatformId != scanPlatformId)
@@ -2169,12 +2268,13 @@ namespace RetroArr.Core.Games
                             Log($"[Scanner] IGDB {best.Game.Id} exists on platform {existing.PlatformId}, scanning for {scanPlatformId} - skipping update, will create new entry");
                             // Don't update the cross-platform game; fall through to fetch fresh metadata
                         }
+                        else if (OtherRegion(existing, region))
+                        {
+                            otherRegion = existing;
+                        }
                         else
                         {
-                            existing.Path = localPath;
-                            existing.ExecutablePath = executablePath;
-                            existing.IsExternal = isExternal;
-                            await _gameRepository.UpdateAsync(existing.Id, existing);
+                            await AdoptPathAsync(existing, existingGames, localPath, executablePath, isExternal);
                             return existing;
                         }
                     }
@@ -2184,6 +2284,7 @@ namespace RetroArr.Core.Games
                     if (fullMetadata != null)
                     {
                         fullMetadata.MatchConfidence = best.Score;
+                        if (otherRegion != null) return RegionalRelease(fullMetadata, otherRegion, region);
 
                         if (best.Score >= AutoAcceptThreshold)
                         {
@@ -2213,7 +2314,9 @@ namespace RetroArr.Core.Games
                     {
                         if (!gameData.IgdbId.HasValue) continue;
 
-                        var match = existingGames.FirstOrDefault(g => g.IgdbId == gameData.IgdbId);
+                        var match = existingGames.FirstOrDefault(g => g.IgdbId == gameData.IgdbId && g.PlatformId == scanPlatformId)
+                            ?? existingGames.FirstOrDefault(g => g.IgdbId == gameData.IgdbId);
+                        Game? otherRegion = null;
                         if (match != null)
                         {
                             if (scanPlatformId > 0 && match.PlatformId != scanPlatformId)
@@ -2221,11 +2324,15 @@ namespace RetroArr.Core.Games
                                 Log($"[Scanner] Legacy: IGDB {gameData.IgdbId} exists on platform {match.PlatformId}, scanning for {scanPlatformId} - skipping");
                                 continue;
                             }
-                            match.Path = localPath;
-                            match.ExecutablePath = executablePath;
-                            match.IsExternal = isExternal;
-                            await _gameRepository.UpdateAsync(match.Id, match);
-                            return match;
+                            if (OtherRegion(match, region))
+                            {
+                                otherRegion = match;
+                            }
+                            else
+                            {
+                                await AdoptPathAsync(match, existingGames, localPath, executablePath, isExternal);
+                                return match;
+                            }
                         }
 
                         var fullMetadata = await metadataService.GetGameMetadataAsync(gameData.IgdbId.Value, null, platformKey);
@@ -2236,6 +2343,7 @@ namespace RetroArr.Core.Games
                                 Log($"[Scanner] Metadata for Id {gameData.IgdbId} is empty (No Year/Cover). Trying next search result...");
                                 continue;
                             }
+                            if (otherRegion != null) return RegionalRelease(fullMetadata, otherRegion, region);
                             fullMetadata.NeedsMetadataReview = true;
                             fullMetadata.MetadataReviewReason = "ScreenScraper fallback";
                             return fullMetadata;
@@ -2307,27 +2415,97 @@ namespace RetroArr.Core.Games
             game.MissingSince = stored.Value.MissingSince;
         }
 
-        private async Task<bool> MergeMetadataIntoExisting(Game existing, Game freshData, string? platformKey)
+        // Writes only what change sets, on the row as it is stored now, so an edit made since the scan
+        // loaded the game (Monitored, a new path from an import) survives. The scan's copy then takes the
+        // saved row. False when the game is no longer in the library.
+        private async Task<bool> UpdateGameAsync(Game game, Action<Game> change)
+        {
+            var saved = await _gameRepository.UpdateFieldsAsync(game.Id, change);
+            if (saved == null) return false;
+            foreach (var property in typeof(Game).GetProperties().Where(p => p.CanWrite))
+                property.SetValue(game, property.GetValue(saved));
+            return true;
+        }
+
+        // The file matched a game in the library by its metadata id
+        private Task<bool> AdoptPathAsync(Game game, List<Game> existingGames, string? localPath, string? executablePath, bool isExternal) =>
+            UpdateGameAsync(game, g => TakePath(g, existingGames, localPath, executablePath, isExternal));
+
+        // A game with a path keeps it unless its content is known to be gone (the game was moved): a different
+        // file is another release of it (a second region beside the first), and while its library may be offline
+        // the game comes back with it. Its own main file, lying within its path, only narrows the path to where it
+        // lies. A file in the folder of another game is that game's. True when the game took the file.
+        private bool TakePath(Game game, List<Game> existingGames, string? localPath, string? executablePath, bool isExternal)
+        {
+            var narrows = SamePath(game.ExecutablePath, executablePath) && Within(executablePath, game.Path);
+            if (!string.IsNullOrEmpty(game.Path) && !narrows && !Lost(game, existingGames))
+                return false;
+            if (FolderOwner(localPath, GamesByPath(existingGames), WalkStops()) is { } owner && owner.Id != game.Id)
+                return false;
+            game.Path = localPath;
+            game.ExecutablePath = executablePath;
+            game.IsExternal = isExternal;
+            return true;
+        }
+
+        // At or below the folder
+        private static bool Within(string? path, string? folder)
+        {
+            if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(folder)) return false;
+            try { return IsUnder(Path.GetFullPath(path), Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder))); }
+            catch (Exception ex) when (IsPathError(ex)) { return false; }
+        }
+
+        // Both regions are known and differ: another release, which gets an entry of its own
+        private static bool OtherRegion(Game game, string? region) =>
+            !string.IsNullOrWhiteSpace(game.Region) && !string.IsNullOrWhiteSpace(region) && !SameRegion(game.Region, region);
+
+        // Another region of a game in the library takes the lookup's metadata, but not its id: that stays with the
+        // other region's entry, one per platform
+        private Game RegionalRelease(Game metadata, Game other, string? region)
+        {
+            Log($"[Scanner] IGDB {metadata.IgdbId} is the {other.Region} release in the library; the {region} release gets an entry of its own");
+            metadata.NeedsMetadataReview = true;
+            metadata.MetadataReviewReason = $"Regional release of '{other.Title}', IGDB id {metadata.IgdbId} kept on entry {other.Id} ({other.Region})";
+            metadata.IgdbId = null;
+            return metadata;
+        }
+
+        // Whether the game in the library points at the file now. A file it didn't take stays unlinked
+        // (a discovered one stays in the list).
+        private bool Linked(Game game, string? localPath)
+        {
+            if (SamePath(game.Path, localPath)) return true;
+            Log($"[Scanner] '{game.Title}' stays at {game.Path}; {localPath} is left unlinked");
+            return false;
+        }
+
+        private static void FillPaths(Game game, string? path, string? executablePath)
+        {
+            if (string.IsNullOrEmpty(game.Path) && !string.IsNullOrEmpty(path))
+                game.Path = path;
+            if (string.IsNullOrEmpty(game.ExecutablePath) && !string.IsNullOrEmpty(executablePath))
+                game.ExecutablePath = executablePath;
+        }
+
+        // True when a field was empty and got filled
+        private static bool FillFilenameMetadata(Game game, string? region, string? languages, string? revision)
+        {
+            var filled = false;
+            if (!string.IsNullOrEmpty(region) && string.IsNullOrEmpty(game.Region)) { game.Region = region; filled = true; }
+            if (!string.IsNullOrEmpty(languages) && string.IsNullOrEmpty(game.Languages)) { game.Languages = languages; filled = true; }
+            if (!string.IsNullOrEmpty(revision) && string.IsNullOrEmpty(game.Revision)) { game.Revision = revision; filled = true; }
+            return filled;
+        }
+
+        private async Task<bool> MergeMetadataIntoExisting(Game existing, List<Game> existingGames, Game freshData, string? platformKey)
         {
             if (existing.MetadataConfirmedByUser)
             {
                 Log($"[Scanner] Skip metadata overwrite for '{existing.Title}' (user-confirmed match - backfilling paths only).");
-                if (string.IsNullOrEmpty(existing.Path) && !string.IsNullOrEmpty(freshData.Path))
-                    existing.Path = freshData.Path;
-                if (string.IsNullOrEmpty(existing.ExecutablePath) && !string.IsNullOrEmpty(freshData.ExecutablePath))
-                    existing.ExecutablePath = freshData.ExecutablePath;
-                existing.IsExternal = freshData.IsExternal;
-                await MarkPresentAsync(existing);
-                await _gameRepository.UpdateAsync(existing.Id, existing);
-                await SyncGameFilesFromDisk(existing.Id, existing.Path);
-                return true;
+                return await MergePathsIntoExisting(existing, existingGames, freshData.Path, freshData.ExecutablePath, freshData.IsExternal);
             }
 
-            existing.Title = freshData.Title;
-            existing.Overview = freshData.Overview;
-            existing.Year = freshData.Year;
-            existing.Images = freshData.Images;
-            existing.IgdbId = freshData.IgdbId;
             // Folder-based platform always wins over IGDB metadata
             var folderPlatId = await ResolvePlatformIdAsync(platformKey);
             // Defense in depth: if platformKey didn't resolve, try the file path
@@ -2337,25 +2515,37 @@ namespace RetroArr.Core.Games
                 if (pathPlatformId.HasValue && pathPlatformId.Value > 0 && pathPlatformId.Value != UnresolvedPlatformIdFallback)
                     folderPlatId = pathPlatformId.Value;
             }
-            existing.PlatformId = folderPlatId;
-            if (folderPlatId == UnresolvedPlatformIdFallback)
+            if (!await UpdateGameAsync(existing, g =>
             {
-                existing.NeedsMetadataReview = true;
-                if (string.IsNullOrEmpty(existing.MetadataReviewReason))
-                    existing.MetadataReviewReason = "Platform unresolved: no folder match.";
-            }
-            if (string.IsNullOrEmpty(existing.Path) && !string.IsNullOrEmpty(freshData.Path))
-                existing.Path = freshData.Path;
-            if (string.IsNullOrEmpty(existing.ExecutablePath) && !string.IsNullOrEmpty(freshData.ExecutablePath))
-                existing.ExecutablePath = freshData.ExecutablePath;
-            existing.IsExternal = freshData.IsExternal;
+                g.Title = freshData.Title;
+                g.Overview = freshData.Overview;
+                g.Year = freshData.Year;
+                g.Images = freshData.Images;
+                g.IgdbId = freshData.IgdbId;
+                // A folder that names no platform leaves the game on its own
+                if (folderPlatId != UnresolvedPlatformIdFallback) g.PlatformId = folderPlatId;
+                if (g.PlatformId == UnresolvedPlatformIdFallback)
+                {
+                    g.NeedsMetadataReview = true;
+                    if (string.IsNullOrEmpty(g.MetadataReviewReason))
+                        g.MetadataReviewReason = "Platform unresolved: no folder match.";
+                }
+                TakePath(g, existingGames, freshData.Path, freshData.ExecutablePath, freshData.IsExternal);
+            })) return false;
 
             // Rediscovered on disk. The path alone doesn't prove content; losses are left to the cleanup.
             await MarkPresentAsync(existing);
 
-            await _gameRepository.UpdateAsync(existing.Id, existing);
             await SyncGameFilesFromDisk(existing.Id, existing.Path);
-            return true;
+            return Linked(existing, freshData.Path);
+        }
+
+        private async Task<bool> MergePathsIntoExisting(Game existing, List<Game> existingGames, string? localPath, string? executablePath, bool isExternal)
+        {
+            if (!await UpdateGameAsync(existing, g => TakePath(g, existingGames, localPath, executablePath, isExternal))) return false;
+            await MarkPresentAsync(existing);
+            await SyncGameFilesFromDisk(existing.Id, existing.Path);
+            return Linked(existing, localPath);
         }
 
         private async Task<bool> PersistNewGame(Game finalGame, List<Game> existingGames, string? localPath, string? executablePath, bool isExternal, bool isInstaller, string? platformKey, string gameTitle)
@@ -2389,26 +2579,24 @@ namespace RetroArr.Core.Games
             if (isInstaller) finalGame.Status = GameStatus.InstallerDetected;
 
             // Final dedup guard: IGDB metadata may have changed the title from the cleaned
-            // folder name, so two different folders can resolve to the same Title+PlatformId.
+            // folder name, so two different folders can resolve to the same Title+PlatformId+Region.
+            // The game takes the file unless its own content is still there.
             var duplicate = existingGames.FirstOrDefault(g =>
                 g.Title.Equals(finalGame.Title, StringComparison.OrdinalIgnoreCase) &&
-                g.PlatformId == finalGame.PlatformId);
+                g.PlatformId == finalGame.PlatformId &&
+                SameRegion(g.Region, finalGame.Region));
             if (duplicate != null)
             {
                 Log($"[Scanner] Dedup guard: '{finalGame.Title}' (Platform {finalGame.PlatformId}) already exists (ID {duplicate.Id}). Updating path instead of inserting.");
-                if (string.IsNullOrEmpty(duplicate.Path) && !string.IsNullOrEmpty(localPath))
-                    duplicate.Path = localPath;
-                if (string.IsNullOrEmpty(duplicate.ExecutablePath) && !string.IsNullOrEmpty(executablePath))
-                    duplicate.ExecutablePath = executablePath;
                 try
                 {
-                    await _gameRepository.UpdateAsync(duplicate.Id, duplicate);
+                    return await MergePathsIntoExisting(duplicate, existingGames, localPath, executablePath, isExternal);
                 }
                 catch (Exception ex)
                 {
                     Log($"[Scanner] Dedup path-merge failed for ID {duplicate.Id}: {ex.Message}");
+                    return false;
                 }
-                return false;
             }
 
             try 
@@ -2461,7 +2649,7 @@ namespace RetroArr.Core.Games
                         files.Add(new GameFile
                         {
                             GameId = gameId,
-                            RelativePath = mi.Name,
+                            RelativePath = Path.GetRelativePath(parentDir, member).Replace('\\', '/'),
                             Size = mi.Length,
                             DateAdded = DateTime.UtcNow,
                             FileType = fileType
@@ -2679,19 +2867,22 @@ namespace RetroArr.Core.Games
                 }
             }
 
-            // 3. Try dynamic lookup from DB by slug
-            string dbSlug = resolvedSlug ?? platformKey ?? "pc";
-            try 
+            // 3. Try dynamic lookup from DB by slug. Without a key there is nothing to look up.
+            var dbSlug = resolvedSlug ?? platformKey;
+            if (!string.IsNullOrEmpty(dbSlug))
             {
-                var dbId = await _gameRepository.GetPlatformIdBySlugAsync(dbSlug);
-                if (dbId.HasValue) 
+                try
                 {
-                    return dbId.Value;
+                    var dbId = await _gameRepository.GetPlatformIdBySlugAsync(dbSlug);
+                    if (dbId.HasValue)
+                    {
+                        return dbId.Value;
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                Log($"[Platform] Error looking up slug '{dbSlug}': {ex.Message}");
+                catch (Exception ex)
+                {
+                    Log($"[Platform] Error looking up slug '{dbSlug}': {ex.Message}");
+                }
             }
 
             // 4. Ultimate fallback: route to the Unknown sentinel so folder stays authoritative
@@ -3235,16 +3426,10 @@ namespace RetroArr.Core.Games
                     platformGames.Add(game);
             }
 
-            // The breaker judges the whole library, so an outage of a share is seen even by a small platform in it
-            if (_libraryContent == null)
-            {
-                _libraryContent = new Dictionary<int, GameContent>();
-                foreach (var (game, content) in CheckAllLogged(existingGames.Where(g => !string.IsNullOrEmpty(g.Path)).ToList()))
-                    _libraryContent[game.Id] = content;
-            }
+            var libraryContent = LibraryContent(existingGames);
             // A game added by this scan wasn't there yet
             var results = platformGames
-                .Select(g => (Game: g, Content: _libraryContent.TryGetValue(g.Id, out var c) ? c : CheckContent(g, Roots)))
+                .Select(g => (Game: g, Content: libraryContent.TryGetValue(g.Id, out var c) ? c : CheckContent(g, Roots)))
                 .ToList();
 
             var (flagged, cleared, promoted, resynced, unknown, _) = await ApplyContentToGamesAsync(results, resync: true, ct);
@@ -3371,21 +3556,18 @@ namespace RetroArr.Core.Games
                 if (!hasLiveCollision)
                 {
                     Log($"[Heal] Correcting platform for '{g.Title}' (id={g.Id}): {g.PlatformId} → {pathPlatform.Id} ({pathPlatform.Name}) based on path '{g.Path}'");
-                    var fresh = await _gameRepository.GetByIdAsync(g.Id);
-                    if (fresh != null)
+                    try
                     {
-                        fresh.PlatformId = pathPlatform.Id;
-                        try
+                        if (await _gameRepository.UpdateFieldsAsync(g.Id, x => x.PlatformId = pathPlatform.Id) != null)
                         {
-                            await _gameRepository.UpdateAsync(fresh.Id, fresh);
                             healed++;
                             if (live.TryGetValue((titleKey, g.PlatformId), out var oldSet)) oldSet.Remove(g.Id);
                             if (!live.TryGetValue((titleKey, pathPlatform.Id), out var newSet))
                             { newSet = new HashSet<int>(); live[(titleKey, pathPlatform.Id)] = newSet; }
                             newSet.Add(g.Id);
                         }
-                        catch (Exception ex) { Log($"[Heal] Update failed id={g.Id}: {ex.Message}", LogLevel.Warning); }
                     }
+                    catch (Exception ex) { Log($"[Heal] Update failed id={g.Id}: {ex.Message}", LogLevel.Warning); }
                 }
                 else
                 {

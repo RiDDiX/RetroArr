@@ -41,6 +41,7 @@ namespace RetroArr.Api.V3.Settings
         [HttpPost]
         public IActionResult SaveSettings([FromBody] Newtonsoft.Json.Linq.JObject body)
         {
+            var before = _configService.LoadMediaSettings();
             var settings = _configService.LoadMediaSettings();
             try
             {
@@ -50,6 +51,8 @@ namespace RetroArr.Api.V3.Settings
             {
                 return BadRequest(new { message = $"Invalid media settings: {ex.Message}" });
             }
+            var trashProblem = TrashPathProblem(before, settings);
+            if (trashProblem != null) return BadRequest(new { message = trashProblem });
             _configService.SaveMediaSettings(settings);
             // Best-effort mkdir for every configured rooted path so a fresh
             // setup doesn't fail at the first download or scan.
@@ -60,6 +63,27 @@ namespace RetroArr.Api.V3.Settings
                 catch (Exception ex) { _logger.Warn($"[Media] Could not create '{p}': {ex.Message}"); }
             }
             return Ok(new { message = "Media settings saved" });
+        }
+
+        // Emptying the trash and restores work inside the trash folder, so it can't be a system folder or sit in or
+        // around the library or the download folder. Checked when one of those paths changes.
+        private static string? TrashPathProblem(MediaSettings before, MediaSettings after)
+        {
+            if (before.TrashPath == after.TrashPath && before.FolderPath == after.FolderPath
+                && before.DestinationPath == after.DestinationPath && before.DownloadPath == after.DownloadPath)
+                return null;
+
+            var trash = after.TrashPath;
+            if (string.IsNullOrWhiteSpace(trash)) return null;
+            if (!System.IO.Path.IsPathRooted(trash)) return $"The trash folder '{trash}' must be a full path.";
+            if (RetroArr.Api.V3.Games.GameController.IsCriticalPath(trash)) return $"The trash folder can't be the system folder '{trash}'.";
+            foreach (var (name, path) in new[] { ("library", after.FolderPath), ("library", after.DestinationPath), ("download", after.DownloadPath) })
+            {
+                if (string.IsNullOrWhiteSpace(path) || !System.IO.Path.IsPathRooted(path)) continue;
+                if (RetroArr.Api.V3.Games.GameController.IsSubPath(trash, path) || RetroArr.Api.V3.Games.GameController.IsSubPath(path, trash))
+                    return $"The trash folder '{trash}' can't be the {name} folder '{path}', lie inside it or hold it.";
+            }
+            return null;
         }
 
         [HttpGet("permissions")]

@@ -75,7 +75,7 @@ namespace RetroArr.Core.Games
         // Comma-separated language codes detected from filename (e.g. "En, Fr, De, Es, It")
         public string? Languages { get; set; }
         
-        // Revision/variant detected from filename (e.g. "Rev A", "Beta", "Disc 1", "v2.00")
+        // Revision/variant detected from filename (e.g. "Rev A", "Beta", "v2.00"); a disc number is none
         public string? Revision { get; set; }
         
         // Linux runner preference (wine, proton, native). Null = auto-detect.

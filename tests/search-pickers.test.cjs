@@ -50,6 +50,19 @@ assert(modal.includes('onClick={confirmDownload} disabled={!selectedPlatform}'),
 assert(/const confirmDownload = async \(\) => \{\n\s+if \(!pendingDownload \|\| !selectedPlatform \|\|/.test(details),
   'confirmDownload must refuse to post without a platform');
 
+// The grab sends the release title, the backend picks the subfolder (update, DLC) from it
+const grabBody = async (releaseTitle) => {
+  let posted;
+  const confirm = load(details, 'confirmDownload', {
+    pendingDownload: { url: 'magnet:?xt=x', protocol: 'torrent', releaseTitle }, selectedPlatform: 'switch', downloadingUrl: null,
+    game: { id: 7 }, apiClient: { post: async (_url, body) => { posted = body; return { data: {} }; } },
+    setShowPlatformModal: () => {}, setDownloadingUrl: () => {}, setNotification: () => {}, setPendingDownload: () => {},
+    getErrorMessage: () => '', console, t: k => k,
+  });
+  await confirm();
+  return posted;
+};
+
 // Choosing a platform other than the game's puts the download under another game entry; the modal must say so.
 const hint = folder => load(details, 'otherPlatformHint', { availablePlatforms, game: { platformId: 31 }, t: k => `${k}:{platform}` })(folder);
 assert(hint('xbox360') === null, 'no hint when the game platform is selected');
@@ -80,6 +93,11 @@ assert(inLibraryCheck, 'Library must match search results against the library');
 const findExisting = (localResults, result) => vm.runInNewContext(inLibraryCheck[0], { localResults, result, titleLower: result.title.toLowerCase() });
 
 (async () => {
+  const grab = await grabBody('Patch Quest v1.0.3');
+  assert(grab && grab.gameId === 7 && grab.platformFolder === 'switch', 'the grab must send the game and the chosen platform');
+  assert(grab.releaseTitle === 'Patch Quest v1.0.3', 'the grab must send the release title');
+  assert(!('importSubfolder' in grab), 'the grab must leave the subfolder to the backend');
+
   const igdb = await addBody({ id: 0, igdbId: 434, title: 'Red Dead Redemption', images: {} });
   assert(igdb.igdbId === 434, 'an IGDB result must be added with its igdbId');
   for (const source of ['ScreenScraper', 'TheGamesDB', 'Epic']) {

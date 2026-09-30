@@ -17,6 +17,7 @@ namespace RetroArr.Core.Games
         private readonly ConfigurationService _configService;
         private readonly object _lock = new();
         private List<StructureIssue> _lastScanResults = new();
+        private List<Game> _lastScanLibrary = new();
         private OperationPlan? _activePlan;
         private ResortProgress _progress = new();
         private readonly string _planPersistDir;
@@ -83,13 +84,23 @@ namespace RetroArr.Core.Games
                     if (wouldCollide) continue;
 
                     var oldId = game.PlatformId;
-                    game.PlatformId = detectedPlatform.Id;
+                    var moved = false;
                     try
                     {
-                        await _gameRepository.UpdateAsync(game.Id, game);
-                        fixes.Add((game.Id, game.Title, oldId, detectedPlatform.Id, detectedPlatform.Name));
+                        // Decided again on the row as stored now; nothing else of it is written
+                        await _gameRepository.UpdateFieldsAsync(game.Id, g =>
+                        {
+                            var folder = string.IsNullOrEmpty(g.Path) ? null : ExtractPlatformFolder(g.Path, libraryRoot);
+                            if (g.PlatformId == detectedPlatform.Id || string.IsNullOrEmpty(folder) || !detectedPlatform.MatchesFolderName(folder)) return;
+                            oldId = g.PlatformId;
+                            g.PlatformId = detectedPlatform.Id;
+                            moved = true;
+                        });
                     }
-                    catch { game.PlatformId = oldId; }
+                    catch { moved = false; }
+                    if (!moved) continue;
+                    game.PlatformId = detectedPlatform.Id;
+                    fixes.Add((game.Id, game.Title, oldId, detectedPlatform.Id, detectedPlatform.Name));
                 }
             }
 
@@ -108,6 +119,7 @@ namespace RetroArr.Core.Games
             }
 
             var allGames = await _gameRepository.GetAllLightAsync();
+            var library = allGames;
             var issues = new List<StructureIssue>();
 
             // Filter by request
@@ -127,7 +139,7 @@ namespace RetroArr.Core.Games
                 var platform = allPlatforms.FirstOrDefault(p => p.Id == game.PlatformId);
                 if (platform == null) continue;
 
-                var expectedPath = ComputeExpectedGamePath(settings, libraryRoot, platform, game);
+                var expectedPath = ComputeExpectedGamePath(settings, libraryRoot, platform, game, library);
 
                 // D7: Missing game folder
                 if (!string.IsNullOrEmpty(game.Path) && !Directory.Exists(game.Path) && !File.Exists(game.Path))
@@ -359,6 +371,7 @@ namespace RetroArr.Core.Games
             lock (_lock)
             {
                 _lastScanResults = issues;
+                _lastScanLibrary = library;
             }
 
             return issues;
@@ -368,6 +381,16 @@ namespace RetroArr.Core.Games
 
         public OperationPlan GeneratePreview(List<string> issueIds, ConflictResolution defaultResolution)
         {
+            List<Game> library;
+            lock (_lock)
+            {
+                library = _lastScanLibrary;
+            }
+            return GeneratePreview(issueIds, defaultResolution, library);
+        }
+
+        private OperationPlan GeneratePreview(List<string> issueIds, ConflictResolution defaultResolution, List<Game> library)
+        {
             List<StructureIssue> selectedIssues;
             lock (_lock)
             {
@@ -375,19 +398,33 @@ namespace RetroArr.Core.Games
             }
 
             var plan = new OperationPlan();
+            var ownersByFolder = new Dictionary<string, Dictionary<string, HashSet<int>>>(PathComparer);
 
             foreach (var issue in selectedIssues)
             {
                 var effectiveType = issue.ProposedAction;
                 var companionFiles = new List<string>();
+                string? refused = null;
 
                 if (effectiveType == OperationType.MoveFile && File.Exists(issue.CurrentPath))
                 {
-                    var fileSet = FileSetResolver.Resolve(issue.CurrentPath);
-                    if (fileSet.CompanionFiles.Count > 0)
+                    // A set with a file another entry takes along (the bin of a leftover entry's cue) stays as it is:
+                    // moved without that file, the rest would miss it
+                    var folder = Path.GetDirectoryName(Path.GetFullPath(issue.CurrentPath))!;
+                    if (!ownersByFolder.TryGetValue(folder, out var owners))
+                        ownersByFolder[folder] = owners = FileOwners(library, folder);
+                    bool TakenByOthers(string file) => owners.TryGetValue(Path.GetFullPath(file), out var ids) && ids.Any(id => id != issue.GameId);
+
+                    var set = FileSetResolver.Resolve(issue.CurrentPath).CompanionFiles;
+                    var taken = new[] { issue.CurrentPath }.Concat(set).FirstOrDefault(TakenByOthers);
+                    if (taken != null)
                     {
-                        effectiveType = OperationType.MoveFileSet;
-                        companionFiles = fileSet.CompanionFiles;
+                        refused = $"Refused: {Path.GetFileName(taken)} belongs to another library entry too.";
+                    }
+                    else
+                    {
+                        companionFiles = set;
+                        if (companionFiles.Count > 0) effectiveType = OperationType.MoveFileSet;
                     }
                 }
 
@@ -401,6 +438,11 @@ namespace RetroArr.Core.Games
                     IssueType = issue.IssueType.ToString(),
                     CompanionFiles = companionFiles
                 };
+                if (refused != null)
+                {
+                    op.Status = OperationStatus.Failed;
+                    op.ErrorMessage = refused;
+                }
 
                 // Conflict detection
                 if (!string.IsNullOrEmpty(op.TargetPath) && op.SourcePath != op.TargetPath)
@@ -429,7 +471,7 @@ namespace RetroArr.Core.Games
             ConflictResolution defaultResolution,
             CancellationToken ct = default)
         {
-            var plan = GeneratePreview(issueIds, defaultResolution);
+            var plan = GeneratePreview(issueIds, defaultResolution, await _gameRepository.GetAllLightAsync());
 
             lock (_lock)
             {
@@ -517,6 +559,9 @@ namespace RetroArr.Core.Games
 
         private async Task ExecuteOperation(StructureOperation op, string? cachedLibraryRoot = null)
         {
+            // Refused by the preview
+            if (op.Status == OperationStatus.Failed) return;
+
             if (op.Type == OperationType.MoveGameFolder
                 || op.Type == OperationType.RenameGameFolder
                 || op.Type == OperationType.MoveFile
@@ -602,25 +647,8 @@ namespace RetroArr.Core.Games
                     break;
 
                 case OperationType.MoveFile:
-                    var targetDir = Path.GetDirectoryName(op.TargetPath);
-                    if (targetDir != null) Directory.CreateDirectory(targetDir);
-                    File.Move(op.SourcePath, op.TargetPath);
-                    op.Status = OperationStatus.Applied;
-                    break;
-
                 case OperationType.MoveFileSet:
-                    var setTargetDir = Path.GetDirectoryName(op.TargetPath);
-                    if (setTargetDir != null) Directory.CreateDirectory(setTargetDir);
-                    File.Move(op.SourcePath, op.TargetPath);
-                    foreach (var companion in op.CompanionFiles)
-                    {
-                        if (File.Exists(companion))
-                        {
-                            var companionName = Path.GetFileName(companion);
-                            var companionTarget = Path.Combine(setTargetDir ?? string.Empty, companionName);
-                            File.Move(companion, companionTarget);
-                        }
-                    }
+                    MoveFileSet(op);
                     if (op.GameId.HasValue)
                     {
                         await UpdateGamePath(op.GameId.Value, op.TargetPath);
@@ -648,6 +676,68 @@ namespace RetroArr.Core.Games
                     op.Status = OperationStatus.Skipped;
                     op.ErrorMessage = $"Unsupported operation type: {op.Type}";
                     break;
+            }
+        }
+
+        // For the entries whose main file lies in the folder or below it, or is a playlist or cue in a folder above
+        // that lists files from here, the entries taking each file along: the main file and what it resolves to
+        private static Dictionary<string, HashSet<int>> FileOwners(IEnumerable<Game> library, string folder)
+        {
+            var owners = new Dictionary<string, HashSet<int>>(PathComparer);
+            foreach (var game in library)
+            {
+                foreach (var main in new[] { game.Path, game.ExecutablePath })
+                {
+                    if (string.IsNullOrEmpty(main) || !File.Exists(main)) continue;
+                    var listsFromAbove = Path.GetExtension(main).ToLowerInvariant() is ".m3u" or ".cue" or ".gdi"
+                        && IsPathWithinRoot(folder, Path.GetDirectoryName(Path.GetFullPath(main))!);
+                    if (!IsPathWithinRoot(main, folder) && !listsFromAbove) continue;
+                    foreach (var file in FileSetResolver.Resolve(Path.GetFullPath(main)).AllFiles)
+                    {
+                        var key = Path.GetFullPath(file);
+                        if (!owners.TryGetValue(key, out var ids)) owners[key] = ids = new HashSet<int>();
+                        ids.Add(game.Id);
+                    }
+                }
+            }
+            return owners;
+        }
+
+        // Companions keep their place beside the primary file (Disc1\ of a playlist); one outside its folder
+        // stays where it is. Nothing moves while a target is taken, and a move that fails puts back the rest.
+        private static void MoveFileSet(StructureOperation op)
+        {
+            var sourceDir = Path.GetDirectoryName(Path.GetFullPath(op.SourcePath))!;
+            var targetDir = Path.GetDirectoryName(Path.GetFullPath(op.TargetPath))!;
+            var moves = new List<(string From, string To)> { (op.SourcePath, op.TargetPath) };
+            foreach (var companion in op.CompanionFiles.Where(File.Exists))
+            {
+                if (!IsPathWithinRoot(companion, sourceDir))
+                {
+                    _logger.Warn($"[Resort] Left {companion} in place: it lies outside {sourceDir}");
+                    continue;
+                }
+                moves.Add((companion, Path.Combine(targetDir, Path.GetRelativePath(sourceDir, Path.GetFullPath(companion)))));
+            }
+
+            var taken = moves.Skip(1).Select(m => m.To).FirstOrDefault(t => File.Exists(t) || Directory.Exists(t));
+            if (taken != null) throw new IOException($"Target already exists: {taken}");
+
+            var moved = new List<(string From, string To)>();
+            try
+            {
+                foreach (var (from, to) in moves)
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(to)!);
+                    File.Move(from, to);
+                    moved.Add((from, to));
+                }
+            }
+            catch
+            {
+                moved.Reverse();
+                foreach (var (from, to) in moved) File.Move(to, from);
+                throw;
             }
         }
 
@@ -688,43 +778,45 @@ namespace RetroArr.Core.Games
             }
         }
 
+        // Writes only the path on the row as stored now, so an edit made meanwhile survives
         private async Task UpdateGamePath(int gameId, string newPath)
         {
-            var game = await _gameRepository.GetByIdAsync(gameId);
-            if (game == null) return;
-
-            var oldPath = game.Path;
-            game.Path = newPath;
-
-            // Update relative paths in GameFiles
-            if (!string.IsNullOrEmpty(oldPath))
+            string? oldPath = null;
+            var saved = await _gameRepository.UpdateFieldsAsync(gameId, g =>
             {
-                foreach (var gf in game.GameFiles)
-                {
-                    if (!string.IsNullOrEmpty(gf.RelativePath))
-                    {
-                        // RelativePath is relative to game.Path - stays the same if only the root moved
-                        // But verify it still resolves
-                        var fullPath = Path.Combine(newPath, gf.RelativePath);
-                        if (!File.Exists(fullPath))
-                        {
-                            _logger.Warn($"[Resort] Warning: GameFile '{gf.RelativePath}' not found at new path for game {gameId}.");
-                        }
-                    }
-                }
+                oldPath = g.Path;
+                // The main file moved with the game
+                if (!string.IsNullOrEmpty(oldPath) && !string.IsNullOrEmpty(g.ExecutablePath) && IsPathWithinRoot(g.ExecutablePath, oldPath))
+                    g.ExecutablePath = Path.GetFullPath(Path.Combine(newPath, Path.GetRelativePath(oldPath, g.ExecutablePath)));
+                g.Path = newPath;
+            });
+            if (saved == null) return;
+
+            // GameFiles are relative to the game's folder, or to the folder a single-file game lies in
+            var baseDir = File.Exists(newPath) ? Path.GetDirectoryName(newPath)! : newPath;
+            foreach (var gf in await _gameRepository.GetGameFilesAsync(gameId))
+            {
+                if (!string.IsNullOrEmpty(gf.RelativePath) && !File.Exists(Path.Combine(baseDir, gf.RelativePath)))
+                    _logger.Warn($"[Resort] Warning: GameFile '{gf.RelativePath}' not found at new path for game {gameId}.");
             }
 
-            await _gameRepository.UpdateAsync(game.Id, game);
             _logger.Info($"[Resort] Updated DB path for game {gameId}: {oldPath} -> {newPath}");
         }
 
         // ── PRIVATE: Path Helpers ───────────────────────────────────────
 
+        // A second region of a title goes to "{Title} ({Region})" while another game of the title holds "{Title}",
+        // as the import puts it
         private static string ComputeExpectedGamePath(
-            MediaSettings settings, string libraryRoot, Platform platform, Game game)
+            MediaSettings settings, string libraryRoot, Platform platform, Game game, IEnumerable<Game> library)
         {
             var effectiveFolder = platform.GetEffectiveFolderName(settings.FolderNamingMode);
-            return settings.ResolveDestinationPath(libraryRoot, effectiveFolder, game.Title, game.Year > 0 ? game.Year : (int?)null);
+            var year = game.Year > 0 ? game.Year : (int?)null;
+            var expected = settings.ResolveDestinationPath(libraryRoot, effectiveFolder, game.Title, year);
+            if (!string.IsNullOrWhiteSpace(game.Region) && library.Any(g => g.Id != game.Id && g.PlatformId == game.PlatformId
+                    && string.Equals(g.Title, game.Title, StringComparison.OrdinalIgnoreCase) && MediaScannerService.SamePath(g.Path, expected)))
+                expected = settings.ResolveDestinationPath(libraryRoot, effectiveFolder, $"{game.Title} ({game.Region})", year);
+            return expected;
         }
 
         private static string ResolveLibraryRoot(MediaSettings settings)

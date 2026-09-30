@@ -34,24 +34,67 @@ namespace RetroArr.Core.Test.Download
         [Test]
         public async Task AddWithGameOnly_TracksTheGamePlatformFolder()
         {
-            var dbOptions = new DbContextOptionsBuilder<RetroArrDbContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString())
-                .Options;
-            using (var ctx = new RetroArrDbContext(dbOptions))
-            {
-                ctx.Games.Add(new Game { Id = 1, Title = "Halo 3", PlatformId = 31 });
-                await ctx.SaveChangesAsync();
-            }
-            var tracker = new DownloadPlatformTracker(Path.Combine(_root, "config"));
-            // No download client is configured: the request is tracked, then refused.
-            var controller = new DownloadClientController(new ConfigurationService(_root), null!, tracker, null!, null!, null!, null!,
-                new SqliteGameRepository(new DbFactory(dbOptions)));
+            var (controller, tracker) = await SetUpAsync(new Game { Id = 1, Title = "Halo 3", PlatformId = 31 });
 
             await controller.AddTorrent(new AddTorrentRequest { Url = "magnet:?xt=urn:btih:abc", Protocol = "torrent", GameId = 1 });
 
             var tracked = tracker.GetAll().Single();
             Assert.That(tracked.GameId, Is.EqualTo(1));
             Assert.That(tracked.PlatformFolder, Is.EqualTo("xbox360"));
+        }
+
+        // The release title picks the subfolder with the import's own rules: a bundle is the game,
+        // a keyword in the game's title is no marker. A subfolder the caller sends stays.
+        [TestCase("Zelda TotK [NSP] + Update 1.2.1", "The Legend of Zelda: Tears of the Kingdom", null, null)]
+        [TestCase("Patch Quest v1.0.3", "Patch Quest", null, null)]
+        [TestCase("Hades_Update_v1.2", "Hades", null, "Patches")]
+        [TestCase("Hades.DLC.Soundtrack-RUNE", "Hades", null, "DLC")]
+        [TestCase("Hades_Update_v1.2", "Hades", "DLC", "DLC")]
+        // The game is on the Switch, so its title id counts
+        [TestCase("Metroid Dread [010093801237C800][v131072]", "Metroid Dread", null, "Patches")]
+        public async Task AddWithReleaseTitle_TracksTheSubfolderItsContentGoesTo(string releaseTitle, string gameTitle, string? sent, string? expected)
+        {
+            var (controller, tracker) = await SetUpAsync(new Game { Id = 1, Title = gameTitle, PlatformId = 46 });
+
+            await controller.AddTorrent(new AddTorrentRequest
+            {
+                Url = "magnet:?xt=urn:btih:abc", Protocol = "torrent", GameId = 1, ReleaseTitle = releaseTitle, ImportSubfolder = sent
+            });
+
+            Assert.That(tracker.GetAll().Single().ImportSubfolder, Is.EqualTo(expected));
+        }
+
+        // The release title is sent with every grab, the platform picked for it still stays
+        [Test]
+        public async Task AddWithPlatformAndReleaseTitle_KeepsThePickedPlatform()
+        {
+            var (controller, tracker) = await SetUpAsync(new Game { Id = 1, Title = "Halo 3", PlatformId = 31 });
+
+            await controller.AddTorrent(new AddTorrentRequest
+            {
+                Url = "magnet:?xt=urn:btih:abc", Protocol = "torrent", GameId = 1, PlatformFolder = "windows", ReleaseTitle = "Halo 3 Update v1.2"
+            });
+
+            var tracked = tracker.GetAll().Single();
+            Assert.That(tracked.PlatformFolder, Is.EqualTo("windows"));
+            Assert.That(tracked.ImportSubfolder, Is.EqualTo("Patches"));
+        }
+
+        private async Task<(DownloadClientController Controller, DownloadPlatformTracker Tracker)> SetUpAsync(Game game)
+        {
+            var dbOptions = new DbContextOptionsBuilder<RetroArrDbContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .Options;
+            using (var ctx = new RetroArrDbContext(dbOptions))
+            {
+                ctx.Games.Add(game);
+                await ctx.SaveChangesAsync();
+            }
+            var tracker = new DownloadPlatformTracker(Path.Combine(_root, "config"));
+            // No download client is configured: the request is tracked, then refused.
+            var controller = new DownloadClientController(new ConfigurationService(_root), null!, tracker, null!, null!, null!, null!,
+                new SqliteGameRepository(new DbFactory(dbOptions)));
+            return (controller, tracker);
         }
 
         [Test]

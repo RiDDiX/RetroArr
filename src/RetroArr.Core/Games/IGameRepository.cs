@@ -11,6 +11,10 @@ namespace RetroArr.Core.Games
         Task<Game?> GetByIdAsync(int id);
         Task<Game> AddAsync(Game game);
         Task<Game?> UpdateAsync(int id, Game game);
+        // Runs change on the row as it is stored now and saves only the columns it modified, so a field
+        // someone else changed since the caller read the game survives. Returns the saved row, or null
+        // when the row no longer exists.
+        Task<Game?> UpdateFieldsAsync(int id, System.Action<Game> change);
         Task<bool> DeleteAsync(int id);
         Task<int> DeleteSteamGamesAsync();
         Task<int> DeleteGogGamesAsync();

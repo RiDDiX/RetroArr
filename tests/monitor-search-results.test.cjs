@@ -70,20 +70,22 @@ for (const needle of [
   assert(details.includes(needle), `game details search diagnostics must contain ${needle}`);
 }
 
-// A manual grab sends only the game; the backend resolves the platform from it.
+// A manual grab sends the game and the release title; the backend resolves the platform and the subfolder from them.
 let posted;
 const queueRelease = load('queueRelease', {
   apiClient: { post: async (_url, body) => { posted = body; return { data: {} }; } },
   gameId: 7, queueingUrl: null, setQueueingUrl: () => {}, setError: () => {}, setNotice: () => {},
-  detectImportSubfolder: () => null, getErrorMessage: () => '', t: k => k,
+  getErrorMessage: () => '', t: k => k,
 });
 
 (async () => {
   await searchNow();
   assert(searchInfo === response, 'searchNow must hand the response to the diagnostics state');
 
-  await queueRelease({ magnetUrl: 'magnet:?xt=x', protocol: 'torrent', platformFolder: 'wii', title: 'Halo 3' });
+  await queueRelease({ magnetUrl: 'magnet:?xt=x', protocol: 'torrent', platformFolder: 'wii', title: 'Zelda TotK [NSP] + Update 1.2.1' });
   assert(posted && posted.gameId === 7, 'the grab must send the game id');
   assert(!('platformFolder' in posted), 'the grab must not send the release platform folder');
+  assert(posted.releaseTitle === 'Zelda TotK [NSP] + Update 1.2.1', 'the grab must send the release title');
+  assert(!('importSubfolder' in posted), 'the grab must leave the subfolder to the backend');
   console.log('monitor-search-results: all contract checks passed');
 })().catch(e => { console.error(e.message); process.exit(1); });

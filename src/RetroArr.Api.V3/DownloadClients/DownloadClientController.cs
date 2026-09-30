@@ -563,16 +563,22 @@ namespace RetroArr.Api.V3.DownloadClients
                 
                 // Track platform folder, game ID and patch flag for post-download processing.
                 // Without a folder, take the game's own platform so the import never depends on a later lookup.
+                // Without a subfolder, the release title decides with the import's own rules.
                 var platformFolder = request.PlatformFolder;
-                if (string.IsNullOrEmpty(platformFolder) && request.GameId.HasValue)
+                var importSubfolder = request.ImportSubfolder;
+                var deriveSubfolder = string.IsNullOrEmpty(importSubfolder) && !string.IsNullOrEmpty(request.ReleaseTitle);
+                if (request.GameId.HasValue && (string.IsNullOrEmpty(platformFolder) || deriveSubfolder))
                 {
                     var game = await _gameRepository.GetByIdAsync(request.GameId.Value);
-                    if (game != null)
-                        platformFolder = RetroArr.Core.Games.PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.Id == game.PlatformId)?.FolderName;
+                    var gamePlatform = game == null ? null : RetroArr.Core.Games.PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.Id == game.PlatformId);
+                    if (game != null && string.IsNullOrEmpty(platformFolder))
+                        platformFolder = gamePlatform?.FolderName;
+                    if (game != null && deriveSubfolder)
+                        importSubfolder = PostDownloadProcessor.ImportSubfolderFor(request.ReleaseTitle!, game.Title, gamePlatform);
                 }
                 if (!string.IsNullOrEmpty(platformFolder) || request.GameId.HasValue)
                 {
-                    _platformTracker.Track(request.Url, platformFolder, request.GameId, request.ImportSubfolder);
+                    _platformTracker.Track(request.Url, platformFolder, request.GameId, importSubfolder);
                 }
                 
                 DownloadClient? client = null;
@@ -1023,7 +1029,8 @@ namespace RetroArr.Api.V3.DownloadClients
         public string? Protocol { get; set; } // "torrent", "nzb"
         public string? PlatformFolder { get; set; } // e.g. "windows", "switch", "psx"
         public int? GameId { get; set; } // Link download to a specific game for targeted import
-        public string? ImportSubfolder { get; set; } // Auto-detected: "Patches", "DLC", or null (main game)
+        public string? ImportSubfolder { get; set; } // "Patches", "DLC", or null (main game)
+        public string? ReleaseTitle { get; set; } // The indexer's title, sets ImportSubfolder when none is sent
     }
 
     [SuppressMessage("Microsoft.Design", "CA1056:UriPropertiesShouldNotBeStrings")]

@@ -185,7 +185,10 @@ namespace RetroArr.Core.Search
 
             if (!string.IsNullOrWhiteSpace(game.Revision) && !string.IsNullOrWhiteSpace(releaseRevision))
             {
-                if (string.Equals(game.Revision, releaseRevision, StringComparison.OrdinalIgnoreCase))
+                // "Rev A, Beta": one shared tag is a match
+                var wantedRevisions = game.Revision.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                                                   .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                if (wantedRevisions.Overlaps(releaseRevision!.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)))
                 {
                     score += settings.RevisionMatchBonus;
                     scored.Signals.Add($"revision match ({releaseRevision}, +{settings.RevisionMatchBonus})");

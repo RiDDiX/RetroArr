@@ -195,6 +195,21 @@ namespace RetroArr.Core.Test.Download
             Assert.That(imported, Does.Contain("game.zip").And.Not.Contain("aaa.iso"));
         }
 
+        // The client completed into the game folder itself: what extraction added there is imported where it lies,
+        // so it is the library's now and stays when the extracted files are cleaned up
+        [Test]
+        public async Task TorrentInTheGameFolder_FilesExtractedThere_Stay()
+        {
+            var (processor, library, _) = await TorrentSetup(new PostDownloadSettings { EnableAutoMove = true, EnableAutoExtract = true });
+            Zip(Path.Combine(library, "game.zip"), ("game (Disc 1).iso", "iso1"), ("game (Disc 2).iso", "iso2"));
+
+            var result = await processor.ProcessCompletedDownloadAsync(Torrent(library));
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            Assert.That(Directory.GetFiles(library).Select(Path.GetFileName), Is.EquivalentTo(new[] { "game (Disc 1).iso", "game (Disc 2).iso", "game.zip" }));
+            Assert.That(File.ReadAllText(Path.Combine(library, "game (Disc 2).iso")), Is.EqualTo("iso2"));
+        }
+
         [Test]
         public async Task TorrentArchives_SharingAFile_BothExtract_AndLeaveNothingBehind()
         {
@@ -415,7 +430,9 @@ namespace RetroArr.Core.Test.Download
                 State = DownloadState.Completed
             });
 
-            Assert.That(File.Exists(Path.Combine(library, "disc1.iso")), Is.True);
+            // disc1 alone is no game, it goes again until the whole release can land
+            Assert.That(File.Exists(Path.Combine(library, "disc1.iso")), Is.False);
+            Assert.That(File.Exists(Path.Combine(source, "disc1.iso")), Is.True, "the retry has no disc1 to import");
             Assert.That(File.Exists(Path.Combine(source, "disc2.iso")), Is.True, "the only copy of disc2 was deleted");
         }
 

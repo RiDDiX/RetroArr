@@ -3,7 +3,7 @@ import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
 import apiClient, { getErrorMessage, isTimeoutError, isAxiosError, monitorApi } from '../api/client';
 import { t, getLanguage, useTranslation } from '../i18n/translations';
 import GameCorrectionModal from '../components/GameCorrectionModal';
-import UninstallModal from '../components/UninstallModal';
+import UninstallModal, { type DeletePlan } from '../components/UninstallModal';
 import SwitchInstallerModal from '../components/SwitchInstallerModal';
 import { Modal } from '../components/ui';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -41,7 +41,6 @@ interface Game {
   gogId?: string;
   path?: string;
   uninstallerPath?: string;
-  downloadPath?: string;
   canPlay?: boolean;
   region?: string;
   languages?: string;
@@ -552,15 +551,6 @@ const GameDetails: React.FC = () => {
     }
   };
 
-  // Detect import subfolder from release title: "Patches", "DLC", or null (main game)
-  const detectImportSubfolder = (title?: string): string | null => {
-    if (!title) return null;
-    const t = title.toLowerCase();
-    if (/\bdlc\b/.test(t) || /[-.]dlc[-.]/i.test(title)) return 'DLC';
-    if (/\bupdate\b/.test(t) || /\bpatch\b/.test(t) || /\bhotfix\b/.test(t)) return 'Patches';
-    return null;
-  };
-
   // Open platform selection modal before download
   const handleDownloadWithPlatform = (url: string, protocol?: string, detectedPlatform?: string, platformFolder?: string, releaseTitle?: string) => {
     setPendingDownload({ url, protocol, detectedPlatform, platformFolder, releaseTitle });
@@ -593,7 +583,7 @@ const GameDetails: React.FC = () => {
         protocol: pendingDownload.protocol,
         platformFolder: selectedPlatform,
         gameId: game?.id,
-        importSubfolder: detectImportSubfolder(pendingDownload.releaseTitle)
+        releaseTitle: pendingDownload.releaseTitle
       });
       setNotification({ message: response.data.message || t('downloadStarted'), type: 'success' });
     } catch (error: unknown) {
@@ -1002,15 +992,13 @@ const GameDetails: React.FC = () => {
     }
   };
 
-  const handleDeleteGame = async (deleteLibraryFiles: boolean, deleteDownloadFiles: boolean, targetLibraryPath?: string, targetDownloadPath?: string) => {
+  const handleDeleteGame = async (deleteLibraryFiles: boolean, deleteDownloadFiles: boolean, plan: DeletePlan) => {
     if (!id) return;
     try {
       setNotification({ message: t('deletingGame') || 'Deleting...', type: 'info' });
-      let url = `/game/${id}?deleteFiles=${deleteLibraryFiles}&deleteDownloadFiles=${deleteDownloadFiles}`;
-      if (targetLibraryPath) url += `&targetPath=${encodeURIComponent(targetLibraryPath)}`;
-      if (targetDownloadPath) url += `&downloadPath=${encodeURIComponent(targetDownloadPath)}`;
-
-      await apiClient.delete(url);
+      // The server moves nothing when what would go differs from what the dialog showed
+      await apiClient.delete(`/game/${id}?deleteFiles=${deleteLibraryFiles}&deleteDownloadFiles=${deleteDownloadFiles}`,
+        { data: { paths: plan.paths ?? [], downloads: plan.downloads } });
       setNotification({ message: t('gameDeleted') || 'Game Deleted', type: 'success' });
       // Redirect to library after short delay
       setTimeout(() => {
@@ -1553,10 +1541,9 @@ const GameDetails: React.FC = () => {
             onClose={() => setShowUninstallModal(false)}
             onRunUninstaller={handleRunUninstaller}
             onDelete={handleDeleteGame}
+            gameId={game.id}
             gameTitle={game.title}
-            gamePath={game.path}
             uninstallerPath={game.uninstallerPath}
-            downloadPath={game.downloadPath}
           />
         )
       }

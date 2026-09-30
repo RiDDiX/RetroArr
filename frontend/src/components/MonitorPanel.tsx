@@ -37,13 +37,6 @@ const MonitorPanel: React.FC<Props> = ({ gameId, initialMonitored, initialPrefer
   const [groupSaving, setGroupSaving] = useState(false);
   const [queueingUrl, setQueueingUrl] = useState<string | null>(null);
 
-  const detectImportSubfolder = (title: string): string | null => {
-    const normalized = title.toLowerCase();
-    if (/\bdlc\b/.test(normalized) || /[-.]dlc[-.]/i.test(title)) return 'DLC';
-    if (/\bupdate\b/.test(normalized) || /\bpatch\b/.test(normalized) || /\bhotfix\b/.test(normalized)) return 'Patches';
-    return null;
-  };
-
   const queueRelease = async (release: ScoredReleaseDto) => {
     const url = release.magnetUrl || release.downloadUrl;
     if (!url || queueingUrl) return;
@@ -57,7 +50,7 @@ const MonitorPanel: React.FC<Props> = ({ gameId, initialMonitored, initialPrefer
         url,
         protocol: release.protocol,
         gameId,
-        importSubfolder: detectImportSubfolder(release.title)
+        releaseTitle: release.title
       });
       setNotice(response.data.message || t('downloadStarted'));
     } catch (e) {

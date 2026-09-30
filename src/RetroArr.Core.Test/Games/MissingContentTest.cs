@@ -257,6 +257,10 @@ namespace RetroArr.Core.Test.Games
             Put(psx, "Upper (USA) (Track 1).bin");
             var cue = Put(psx, "Upper (USA).cue", "FILE \"UPPER (USA) (TRACK 1).BIN\" BINARY\n");
             Assert.That(Check(G(Ps1, cue, cue)), Is.EqualTo(GameContent.Present), "cue names in another case");
+
+            Put(psx, "Renamed (USA) (Track 1).bin");
+            var renamed = Put(psx, "Renamed (USA).cue", "FILE \"Track 01.bin\" BINARY\n");
+            Assert.That(Check(G(Ps1, renamed, renamed)), Is.EqualTo(GameContent.Present), "tracks renamed after the cue was written");
         }
 
         [Test]
@@ -832,6 +836,19 @@ namespace RetroArr.Core.Test.Games
             Assert.That(await repo.ApplyContentStateAsync(1, GameContent.Gone, At, path + Path.DirectorySeparatorChar), Is.EqualTo((true, GameStatus.Missing, (DateTime?)At)));
         }
 
+        // Paths are told apart as the scanner does: by case too, where the file system does
+        [Test, Platform(Exclude = "Win,MacOsX")]
+        public async Task ApplyContentStateAsync_LossAtThePathInAnotherCase_IsDropped()
+        {
+            var repo = new SqliteGameRepository(new DbFactory(_db));
+            var path = Path.Combine(_lib, "gba", "Advance Wars");
+            await Seed(new Game { Id = 1, Title = "Advance Wars", PlatformId = Gba, Path = path, Status = GameStatus.Downloaded });
+
+            var stored = await repo.ApplyContentStateAsync(1, GameContent.Gone, At, Path.Combine(_lib, "GBA", "Advance Wars"));
+
+            Assert.That(stored, Is.EqualTo((false, GameStatus.Downloaded, (DateTime?)null)));
+        }
+
         [Test]
         public async Task CachedRepository_InvalidatesOnlyWhenTheRowChanged()
         {
@@ -919,7 +936,7 @@ namespace RetroArr.Core.Test.Games
             Assert.That(problem.GetProperty("problemDescription").GetString(), Is.EqualTo("The game's files are missing from its folder."));
         }
 
-        private static async Task<IList<string>> Logs(Func<Task> action)
+        internal static async Task<IList<string>> Logs(Func<Task> action)
         {
             var target = new NLog.Targets.MemoryTarget { Layout = "${level}|${message}" };
             var previous = NLog.LogManager.Configuration;

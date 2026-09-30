@@ -52,33 +52,36 @@ namespace RetroArr.Core.Games
             result.ClustersFound = clusters.Count;
             if (clusters.Count == 0) return result;
 
-            var alreadyMerged = new HashSet<int>();
+            var members = games.ToDictionary(g => g.Id, g => new DuplicateMember { GameId = g.Id, Title = g.Title, Path = g.Path, IgdbId = g.IgdbId });
+            // A row merged away stands for the row that took it over
+            var mergedInto = new Dictionary<int, int>();
+            int Survivor(int id)
+            {
+                while (mergedInto.TryGetValue(id, out var next)) id = next;
+                return id;
+            }
 
             foreach (var cluster in clusters)
             {
                 ct.ThrowIfCancellationRequested();
 
-                // Skip clusters already fully collapsed by a previous pass.
-                if (cluster.Games.All(m => alreadyMerged.Contains(m.GameId))) continue;
+                var alive = cluster.Games.Select(m => Survivor(m.GameId)).Distinct().Select(id => members[id]).ToList();
+                if (alive.Count < 2) continue;
 
-                var winner = DuplicateGameDetector.PickWinner(cluster);
-                var losers = cluster.Games
-                    .Where(m => m.GameId != winner.GameId && !alreadyMerged.Contains(m.GameId))
-                    .Select(m => m.GameId)
-                    .ToList();
-                if (losers.Count == 0) continue;
+                var winner = DuplicateGameDetector.PickWinner(new DuplicateCluster { Games = alive });
+                var losers = alive.Where(m => m.GameId != winner.GameId).Select(m => m.GameId).ToList();
 
                 await ReattachReferencesAsync(context, losers, winner.GameId, ct);
 
                 var loserRows = await context.Games.Where(g => losers.Contains(g.Id)).ToListAsync(ct);
                 context.Games.RemoveRange(loserRows);
                 result.RowsMerged += loserRows.Count;
+                foreach (var id in losers) mergedInto[id] = winner.GameId;
 
-                foreach (var id in losers) alreadyMerged.Add(id);
-                alreadyMerged.Add(winner.GameId);
+                // Stored before the next cluster reads: a row that took others over and loses later passes all of it on
+                await context.SaveChangesAsync(ct);
             }
 
-            await context.SaveChangesAsync(ct);
             return result;
         }
 
