@@ -1,3 +1,14 @@
+## v1.0.223 (2026-09-30)
+
+### Changes
+- harden imports, deletes and library scans (e01371a)
+- treat a game whose files are gone as missing and search it again (f5a1985)
+- name imports once and never replace a library file (6d7e4a6)
+- stop the monitor from grabbing a game twice (0921d0f)
+- show rejected releases, sent queries and indexer errors in search (1df13a6)
+- never overwrite an existing file on import (346eb0c)
+- show the detected platform in the release search table (7c21a94)
+
 ## v1.0.222 (2026-09-28)
 
 ### Changes
