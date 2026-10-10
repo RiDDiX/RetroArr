@@ -190,7 +190,8 @@ RUN mkdir -p /app/config /app/savestates /media /home/retroarr && \
 # user a writable home so their config initializer doesn't fail on startup.
 ENV HOME=/home/retroarr
 
-USER retroarr
+# No USER here: the entrypoint starts as root, fixes the config folder's ownership
+# and then drops to PUID/PGID (default 1000:1000).
 
 # 2727 = HTTP, 2728 = HTTPS (optional; only enabled when RETROARR_HTTPS_PORT is set)
 EXPOSE 2727 2728

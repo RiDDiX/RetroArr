@@ -5,6 +5,11 @@ CERT_DIR="/app/config/certs"
 CERT_PFX="$CERT_DIR/retroarr.pfx"
 CERT_PASS="retroarr"
 
+# Started with --user/user: we can't fix ownership, so at least say why nothing gets saved
+if [ "$(id -u)" != "0" ] && [ ! -w /app/config ]; then
+    echo "[entrypoint] warning: /app/config is not writable by uid $(id -u); the api key, database and settings can't be saved. chown the config folder on the host to $(id -u):$(id -g)."
+fi
+
 # Make a self-signed cert on first start when https is on. Delete the pfx
 # to force a regen. RETROARR_CERT_SAN adds extra entries if you need the
 # cert to match a specific lan ip or dns name.
@@ -70,5 +75,22 @@ for tool in steamprefill:SteamPrefill battlenetprefill:BattleNetPrefill epicpref
         && echo "[entrypoint] ${tool##*:} bundled; session dir -> /app/config/${tool%%:*}" \
         || echo "[entrypoint] warning: could not link ${tool##*:} Config dir"
 done
+
+# Started as root (the default): run as PUID/PGID and hand the app's own folders to
+# that user, so a config folder docker created as root still works. The library and
+# downloads are never touched. Extra groups from group_add are kept, root's are not.
+if [ "$(id -u)" = "0" ]; then
+    PUID="${PUID:-1000}"
+    PGID="${PGID:-1000}"
+    for dir in /app/config /app/savestates /home/retroarr; do
+        [ -d "$dir" ] || continue
+        find "$dir" \( ! -user "$PUID" -o ! -group "$PGID" \) -exec chown -h "$PUID:$PGID" {} + \
+            || echo "[entrypoint] warning: could not chown $dir to $PUID:$PGID; fix its ownership on the host"
+    done
+    extra_groups=$(id -G | tr ' ' '\n' | grep -vx 0 | paste -sd, -)
+    echo "[entrypoint] running as $PUID:$PGID"
+    exec setpriv --reuid="$PUID" --regid="$PGID" --groups="$PGID${extra_groups:+,$extra_groups}" \
+        dotnet RetroArr.Host.dll "$@"
+fi
 
 exec dotnet RetroArr.Host.dll "$@"
