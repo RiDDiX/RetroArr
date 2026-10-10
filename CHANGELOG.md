@@ -1,3 +1,8 @@
+## v1.0.227 (2026-10-10)
+
+### Changes
+- Translations completed (b1ccf5b)
+
 ## v1.0.226 (2026-10-10)
 
 ### Changes
