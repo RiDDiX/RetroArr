@@ -52,9 +52,16 @@ Run the login once from a shell (the exact command is also shown per provider in
 the tab):
 
 ```bash
-docker exec -it retroarr /opt/steamprefill/SteamPrefill select-apps
-docker exec -it retroarr /opt/epicprefill/EpicPrefill    select-apps
+docker exec -it -u 1000:1000 -e HOME=/home/retroarr -w /opt/steamprefill retroarr /opt/steamprefill/SteamPrefill select-apps
+docker exec -it -u 1000:1000 -e HOME=/home/retroarr -w /opt/epicprefill   retroarr /opt/epicprefill/EpicPrefill    select-apps
 ```
+
+Use your own `PUID:PGID` after `-u` (the command in the tab already has it).
+Without `-u` the login runs as root and leaves files the app can't write until
+the container restarts. `-w` and `HOME` matter too: the tools write their
+`app.log` into the current folder (the default `/app` isn't writable for them)
+and keep a cache under `$HOME`. Never run the tools as root: their folders
+belong to the app user.
 
 `select-apps` logs you in and lets you choose which titles to prefill. The
 session and your selection are stored next to each binary in `Config/`, which the
@@ -115,7 +122,7 @@ providers are independent, so Steam, Battle.net and Epic can run at different ti
 The tools can of course still be driven externally via `cron`/`systemd`:
 
 ```bash
-docker exec retroarr /opt/steamprefill/SteamPrefill prefill --no-ansi
+docker exec -u 1000:1000 -e HOME=/home/retroarr -w /opt/steamprefill retroarr /opt/steamprefill/SteamPrefill prefill --no-ansi
 ```
 
 ## Persistence

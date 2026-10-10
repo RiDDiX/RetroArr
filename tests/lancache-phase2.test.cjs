@@ -38,11 +38,26 @@ for (const t of ['steamprefill', 'battlenetprefill', 'epicprefill']) {
   assert(entry.includes(t), `entrypoint must handle ${t}`);
 }
 assert(entry.includes('/opt/') && entry.includes('/Config'), 'entrypoint symlinks Config dirs');
+// The tools write app.log and get updated inside /opt/<tool>, so those dirs follow PUID/PGID too
+const chownDirs = (entry.match(/for dir in ([^;]+); do/) || [])[1] || '';
+for (const t of ['steamprefill', 'battlenetprefill', 'epicprefill']) {
+  assert(chownDirs.includes(`/opt/${t}`), `entrypoint must hand /opt/${t} to PUID/PGID`);
+}
+assert(entry.includes('touch "$dir/app.log"'), 'entrypoint pre-creates app.log for root docker exec runs');
+// The root phase only chowns, then re-runs the script as PUID, so the cert and the prefill
+// links are made by the app user (root-squashed NFS); hard-linked files are never chowned
+assert(/exec setpriv [^\n]*"\$0" "\$@"/.test(entry), 'entrypoint re-runs itself as PUID/PGID');
+assert(entry.indexOf('exec setpriv') < entry.indexOf('openssl req'), 'privilege drop happens before cert generation');
+assert(entry.includes('-links 1'), 'root chown skips hard-linked files');
+assert(entry.includes('-execdir chown -h'), 'root chown never re-resolves parent folders');
+assert(entry.includes('readlink -f'), 'root chown skips folders reached through a symlink');
 
-// The prefill tools init a temp/manifest cache under $HOME; the non-root user
-// must have a writable home or their config initializer crashes on startup.
-assert(dockerfile.includes('/home/retroarr') && dockerfile.includes('ENV HOME=/home/retroarr'),
-  'retroarr user needs a writable HOME for the prefill tools');
+// The prefill tools init a temp/manifest cache under $HOME; the app user must have a
+// writable home or their config initializer crashes on startup. It is set after the
+// drop, not as an image ENV, so a root docker exec never runs the app user's dotfiles.
+assert(dockerfile.includes('/home/retroarr') && !dockerfile.includes('ENV HOME='),
+  'HOME must not be an image ENV (a root docker exec would read the app user\'s dotfiles)');
+assert(entry.includes('export HOME=/home/retroarr'), 'entrypoint gives the app user a writable HOME');
 
 // Frontend
 const client = read('frontend', 'src', 'api', 'client.ts');

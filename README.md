@@ -225,7 +225,7 @@ Everything lives under `config/` (Docker: `/app/config`) as JSON files. Nothing 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PUID` / `PGID` | `1000` | User and group IDs for file permissions |
+| `PUID` / `PGID` | `1000` | User and group IDs RetroArr runs as. The container starts as root, hands its config, savestate and prefill folders to this user and then drops to it. Your library and downloads are never chowned. Set `PUID=0` to keep running as root; `user: 0` alone no longer does that. With `cap_drop: ALL` the switch isn't possible; use `user: "1000:1000"` there instead (the LanCache prefill tools only work with 1000 in that mode) |
 | `RETROARR_HTTP_PORT` | `2727` | HTTP listen port |
 | `RETROARR_HTTPS_PORT` | unset | HTTPS listen port. If unset, HTTPS is disabled |
 | `RETROARR_CERT_SAN` | unset | Extra SAN entries (comma-separated) for the auto-generated HTTPS cert, e.g. `IP:192.168.1.10,DNS:retroarr.lan` |

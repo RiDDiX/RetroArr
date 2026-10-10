@@ -186,9 +186,10 @@ RUN mkdir -p /app/config /app/savestates /media /home/retroarr && \
     chown -R retroarr:retroarr /app /media /home/retroarr && \
     (chown -R retroarr:retroarr /opt/steamprefill /opt/battlenetprefill /opt/epicprefill 2>/dev/null || true)
 
-# The prefill tools resolve a temp/manifest cache under $HOME; give the non-root
-# user a writable home so their config initializer doesn't fail on startup.
-ENV HOME=/home/retroarr
+# The prefill tools resolve a temp/manifest cache under $HOME, so the app user needs
+# a writable home. The entrypoint sets HOME=/home/retroarr after the drop instead of
+# an ENV here, so a root docker exec keeps /root and never reads startup files from a
+# folder the app user owns.
 
 # No USER here: the entrypoint starts as root, fixes the config folder's ownership
 # and then drops to PUID/PGID (default 1000:1000).

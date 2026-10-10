@@ -98,6 +98,20 @@ namespace RetroArr.Core.LanCache
         private bool IsAvailable(ProviderDef p) => TryStat(p.BinaryPath);
         private bool IsLoggedIn(ProviderDef p) => !p.RequiresLogin || TryStat(Path.Combine(p.ConfigDir, p.SessionFile));
 
+        // A plain docker exec runs as root in /app and leaves a session file and app.log the
+        // app can't write afterwards, so the login runs as the app's own user, with its HOME
+        // (the tools cache there; a uid without a passwd entry would get /), in the tool's
+        // folder, where the app's own runs keep their app.log too.
+        private static string LoginCommand(ProviderDef p)
+        {
+            var uid = RetroArr.Core.IO.PathPermissionChecker.CurrentUid();
+            var gid = RetroArr.Core.IO.PathPermissionChecker.CurrentGid();
+            var user = uid != null && gid != null ? $" -u {uid}:{gid}" : "";
+            var home = Environment.GetEnvironmentVariable("HOME");
+            var env = string.IsNullOrEmpty(home) ? "" : $" -e HOME={home}";
+            return $"docker exec -it{user}{env} -w {Path.GetDirectoryName(p.BinaryPath)} retroarr {p.BinaryPath} select-apps";
+        }
+
         public HashSet<int> GetPrefilledAppIds(string providerId)
         {
             var result = new HashSet<int>();
@@ -180,7 +194,7 @@ namespace RetroArr.Core.LanCache
                         LastRunUtc = st.LastRunUtc,
                         LastExitCode = st.LastExitCode,
                         NextRunUtc = st.NextRunUtc,
-                        LoginCommand = p.RequiresLogin ? $"docker exec -it retroarr {p.BinaryPath} select-apps" : null,
+                        LoginCommand = p.RequiresLogin ? LoginCommand(p) : null,
                         RecentLog = new List<string>(st.Log)
                     });
                 }
@@ -329,7 +343,7 @@ namespace RetroArr.Core.LanCache
             if (!IsLoggedIn(p))
             {
                 RecordRun(p.Id, startedUtc, trigger, "skipped", null, "Not logged in.", null, null);
-                return PrefillRunResult.Fail($"Not logged in. One-time login: docker exec -it retroarr {p.BinaryPath} select-apps");
+                return PrefillRunResult.Fail($"Not logged in. One-time login: {LoginCommand(p)}");
             }
 
             var st = _state[p.Id];
