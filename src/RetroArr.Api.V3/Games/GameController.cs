@@ -912,7 +912,7 @@ namespace RetroArr.Api.V3.Games
                  if (full.Equals(s, StringComparison.OrdinalIgnoreCase)) return true;
                  
                  // Also block if it's a DIRECT child of a very sensitive root? 
-                 // e.g. /Users/imaik/Desktop/Juegos is OK. 
+                 // e.g. /Users/imaik/Desktop/Games is OK. 
                  // /Users/imaik/Desktop is BLOCKED (Safe).
             }
 

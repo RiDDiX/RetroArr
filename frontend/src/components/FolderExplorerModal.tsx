@@ -115,19 +115,19 @@ const FolderExplorerModal: React.FC<FolderExplorerModalProps> = ({ initialPath, 
                     <button
                         className="go-btn"
                         onClick={() => loadPath(currentPath)}
-                        title="Ir a esta ruta"
+                        title={t('goToPath')}
                         style={{ marginLeft: '5px', padding: '0 10px', background: 'var(--primary-color)', border: 'none', borderRadius: '4px', color: 'white', cursor: 'pointer' }}
                     >
-                        Go
+                        {t('go')}
                     </button>
                 </div>
 
                 <div className="explorer-content">
-                    {loading && <div className="explorer-message">Cargando...</div>}
+                    {loading && <div className="explorer-message">{t('loading')}</div>}
                     {error && <div className="explorer-message error">{error}</div>}
                     {!loading && !error && (
                         <div className="entries-list">
-                            {entries.length === 0 && <div className="explorer-message">Carpeta vacía (o acceso denegado).</div>}
+                            {entries.length === 0 && <div className="explorer-message">{t('folderEmptyOrDenied')}</div>}
                             {entries.map((entry: FolderEntry & { type?: string }) => (
                                 <div
                                     key={entry.path}
@@ -153,10 +153,10 @@ const FolderExplorerModal: React.FC<FolderExplorerModalProps> = ({ initialPath, 
                 </div>
 
                 <div className="explorer-footer">
-                    <p className="hint">{t('doubleClickToOpen') || 'Doble clic para abrir carpeta'}</p>
+                    <p className="hint">{t('doubleClickToOpen')}</p>
                     <div className="actions">
                         <button className="btn-secondary" onClick={onClose}>{t('cancel')}</button>
-                        <button className="btn-primary" onClick={handleSelect}>{t('selectCurrent') || 'Seleccionar Actual'}</button>
+                        <button className="btn-primary" onClick={handleSelect}>{t('selectCurrent')}</button>
                     </div>
                 </div>
             </div>

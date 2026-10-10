@@ -846,53 +846,13 @@
   }
 
   .results-row>div::before {
-    content: attr(class);
+    content: attr(data-label) ":";
     font-weight: 600;
     font-size: 10px;
     text-transform: uppercase;
     color: var(--ctp-blue);
     margin-right: 12px;
     flex-shrink: 0;
-  }
-
-  .col-title::before {
-    content: "Título:";
-  }
-
-  .col-protocol::before {
-    content: "Protocolo:";
-  }
-
-  .col-age::before {
-    content: "Fecha:";
-  }
-
-  .col-indexer::before {
-    content: "Indexador:";
-  }
-
-  .col-platform::before {
-    content: "Plataforma:";
-  }
-
-  .col-size::before {
-    content: "Tamaño:";
-  }
-
-  .col-peers::before {
-    content: "Pares:";
-  }
-
-  .col-quality::before {
-    content: "Calidad:";
-  }
-
-  .col-source::before {
-    content: "Provider:";
-  }
-
-  .col-actions::before {
-    content: "Descargar:";
   }
 
   .col-title .title-content {

@@ -163,8 +163,6 @@ const Library: React.FC = () => {
     e.preventDefault();
     e.stopPropagation();
     console.log('Right click detected for game:', game.title);
-    // alerta temporal para verificar que el clic derecho llega
-    // window.alert('Clic derecho en: ' + game.title); 
     setContextMenu({
       x: e.clientX,
       y: e.clientY,

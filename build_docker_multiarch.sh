@@ -1,15 +1,15 @@
 #!/bin/bash
-# Script para construir imágenes Docker multi-arquitectura para RetroArr
+# Builds multi-arch Docker images for RetroArr
 
 echo "===================================================="
 echo "      RetroArr Multi-Arch Docker Build Tool          "
 echo "===================================================="
 
-# Configuración Base
+# Base configuration
 IMAGE_REPO="git.riddix.de/riddix/retroarr"
 PACKAGE_FILE="package.json"
 
-# 1. Leer versión del package.json
+# 1. Read version from package.json
 if [ -f "$PACKAGE_FILE" ]; then
     VERSION=$(grep '"version":' "$PACKAGE_FILE" | head -n 1 | awk -F '"' '{print $4}')
     echo "Detected Version: $VERSION"
@@ -18,7 +18,7 @@ else
     exit 1
 fi
 
-# Definir Tags
+# Define tags
 TAG_LATEST="$IMAGE_REPO:latest"
 TAG_VER="$IMAGE_REPO:$VERSION"
 TAG_V_VER="$IMAGE_REPO:v$VERSION"
@@ -28,36 +28,36 @@ echo " - $TAG_LATEST"
 echo " - $TAG_VER"
 echo " - $TAG_V_VER"
 
-# 2. Argumentos
+# 2. Arguments
 PUSH_FLAG=""
-OUTPUT_FLAG="--output type=docker" # Por defecto, intentar cargar localmente (fallará para multi-arch en docker driver standard)
+OUTPUT_FLAG="--output type=docker" # By default try to load locally (fails for multi-arch with the standard docker driver)
 
 if [[ "$1" == "--push" ]]; then
-    echo "Modo: BUILD & PUSH (Subiendo a Docker Hub)"
+    echo "Mode: BUILD & PUSH (pushing to the registry)"
     PUSH_FLAG="--push"
     OUTPUT_FLAG="" 
 else
-    echo "Modo: BUILD ONLY (No se subirá a Docker Hub)"
-    echo "Para subir, ejecuta: ./build_docker_multiarch.sh --push"
+    echo "Mode: BUILD ONLY (nothing is pushed to the registry)"
+    echo "To push, run: ./build_docker_multiarch.sh --push"
 fi
 
-# 3. Verificar Buildx
+# 3. Check Buildx
 if ! docker buildx version >/dev/null 2>&1; then
-    echo "Error: Docker Buildx no está instalado."
+    echo "Error: Docker Buildx is not installed."
     exit 1
 fi
 
 BUILDER_NAME="RetroArr-builder"
 if ! docker buildx inspect "$BUILDER_NAME" >/dev/null 2>&1; then
-    echo "Creando constructor multi-plataforma..."
+    echo "Creating multi-platform builder..."
     docker buildx create --name "$BUILDER_NAME" --use
     docker buildx inspect --bootstrap
 else
     docker buildx use "$BUILDER_NAME"
 fi
 
-# 4. Ejecutar Build
-echo "Iniciando build para linux/amd64 y linux/arm64..."
+# 4. Run build
+echo "Starting build for linux/amd64 and linux/arm64..."
 
 docker buildx build \
     --platform linux/amd64,linux/arm64 \
@@ -69,15 +69,15 @@ docker buildx build \
 
 if [ $? -eq 0 ]; then
     echo "===================================================="
-    echo "          Build finalizado correctamente            "
+    echo "          Build finished successfully             "
     if [[ "$1" == "--push" ]]; then
-        echo "          Imágenes subidas a Docker Hub 🚀          "
+        echo "          Images pushed to the registry           "
     else
-        echo "Nota: Las imágenes están en el caché de buildx."
-        echo "Usa --push para subirlas o --load (solo single arch) para usarlas localmente."
+        echo "Note: the images are in the buildx cache."
+        echo "Use --push to push them or --load (single arch only) to use them locally."
     fi
     echo "===================================================="
 else
-    echo "Error: El build falló."
+    echo "Error: the build failed."
     exit 1
 fi

@@ -1616,7 +1616,7 @@ const GameDetails: React.FC = () => {
             {searching && (
               <div className="search-loading">
                 <FontAwesomeIcon icon={faSearch} spin />
-                <p>{t('searching') || 'Buscando...'}</p>
+                <p>{t('searching')}</p>
               </div>
             )}
 
@@ -1712,7 +1712,7 @@ const GameDetails: React.FC = () => {
 
                     return (
                       <div key={index} className={`results-row ${platform.confidence}`}>
-                        <div className="col-protocol">
+                        <div className="col-protocol" data-label={t('protocol')}>
                           <span className={`protocol-badge ${(result.protocol || 'torrent').toLowerCase()}`}>
                             {(result.protocol || 'TORRENT').toUpperCase()}
                           </span>
@@ -1720,7 +1720,7 @@ const GameDetails: React.FC = () => {
 
 
 
-                        <div className="col-title">
+                        <div className="col-title" data-label={t('title')}>
                           <div className="title-content">
                             {result.infoUrl ? (
                               <a href={result.infoUrl} target="_blank" rel="noopener noreferrer" className="title-link">
@@ -1740,21 +1740,21 @@ const GameDetails: React.FC = () => {
                           </div>
                         </div>
 
-                        <div className="col-indexer">
+                        <div className="col-indexer" data-label={t('indexer')}>
                           <span className="indexer-name">{result.indexer || result.indexerName}</span>
                         </div>
 
-                        <div className="col-platform">
+                        <div className="col-platform" data-label={t('platform')}>
                           <span className={`platform-tag ${platform.badge}`} title={`Category IDs: ${result.category || 'None'}`}>
                             {platform.name}
                           </span>
                         </div>
 
-                        <div className="col-size">
+                        <div className="col-size" data-label={t('size')}>
                           <span className="size">{result.formattedSize || `${(result.size / (1024 * 1024 * 1024)).toFixed(2)} GB`}</span>
                         </div>
 
-                        <div className="col-peers">
+                        <div className="col-peers" data-label={t('peers')}>
                           {result.protocol?.toLowerCase() === 'usenet' || result.protocol?.toLowerCase() === 'nzb' ? (
                             <span className="peers-info" title="Grabs (downloads)">
                               {result.grabs != null ? <><FontAwesomeIcon icon={faDownload} /> {result.grabs}</> : '-'}
@@ -1772,7 +1772,7 @@ const GameDetails: React.FC = () => {
                           )}
                         </div>
 
-                        <div className="col-age">
+                        <div className="col-age" data-label={t('age')}>
                           <span className="age" title={result.publishDate ? new Date(result.publishDate).toLocaleString() : ''}>
                             {result.formattedAge || '-'}
                           </span>
@@ -1780,7 +1780,7 @@ const GameDetails: React.FC = () => {
 
 
 
-                        <div className="col-actions">
+                        <div className="col-actions" data-label={t('download')}>
                           <div className="download-buttons">
                             {(result.magnetUrl || result.downloadUrl) && (
                               <button

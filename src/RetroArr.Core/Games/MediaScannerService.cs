@@ -1195,23 +1195,23 @@ namespace RetroArr.Core.Games
                     
                     // --- SCORING RULES (v0.4.2 Winner Takes All) ---
                     
-                    // 1. Blacklist Filtering (TAREA 1)
+                    // 1. Blacklist Filtering
                     if (IsBlacklistedFile(file.Name, isExternal)) continue;
 
-                    // 2. Name Match (+100) (TAREA 3)
+                    // 2. Name Match (+100)
                     var rootFolderName = root.Name.ToLowerInvariant();
                     if (name == rootFolderName) score += 100;
                     else if (name.Replace(" ", "").Replace("-", "") == rootFolderName.Replace(" ", "").Replace("-", "")) score += 90;
                     else if (rootFolderName.Contains(name) && name.Length > 4) score += 30;
 
-                    // 3. Priority Names (+50) (TAREA 2 & 3)
+                    // 3. Priority Names (+50)
                     if (file.Name.Equals("AppRun", StringComparison.OrdinalIgnoreCase) || 
                         file.Name.Equals("Start.sh", StringComparison.OrdinalIgnoreCase))
                     {
                         score += 50;
                     }
 
-                    // 4. Installer/Config Penalty (-50) (TAREA 3)
+                    // 4. Installer/Config Penalty (-50)
                     if (name.Contains("launch") || name.Contains("settings") || name.Contains("server") || 
                         name.Contains("config") || name.Contains("setup") || name.Contains("install"))
                     {
@@ -1233,7 +1233,7 @@ namespace RetroArr.Core.Games
 
                 if (!candidates.Any()) return (null, false);
 
-                // 7. Largest File Bonus (+20) (TAREA 3)
+                // 7. Largest File Bonus (+20)
                 var largestFile = candidates.OrderByDescending(x => x.File.Length).FirstOrDefault();
                 for (int i = 0; i < candidates.Count; i++)
                 {
@@ -1363,7 +1363,7 @@ namespace RetroArr.Core.Games
                                      && platformKey != "macos" && platformKey != "macintosh" 
                                      && platformKey != "dos" && platformKey != "linux" && platformKey != "default";
 
-                    // TAREA 2: Skip clustering for specific extensions (ROMs, ISOs, PKG, etc.)
+                    // Skip clustering for specific extensions (ROMs, ISOs, PKG, etc.)
                     // Check if ANY file in the folder has an extension that skips clustering
                     bool hasNoClusterExtension = filePaths.Any(f => _noClusterExtensions.Contains(Path.GetExtension(f)));
 
@@ -1428,7 +1428,7 @@ namespace RetroArr.Core.Games
                                     Revision = fileRevision
                                 };
 
-                                // TAREA: Ambiguity Resolution for ISO/BIN/PKG in console mode too
+                                // Ambiguity Resolution for ISO/BIN/PKG in console mode too
                                 if (candidate.PlatformKey == "default" || candidate.PlatformKey == "ps4")
                                 {
                                     var refined = _titleCleaner.ResolvePlatformFromSerial(serial ?? "");
@@ -1441,7 +1441,7 @@ namespace RetroArr.Core.Games
                         continue;
                     }
 
-                    // TAREA 3: PC/Desktop Logic: Only apply clustering if we have executable scripts/binaries
+                    // PC/Desktop Logic: Only apply clustering if we have executable scripts/binaries
                     // Otherwise treat them as one-file-one-game if they are unique enough (or let the filter handle it)
                     var (bestExePath, isInstaller) = FindBestExecutableInList(folderPath, filePaths);
 
@@ -1673,7 +1673,7 @@ namespace RetroArr.Core.Games
 
             if (!candidates.Any()) return (null, false);
 
-            // TAREA 3: Only cluster if we found typical PC executables/scripts
+            // Only cluster if we found typical PC executables/scripts
             // If we only have data files or other extensions, the selection might be weaker
             var winner = candidates.OrderByDescending(c => c.Score).First();
             
@@ -1817,7 +1817,7 @@ namespace RetroArr.Core.Games
             // 1. Exact Filename Blacklist
             if (_filenameBlacklist.Contains(fileName)) return true;
 
-            // 2. Keyword Blacklist (TAREA 1)
+            // 2. Keyword Blacklist
             if (_junkNameParts.IsMatch(fileName) || _junkWords.IsMatch(_camelCase.Replace(fileName, " "))) return true;
 
             return IsUpdateOrDlc(fileName);
@@ -2906,7 +2906,7 @@ namespace RetroArr.Core.Games
 
             var ext = Path.GetExtension(filePath);
 
-            // TAREA 2: Linux support for extensionless binaries
+            // Linux support for extensionless binaries
             bool isLinux = System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Linux);
             if (isLinux && string.IsNullOrEmpty(ext))
             {

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import apiClient from '../api/client';
-import { t as translate } from '../i18n/translations';
+import { t as translate, getLanguage } from '../i18n/translations';
 import FolderExplorerModal from './FolderExplorerModal';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faSearch } from '@fortawesome/free-solid-svg-icons';
@@ -35,7 +35,7 @@ interface GameCorrectionModalProps {
     language?: string;
 }
 
-const GameCorrectionModal: React.FC<GameCorrectionModalProps> = ({ game, onClose, onSave, language = 'es' }) => {
+const GameCorrectionModal: React.FC<GameCorrectionModalProps> = ({ game, onClose, onSave, language = getLanguage() }) => {
     const [activeTab, setActiveTab] = useState<'metadata' | 'path' | 'playPath'>('metadata');
 
     // Metadata State
@@ -215,7 +215,7 @@ const GameCorrectionModal: React.FC<GameCorrectionModalProps> = ({ game, onClose
 
                     {activeTab === 'path' && (
                         <div className="path-correction">
-                            <label>{t('currentPath') || 'Ruta Actual'}:</label>
+                            <label>{t('currentPath')}:</label>
                             <div className="path-input-group">
                                 <input
                                     type="text"
@@ -225,14 +225,14 @@ const GameCorrectionModal: React.FC<GameCorrectionModalProps> = ({ game, onClose
                                 <button onClick={() => openExplorer('install')}>📁</button>
                             </div>
                             <p className="hint">
-                                {t('pathHint') || 'Selecciona la carpeta donde está instalado el juego.'}
+                                {t('pathHint')}
                             </p>
                         </div>
                     )}
 
                     {activeTab === 'playPath' && (
                         <div className="path-correction">
-                            <label>{t('executablePath') || 'Ejecutable'}:</label>
+                            <label>{t('executablePath')}:</label>
                             <div className="path-input-group">
                                 <input
                                     type="text"
@@ -243,7 +243,7 @@ const GameCorrectionModal: React.FC<GameCorrectionModalProps> = ({ game, onClose
                                 <button onClick={() => openExplorer('executable')}>📁</button>
                             </div>
                             <p className="hint">
-                                {t('playPathHint') || 'Selecciona el archivo ejecutable del juego.'}
+                                {t('playPathHint')}
                             </p>
                         </div>
                     )}
