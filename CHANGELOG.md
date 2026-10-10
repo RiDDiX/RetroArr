@@ -1,3 +1,8 @@
+## v1.0.225 (2026-10-10)
+
+### Changes
+- run setup as PUID and keep prefill folders writable (8d926c7)
+
 ## v1.0.224 (2026-10-10)
 
 ### Changes
