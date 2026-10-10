@@ -1,3 +1,8 @@
+## v1.0.226 (2026-10-10)
+
+### Changes
+- keep linked updates across scans, fix title cleanup, merges and list status (a6b4fcf)
+
 ## v1.0.225 (2026-10-10)
 
 ### Changes
