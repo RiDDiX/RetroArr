@@ -33,10 +33,11 @@ namespace RetroArr.Api.V3.Games
         private readonly RetroArr.Core.Download.PostDownloadProcessor _postDownloadProcessor;
         private readonly IProgressNotifier? _progressNotifier;
         private readonly RetroArr.Core.Download.History.DownloadHistoryRepository? _history;
+        private readonly DuplicateGameMergeService? _mergeService;
 
         private readonly ApiKeyService _apiKeyService;
 
-        public GameController(IGameRepository repository, IGameMetadataServiceFactory metadataServiceFactory, RetroArr.Core.IO.IArchiveService archiveService, ILauncherService launcherService, ConfigurationService configService, InstallerScannerService installerScanner, LocalMediaExportService localMediaExport, RetroArr.Core.MetadataSource.Gog.GogDownloadTracker gogDownloadTracker, TrashService trash, MediaScannerService scannerService, RetroArr.Core.Download.PostDownloadProcessor postDownloadProcessor, ApiKeyService apiKeyService, IProgressNotifier? progressNotifier = null, RetroArr.Core.Download.History.DownloadHistoryRepository? history = null)
+        public GameController(IGameRepository repository, IGameMetadataServiceFactory metadataServiceFactory, RetroArr.Core.IO.IArchiveService archiveService, ILauncherService launcherService, ConfigurationService configService, InstallerScannerService installerScanner, LocalMediaExportService localMediaExport, RetroArr.Core.MetadataSource.Gog.GogDownloadTracker gogDownloadTracker, TrashService trash, MediaScannerService scannerService, RetroArr.Core.Download.PostDownloadProcessor postDownloadProcessor, ApiKeyService apiKeyService, IProgressNotifier? progressNotifier = null, RetroArr.Core.Download.History.DownloadHistoryRepository? history = null, DuplicateGameMergeService? mergeService = null)
         {
             _apiKeyService = apiKeyService;
             _repository = repository;
@@ -52,6 +53,7 @@ namespace RetroArr.Api.V3.Games
             _postDownloadProcessor = postDownloadProcessor;
             _progressNotifier = progressNotifier;
             _history = history;
+            _mergeService = mergeService;
         }
 
         [HttpGet]
@@ -199,6 +201,9 @@ namespace RetroArr.Api.V3.Games
             return Ok(new { message = "Problem marked as resolved" });
         }
 
+        // setup.exe, GOG's setup_game_1.0_(123).exe, install*.exe, GameSetup.exe
+        private static readonly Regex _installerExe = new(@"^(setup|install).*\.exe$|(setup|install)\.exe$", RegexOptions.IgnoreCase);
+
         [HttpGet("{id}")]
         public async Task<ActionResult<Game>> GetById(int id, [FromQuery] string? lang = null)
         {
@@ -236,10 +241,8 @@ namespace RetroArr.Api.V3.Games
 
             var uninstallerPath = FindUninstaller(game.Path);
 
-            var isInstaller = game.Status == GameStatus.InstallerDetected || 
-                              (!string.IsNullOrEmpty(game.ExecutablePath) && 
-                               (game.ExecutablePath.EndsWith("setup.exe", System.StringComparison.OrdinalIgnoreCase) || 
-                                game.ExecutablePath.EndsWith("install.exe", System.StringComparison.OrdinalIgnoreCase)));
+            var isInstaller = game.Status == GameStatus.InstallerDetected ||
+                              (!string.IsNullOrEmpty(game.ExecutablePath) && _installerExe.IsMatch(System.IO.Path.GetFileName(game.ExecutablePath)));
 
             bool canPlay = (game.SteamId.HasValue && game.SteamId.Value > 0) || 
                            !string.IsNullOrEmpty(game.GogId) ||
@@ -470,27 +473,23 @@ namespace RetroArr.Api.V3.Games
             var target = await _repository.GetByIdAsync(targetId);
             if (source == null || target == null) return NotFound();
 
-            if (string.IsNullOrEmpty(target.Path) && !string.IsNullOrEmpty(source.Path))
-                target.Path = source.Path;
-            if (string.IsNullOrEmpty(target.ExecutablePath) && !string.IsNullOrEmpty(source.ExecutablePath))
-                target.ExecutablePath = source.ExecutablePath;
-            if (string.IsNullOrEmpty(target.Region) && !string.IsNullOrEmpty(source.Region))
-                target.Region = source.Region;
-            if (string.IsNullOrEmpty(target.Languages) && !string.IsNullOrEmpty(source.Languages))
-                target.Languages = source.Languages;
-
-            try
+            // What hangs off the source moves to the target and the source row goes; the target keeps a path whose
+            // content may still be there or takes the source's. Files are kept in place - if the user wants the file
+            // gone too, they can hit Remove on the row first.
+            var merged = await _mergeService!.MergeIntoAsync(_repository, source, targetId, await _repository.GetAllLightAsync(), t =>
             {
-                await _repository.UpdateAsync(target.Id, target);
-            }
-            catch (DuplicateGameException ex)
+                if (string.IsNullOrEmpty(t.Languages) && !string.IsNullOrEmpty(source.Languages))
+                    t.Languages = source.Languages;
+            });
+            if (merged == null) return NotFound();
+
+            if (string.IsNullOrEmpty(merged.Region) && !string.IsNullOrEmpty(source.Region))
             {
-                return Conflict(new { code = "duplicate_title", message = ex.Message });
+                // Another entry may be the title's release of that region: the target then stays without one
+                try { await _repository.UpdateFieldsAsync(targetId, t => { if (string.IsNullOrEmpty(t.Region)) t.Region = source.Region; }); }
+                catch (DuplicateGameException ex) { _logger.Info($"[Game] {targetId} keeps no region: {ex.Message}"); }
             }
 
-            // Delete the source metadata row. Files are kept in place - if the
-            // user wants the file gone too, they can hit Remove on the row first.
-            await _repository.DeleteAsync(sourceId);
             _logger.Info($"[Game] Merged {sourceId} into {targetId}");
             return Ok(new { merged = true, targetId });
         }
@@ -1512,9 +1511,14 @@ namespace RetroArr.Api.V3.Games
                     }
                 }
 
-                // Also load DB-tracked supplementary files (from shared folders like Updates+DLCs)
+                // Also load DB-tracked supplementary files (from shared folders like Updates+DLCs); one the listing above
+                // shows already is left out
+                var listed = files.Select(f => (string)((dynamic)f).fullPath).ToHashSet(StringComparer.FromComparison(PathCase));
                 var dbFiles = game.GameFiles?
                     .Where(gf => gf.FileType != "Main")
+                    .Select(gf => (Row: gf, Full: GameFilePaths.Resolve(game.Path, gf.RelativePath)))
+                    .Where(r => r.Full == null || !listed.Contains(r.Full))
+                    .Select(r => r.Row)
                     .Select(gf => new
                     {
                         name = Path.GetFileName(gf.RelativePath),
@@ -2134,27 +2138,63 @@ namespace RetroArr.Api.V3.Games
 
             if (string.IsNullOrEmpty(request.FilePath))
                 return BadRequest(new { message = "filePath is required" });
-
-            // Resolve: if the path points to a file, use its parent directory as game.Path
-            string gamePath;
-            if (System.IO.File.Exists(request.FilePath))
-            {
-                gamePath = Path.GetDirectoryName(request.FilePath) ?? request.FilePath;
-            }
-            else if (Directory.Exists(request.FilePath))
-            {
-                gamePath = request.FilePath;
-            }
-            else
-            {
+            if (!System.IO.File.Exists(request.FilePath) && !Directory.Exists(request.FilePath))
                 return BadRequest(new { message = "Path does not exist" });
+
+            var paths = await PathsOfAsync(request.FilePath, id);
+            if (paths == null)
+                return BadRequest(new { message = $"{request.FilePath} is a folder of many games: map the game's file or its own folder." });
+            var (gamePath, exe) = paths.Value;
+            Game? saved;
+            try
+            {
+                saved = await _repository.UpdateFieldsAsync(id, g =>
+                {
+                    g.Path = gamePath;
+                    if (exe != null) g.ExecutablePath = exe;
+                });
             }
+            catch (DuplicateGameException ex)
+            {
+                return Conflict(new { code = "duplicate_path", message = ex.Message });
+            }
+            if (saved == null) return NotFound();
+            await MarkPresentAsync(saved);
+            _logger.Info($"[API] Mapped file to game: '{saved.Title}' -> {gamePath}");
 
-            game.Path = gamePath;
-            await _repository.UpdateAsync(game.Id, game);
-            _logger.Info($"[API] Mapped file to game: '{game.Title}' -> {gamePath}");
+            return Ok(new { success = true, message = $"Mapped to '{saved.Title}'", path = gamePath });
+        }
 
-            return Ok(new { success = true, message = $"Mapped to '{game.Title}'", path = gamePath });
+        // The entry of the title (in any case) on the platform for a file of that region: the one of the region, or else
+        // one without a region (a wanted game), which is no other release of it, as the scanner has it
+        internal static async Task<GameListDto?> EntryOfAsync(IGameRepository repository, int platformId, string title, string? region)
+        {
+            // The title is compared here: the database folds the case of ASCII letters only (Ōkami, Élite)
+            var ofTitle = (await repository.GetAllPagedAsync(1, int.MaxValue, platformId)).Items
+                .Where(g => g.Title.Equals(title, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            return ofTitle.FirstOrDefault(g => string.Equals(g.Region ?? string.Empty, region ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+                ?? ofTitle.FirstOrDefault(g => string.IsNullOrEmpty(g.Region));
+        }
+
+        // A file's game lies in its folder, unless other games are in there too (a library root, a platform folder,
+        // a folder another entry's path or exe lies in): then the game is the file. A file is what runs. Null for such
+        // a folder given as the game's folder.
+        private async Task<(string Path, string? Exe)?> PathsOfAsync(string path, int gameId)
+        {
+            var others = (await _repository.GetAllLightAsync()).Where(g => g.Id != gameId).ToList();
+            bool Shared(string folder) => IsCriticalPath(folder) || IsLibraryFolder(folder, LibraryRoots())
+                || others.Any(g => new[] { g.Path, g.ExecutablePath }.Any(p => !string.IsNullOrEmpty(p) && IsSubPath(p, folder, PathCase)));
+            if (Directory.Exists(path)) return Shared(path) ? null : (path, null);
+            var parent = Path.GetDirectoryName(Path.GetFullPath(path))!;
+            return (Shared(parent) ? path : parent, path);
+        }
+
+        // The game is in the library now: it shows as available and the monitor stops searching for it
+        private async Task MarkPresentAsync(Game game)
+        {
+            if (_mergeService?.CheckContent(game) == GameContent.Present)
+                await _repository.ApplyContentStateAsync(game.Id, GameContent.Present, DateTime.UtcNow, game.Path);
         }
 
         [HttpGet("{id}/patches")]
@@ -2238,19 +2278,12 @@ namespace RetroArr.Api.V3.Games
             if (!System.IO.File.Exists(request.FilePath) && !Directory.Exists(request.FilePath))
                 return BadRequest(new { message = "Path does not exist" });
 
-            // Resolve game path (folder)
-            string gamePath;
-            string gameTitle;
-            if (Directory.Exists(request.FilePath))
-            {
-                gamePath = request.FilePath;
-                gameTitle = new DirectoryInfo(request.FilePath).Name;
-            }
-            else
-            {
-                gamePath = Path.GetDirectoryName(request.FilePath) ?? request.FilePath;
-                gameTitle = Path.GetFileNameWithoutExtension(request.FilePath);
-            }
+            var name = Directory.Exists(request.FilePath)
+                ? new DirectoryInfo(request.FilePath).Name
+                : Path.GetFileNameWithoutExtension(request.FilePath);
+            var gameTitle = name;
+            // Without one given, the region is the file's ("(USA)")
+            var region = request.Region ?? TitleCleanerService.ExtractFilenameMetadata(name).Region;
 
             // Use provided title if given
             if (!string.IsNullOrEmpty(request.Title))
@@ -2271,17 +2304,31 @@ namespace RetroArr.Api.V3.Games
                 return BadRequest(new { code = "invalid_platform", message = "Could not resolve a valid platform. Pass platformId or a folder that matches a known platform." });
             }
 
-            // Check for existing game with same title+platform
-            var allGames = await _repository.GetAllAsync();
-            var existing = allGames.FirstOrDefault(g =>
-                g.Title.Equals(gameTitle, StringComparison.OrdinalIgnoreCase) &&
-                (platformId == 0 || g.PlatformId == platformId));
+            var existing = await EntryOfAsync(_repository, platformId, gameTitle, region);
 
+            var paths = await PathsOfAsync(request.FilePath, existing?.Id ?? 0);
+            if (paths == null)
+                return BadRequest(new { message = $"{request.FilePath} is a folder of many games: pick the game's file or its own folder." });
+            var (gamePath, exe) = paths.Value;
             if (existing != null)
             {
                 // Update existing game's path instead of creating duplicate
-                existing.Path = gamePath;
-                await _repository.UpdateAsync(existing.Id, existing);
+                Game? updated;
+                try
+                {
+                    updated = await _repository.UpdateFieldsAsync(existing.Id, g =>
+                    {
+                        g.Path = gamePath;
+                        if (exe != null) g.ExecutablePath = exe;
+                        if (string.IsNullOrEmpty(g.Region) && !string.IsNullOrEmpty(region)) g.Region = region;
+                    });
+                }
+                catch (DuplicateGameException ex)
+                {
+                    return Conflict(new { code = "duplicate_path", message = ex.Message });
+                }
+                if (updated == null) return NotFound();
+                await MarkPresentAsync(updated);
                 _logger.Info($"[API] CreateFromFile: Updated existing game '{existing.Title}' path -> {gamePath}");
                 return Ok(new { success = true, gameId = existing.Id, title = existing.Title, path = gamePath, created = false });
             }
@@ -2290,13 +2337,16 @@ namespace RetroArr.Api.V3.Games
             {
                 Title = gameTitle,
                 Path = gamePath,
+                ExecutablePath = exe,
                 PlatformId = platformId,
+                Region = region,
                 Status = GameStatus.Released,
                 Added = DateTime.UtcNow,
                 Images = new GameImages()
             };
 
             var saved = await _repository.AddAsync(newGame);
+            await MarkPresentAsync(saved);
             _logger.Info($"[API] CreateFromFile: Created game '{saved.Title}' (ID: {saved.Id}) -> {gamePath}");
 
             return Ok(new { success = true, gameId = saved.Id, title = saved.Title, path = gamePath, created = true });
@@ -2369,5 +2419,6 @@ namespace RetroArr.Api.V3.Games
         public string? Title { get; set; }
         public int PlatformId { get; set; }
         public string? PlatformFolder { get; set; }
+        public string? Region { get; set; }
     }
 }

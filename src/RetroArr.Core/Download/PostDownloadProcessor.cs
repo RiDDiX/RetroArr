@@ -238,7 +238,7 @@ namespace RetroArr.Core.Download
             // Linux
             ".appimage", ".sh",
             // Archives (may contain game files)
-            ".zip", ".rar", ".7z", ".tar", ".gz",
+            ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".zst", ".tgz", ".tbz2", ".txz",
             // Sega
             ".md", ".smd", ".gen", ".cdi", ".gdi",
             // Other
@@ -271,6 +271,7 @@ namespace RetroArr.Core.Download
             }
 
             var platformFolder = ResolvePlatformFolderName(download.PlatformFolder, mediaSettings.FolderNamingMode);
+            var platform = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.MatchesFolderName(download.PlatformFolder ?? ""));
 
             bool isDirectory = Directory.Exists(download.DownloadPath);
             
@@ -333,7 +334,6 @@ namespace RetroArr.Core.Download
                 }
 
                 var originalFolderName = new DirectoryInfo(download.DownloadPath!).Name;
-                bool gameAdded = false;
                 int failedCount = 0;
                 var sourceInLibrary = false;
                 var landed = new List<string>();
@@ -362,14 +362,6 @@ namespace RetroArr.Core.Download
                     if (CheckTarget(destPath, file) == ImportTarget.AlreadyThere || _fileMover.ImportFile(file, destPath))
                     {
                         landed.Add(destPath);
-                        // If this looks like the main setup or exe, let's track it
-                        var lowerName = Path.GetFileName(file).ToLowerInvariant();
-                        if (!gameAdded && (lowerName.Contains("setup") || lowerName.Contains("install") || lowerName.EndsWith(".exe")))
-                        {
-                            var metadataSvc = _metadataFactory.CreateService();
-                            await AddMovedGameToLibraryAsync(containerName, destPath, ownFolder || shouldNest, metadataSvc, download.PlatformFolder);
-                            gameAdded = true;
-                        }
                     }
                     else
                     {
@@ -377,22 +369,14 @@ namespace RetroArr.Core.Download
                     }
                 }
 
-                // If no game was added yet (no setup/install exe found), add the first valid game file
-                if (!gameAdded)
+                // The game runs the best game file that landed, picked as a game-targeted import picks it: not the first one
+                // listed with setup or install in its name
+                var candidates = landed.Where(p => ValidExtensions.Contains(Path.GetExtension(p).ToLowerInvariant())).ToList();
+                if (candidates.Count > 0)
                 {
-                    var firstGameFile = files.FirstOrDefault(f => ValidExtensions.Contains(Path.GetExtension(f).ToLower()));
-                    if (firstGameFile != null)
-                    {
-                        string gameDestPath;
-                        var rel = Path.GetRelativePath(download.DownloadPath!, firstGameFile);
-                        if (shouldNest)
-                            gameDestPath = Path.Combine(gameFolder, new DirectoryInfo(download.DownloadPath!).Name, rel);
-                        else
-                            gameDestPath = Path.Combine(gameFolder, rel);
-
-                        var metadataSvc = _metadataFactory.CreateService();
-                        await AddMovedGameToLibraryAsync(containerName, gameDestPath, ownFolder || shouldNest, metadataSvc, download.PlatformFolder);
-                    }
+                    var primary = PickPrimary(candidates, gameFolder, platform);
+                    await AddMovedGameToLibraryAsync(containerName, primary, ownFolder || shouldNest, _metadataFactory.CreateService(), download.PlatformFolder,
+                        IsInstallerPick(primary, platform, candidates));
                 }
 
                 KeepImported(extracted, landed);
@@ -420,8 +404,8 @@ namespace RetroArr.Core.Download
 
                     if (CheckTarget(destPath, file) == ImportTarget.AlreadyThere || _fileMover.ImportFile(file, destPath))
                     {
-                        var metadataSvc = _metadataFactory.CreateService();
-                        await AddMovedGameToLibraryAsync(containerName, destPath, ownFolder, metadataSvc, download.PlatformFolder);
+                        await AddMovedGameToLibraryAsync(containerName, destPath, ownFolder, _metadataFactory.CreateService(), download.PlatformFolder,
+                            IsInstallerPick(destPath, platform, new[] { destPath }));
 
                         if (!SamePath(file, destPath)) DeleteSource(file, keep);
 
@@ -560,28 +544,26 @@ namespace RetroArr.Core.Download
             // Auto-detect content type from download name for routing and rename
             var (contentType, detectedVersion, detectedDlcName) = DetectContentType(download.Name, game.Title, gamePlatform);
 
-            // Route to subfolder: explicit ImportSubfolder takes priority over auto-detection
-            var importFolder = targetFolder;
-            if (!string.IsNullOrEmpty(download.ImportSubfolder))
+            // Route to subfolder: explicit ImportSubfolder takes priority over auto-detection. "Main" is the game's folder itself.
+            var subfolder = ImportSubfolderName(download.ImportSubfolder);
+            if (subfolder == null && !string.IsNullOrEmpty(download.ImportSubfolder))
+                _logger.Warn($"[PostDownload] Ignoring import subfolder '{download.ImportSubfolder}', it is none of {string.Join(", ", ImportSubfolders)}");
+            if (subfolder != null)
             {
-                importFolder = Path.Combine(targetFolder, download.ImportSubfolder);
-                // The subfolder picked when the release was grabbed decides what it is
-                if (download.ImportSubfolder.Equals("Patches", StringComparison.OrdinalIgnoreCase))
-                    contentType = DownloadContentType.Patch;
-                else if (download.ImportSubfolder.Equals("DLC", StringComparison.OrdinalIgnoreCase))
-                    contentType = DownloadContentType.DLC;
-                _logger.Info($"[PostDownload] Subfolder import ({download.ImportSubfolder}): routing to {importFolder}");
+                // The subfolder picked when the release was grabbed or mapped decides what it is
+                contentType = subfolder switch { "Patches" => DownloadContentType.Patch, "DLC" => DownloadContentType.DLC, _ => DownloadContentType.MainGame };
+                _logger.Info($"[PostDownload] Subfolder import ({subfolder})");
             }
             else if (contentType == DownloadContentType.Patch)
-            {
-                importFolder = Path.Combine(targetFolder, "Patches");
-                _logger.Info($"[PostDownload] Auto-detected patch (v{detectedVersion ?? "?"}): routing to {importFolder}");
-            }
+                _logger.Info($"[PostDownload] Auto-detected patch (v{detectedVersion ?? "?"})");
             else if (contentType == DownloadContentType.DLC)
+                _logger.Info($"[PostDownload] Auto-detected DLC ({detectedDlcName ?? "?"})");
+            var importFolder = contentType switch
             {
-                importFolder = Path.Combine(targetFolder, "DLC");
-                _logger.Info($"[PostDownload] Auto-detected DLC ({detectedDlcName ?? "?"}): routing to {importFolder}");
-            }
+                DownloadContentType.Patch => Path.Combine(targetFolder, "Patches"),
+                DownloadContentType.DLC => Path.Combine(targetFolder, "DLC"),
+                _ => targetFolder
+            };
 
             _logger.Info($"[PostDownload] Game-targeted import: '{game.Title}' (ID: {game.Id}) -> {importFolder} [Type: {contentType}]");
             bool isDirectory = Directory.Exists(download.DownloadPath);
@@ -699,12 +681,14 @@ namespace RetroArr.Core.Download
 
             // The game's paths are saved before the source goes: if that fails, the retry finds the files already there
             string? newPath = null;
+            var gamePath = game.Path;
             try
             {
-                var primary = contentType == DownloadContentType.MainGame && content.Count > 0 ? PickPrimary(content, importFolder, software) : null;
+                var primary = contentType == DownloadContentType.MainGame && content.Count > 0 ? PickPrimary(content, importFolder, gamePlatform) : null;
+                var installer = primary != null && IsInstallerPick(primary, gamePlatform, content);
                 bool Repoint(string? current) => primary != null
                     && (string.IsNullOrEmpty(current) || !(File.Exists(current) || Directory.Exists(current)) || FileRenamer.IsExtra(current)
-                        || (Rank(primary, software) < Rank(current, software)
+                        || (Rank(primary, gamePlatform, content) < Rank(current, gamePlatform, content)
                             && (content.Any(p => SamePath(p, current))
                                 || (software && FileRenamer.IsInstallerName(Path.GetFileName(current)) && !current.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)))));
                 // Update game.Path if not set, gone or a folder of many games. An update or DLC leaves a game
@@ -732,6 +716,10 @@ namespace RetroArr.Core.Download
                                 g.ExecutablePath = primary;
                             }
                         }
+                        // An installer it runs now hides Play: GOG's setup_game_1.0.exe is not known as one by its name.
+                        // The content state keeps the status.
+                        if (installer && g.ExecutablePath == primary) g.Status = GameStatus.InstallerDetected;
+                        gamePath = g.Path;
                     });
                     if (newPath != null) _logger.Info($"[PostDownload] Updated game path: '{game.Title}' -> {newPath}");
                 }
@@ -762,6 +750,29 @@ namespace RetroArr.Core.Download
                     _logger.Warn($"[PostDownload] Imported '{game.Title}' but could not mark it downloaded: {ex.Message}");
                 }
             }
+            // An update or DLC is linked to the game as the scan links one: nothing reads a Patches folder beside a game
+            // that is one file in its platform folder. If that fails the source stays, the retry finds the files there.
+            else if (content.Count > 0)
+            {
+                try
+                {
+                    var folder = GameFilePaths.FilesFolder(gamePath);
+                    await _gameRepository.UpsertGameFilesAsync(game.Id, content.Select(p => new GameFile
+                    {
+                        RelativePath = GameFilePaths.StoredPathIn(folder, p),
+                        Size = SizeOf(p),
+                        DateAdded = DateTime.UtcNow,
+                        FileType = contentType == DownloadContentType.Patch ? "Patch" : "DLC",
+                        Version = contentType == DownloadContentType.Patch ? detectedVersion : null,
+                        ContentName = contentType == DownloadContentType.DLC ? detectedDlcName : null
+                    }).ToList());
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warn($"[PostDownload] Imported into {importFolder} but could not link the files to '{game.Title}' ({ex.Message}), keeping source: {download.DownloadPath}");
+                    return PostDownloadResult.Fail($"Imported into {importFolder} but could not link the files to '{game.Title}', the source stays for a retry. {ex.Message}");
+                }
+            }
 
             KeepImported(extracted, done.Select(e => e.Dest));
             if (leftOut) _logger.Warn($"[PostDownload] Not every file of {source} was imported, keeping it");
@@ -771,8 +782,9 @@ namespace RetroArr.Core.Download
         }
 
         // ownFolder: the file's folder holds this game only. A folder other games are in as well is no game's path,
-        // the file is, as the scan has it for loose ROMs.
-        private async System.Threading.Tasks.Task AddMovedGameToLibraryAsync(string title, string path, bool ownFolder, GameMetadataService metadataService, string? platformFolder)
+        // the file is, as the scan has it for loose ROMs. installer: the file is an installer to run, not the game.
+        private async System.Threading.Tasks.Task AddMovedGameToLibraryAsync(string title, string path, bool ownFolder, GameMetadataService metadataService, string? platformFolder,
+            bool installer)
         {
             try
             {
@@ -789,11 +801,20 @@ namespace RetroArr.Core.Download
                     g.Title.Equals(title, StringComparison.OrdinalIgnoreCase) && g.PlatformId == platformId);
                 if (existingByTitlePlatform != null)
                 {
+                    var landedThere = false;
                     await _gameRepository.UpdateFieldsAsync(existingByTitlePlatform.Id, g =>
                     {
                         if (string.IsNullOrEmpty(g.Path)) g.Path = gamePath;
-                        if (string.IsNullOrEmpty(g.ExecutablePath)) g.ExecutablePath = path;
+                        if (string.IsNullOrEmpty(g.ExecutablePath))
+                        {
+                            g.ExecutablePath = path;
+                            if (installer) g.Status = GameStatus.InstallerDetected;
+                        }
+                        landedThere = g.Path != null && gamePath != null && SamePath(g.Path, gamePath);
                     });
+                    // The game is in the library now, as after a targeted import, so the monitor stops searching for it. Only
+                    // when its path is what landed: a path elsewhere is the scan's to check. An installer keeps its status.
+                    if (landedThere) await _gameRepository.ApplyContentStateAsync(existingByTitlePlatform.Id, GameContent.Present, DateTime.UtcNow, gamePath);
                     _logger.Info($"[PostDownload] Updated existing game '{existingByTitlePlatform.Title}' (ID: {existingByTitlePlatform.Id}) with new paths.");
                     return;
                 }
@@ -823,12 +844,8 @@ namespace RetroArr.Core.Download
                             game.MetadataReviewReason = "Platform unresolved: no folder match.";
                     }
 
-                    // Installer tagging
-                    var fileName = Path.GetFileNameWithoutExtension(path).ToLowerInvariant();
-                    if (fileName.Contains("setup") || fileName.Contains("install"))
-                    {
-                        game.Status = GameStatus.InstallerDetected;
-                    }
+                    if (installer) game.Status = GameStatus.InstallerDetected;
+                    ApplyContentFound(game);
 
                     await _gameRepository.AddAsync(game);
                     _logger.Info($"[PostDownload] added '{game.Title}' to library (Platform: {platformFolder}, PlatformId: {platformId}, IGDB: {game.IgdbId}).");
@@ -843,11 +860,12 @@ namespace RetroArr.Core.Download
                         ExecutablePath = path,
                         Added = DateTime.UtcNow,
                         PlatformId = platformId,
-                        Status = GameStatus.Released,
+                        Status = installer ? GameStatus.InstallerDetected : GameStatus.Released,
                         Overview = "Imported via download client. Metadata not found.",
                         NeedsMetadataReview = unresolvedPlatform,
                         MetadataReviewReason = unresolvedPlatform ? "Platform unresolved: no folder match." : null
                     };
+                    ApplyContentFound(fallbackGame);
                     await _gameRepository.AddAsync(fallbackGame);
                     _logger.Info($"[PostDownload] Added '{title}' to library without metadata (Platform: {platformFolder}, PlatformId: {platformId}).");
                 }
@@ -856,6 +874,14 @@ namespace RetroArr.Core.Download
             {
                 _logger.Error($"[PostDownload] Error adding game to library: {ex.Message}");
             }
+        }
+
+        // A new game whose files are there is in the library, as after a targeted import, and not a released game it lacks.
+        // An installer keeps its status.
+        private void ApplyContentFound(Game game)
+        {
+            if (MediaScannerService.CheckContent(game, MediaScannerService.LibraryRoots(_configService.LoadMediaSettings())) == GameContent.Present)
+                game.ApplyContent(GameContent.Present, DateTime.UtcNow);
         }
 
         private static int ResolvePlatformId(string? platformFolder)
@@ -942,27 +968,31 @@ namespace RetroArr.Core.Download
             @"\bv(\d+(?:\.\d+)+)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+        // A Switch update's version is the integer in its brackets, "[v65536]": kept as it is, v included
+        private static readonly Regex _switchVersionRegex = new(@"\[(v\d+)\]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
         private static readonly Regex _dlcKeywordRegex = new(
             @"(?<![A-Za-z])(dlc|season\s*pass|expansion|add[- ]?on|bonus\s*content)(?![A-Za-z])",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-        // The game with its update or DLC: a "+" or incl/inkl (incl., included, inklusive) anywhere before the marker,
-        // or "included"/"applied" at most two tokens after it. "Plus" is none ("ELDEN RING v1.12 Plus 42 Trainer"), nor is "Inkling".
-        private static readonly Regex _bundleBeforeRegex = new(@"\+|\bin[ck]l(uded|usive)?(?![A-Za-z0-9])", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-        private static readonly Regex _bundleAfterRegex = new(@"^\W{0,3}(\S+\W+){0,2}?(included|applied)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
         // A title id in brackets, on a Switch release: a hex id of another platform can start with 01 as well
         private static readonly Regex _switchTitleIdRegex = new(@"\[(01[0-9A-Fa-f]{14})\]", RegexOptions.Compiled);
         private static readonly Regex _switchMarkerRegex = new(@"(?<![A-Za-z0-9])(NSW2?|NS[PZ]|XC[IZ]|Switch)(?![A-Za-z0-9])", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // Tags, scene and platform tokens a DLC's name ends in, a group on the last one included: "Pack [v0]", "Pack (USA) NSW-VENOM",
+        // "Soundtrack Linux". A platform word inside the name is the name's: "Windows of Olympus".
+        private static readonly Regex _dlcNameTailRegex = new(
+            @"(\s*(\[[^\[\]]*\]|\([^()]*\)|(?<![A-Za-z0-9])(NSW2?|NS[PZ]|XC[IZ]|PS[345]|PSV|PSP|PAL|NTSC|MULTi\d*|eShop|Mac\s?OS(\s?X)?|Windows|Win(32|64)|Linux|Android|iOS)(-[A-Za-z0-9]+)?))+\s*$",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         internal static (DownloadContentType Type, string? Version, string? ContentName) DetectContentType(string downloadName, string? gameTitle = null, Platform? platform = null)
         {
             if (string.IsNullOrEmpty(downloadName))
                 return (DownloadContentType.MainGame, null, null);
 
-            // The extension of a single file is no part of the name: "Game (DLC).nsp"
-            var extension = Path.GetExtension(downloadName);
-            var name = _separatorRegex.Replace(ValidExtensions.Contains(extension.ToLowerInvariant()) ? downloadName[..^extension.Length] : downloadName, " ");
+            // The extension of a single file is no part of the name: "Game (DLC).nsp", "Game DLC.tar.gz"
+            var extension = ValidExtensions.Contains(Path.GetExtension(downloadName).ToLowerInvariant()) ? FileRenamer.Extension(downloadName) : "";
+            var name = _separatorRegex.Replace(downloadName[..^extension.Length], " ");
             // A keyword in the game's own title is no marker: "Patch Quest", "Fix-It Felix Jr."
             var titleTokens = Regex.Split(gameTitle ?? "", @"[\W_]+").Where(t => t.Length > 0).Select(Regex.Escape).ToArray();
             if (titleTokens.Length > 0)
@@ -981,33 +1011,29 @@ namespace RetroArr.Core.Download
             var idUpdate = idBits > 0 && !idDlc && (idBits & 0x800) != 0;
 
             // 1. Patch: "Game Update v1.05", "Game Patch 1.02". [v0] is the first release of a game or DLC, never an update.
+            // The markers are read as the scan reads them, the game coming with them included ("Base+Update", "+ All DLCs").
             var patchMatch = idDlc || downloadName.Contains("[v0]", StringComparison.OrdinalIgnoreCase) ? Match.Empty : _patchKeywordRegex.Match(name);
-            if (idUpdate || patchMatch.Success)
+            var (marked, dlcPart, dlcMatch) = TitleCleanerService.ReadContentMarkers(name, patchMatch, _dlcKeywordRegex);
+            if (idUpdate || marked == "Patch")
             {
-                if (idUpdate || !IsBundle(name, patchMatch))
-                {
-                    var vMatch = _patchVersionRegex.Match(name);
-                    if (!vMatch.Success) vMatch = _standaloneVersionRegex.Match(name);
-                    return (DownloadContentType.Patch, vMatch.Success ? vMatch.Groups[1].Value : null, null);
-                }
-                // "Sunbreak DLC incl. Update": the update came with the DLC, which is what the release is
-                if (!_dlcKeywordRegex.IsMatch(name[..patchMatch.Index])) return (DownloadContentType.MainGame, null, null);
-                name = name[..(_bundleBeforeRegex.Matches(name[..patchMatch.Index]).LastOrDefault()?.Index ?? patchMatch.Index)];
+                var vMatch = _patchVersionRegex.Match(name);
+                if (!vMatch.Success) vMatch = _standaloneVersionRegex.Match(name);
+                if (!vMatch.Success) vMatch = _switchVersionRegex.Match(name);
+                return (DownloadContentType.Patch, vMatch.Success ? vMatch.Groups[1].Value : null, null);
             }
 
             // 2. DLC detection
-            var dlcMatch = _dlcKeywordRegex.Match(name);
-            if (idDlc || dlcMatch.Success)
+            if (idDlc || marked == "DLC")
             {
-                if (!idDlc && IsBundle(name, dlcMatch)) return (DownloadContentType.MainGame, null, null);
+                name = dlcPart;
                 if (!dlcMatch.Success) return (DownloadContentType.DLC, null, null);
                 // Extract DLC name: text after the DLC keyword, cleaned
                 var afterKeyword = name.Substring(dlcMatch.Index + dlcMatch.Length).Trim();
                 afterKeyword = Regex.Replace(afterKeyword, @"^[\s\-_.)\]]+", "");
-                // Strip trailing platform/noise and the release group: "Hades.DLC.Soundtrack-RUNE"
-                afterKeyword = _platformSuffixRegex.Replace(afterKeyword, "").Trim();
+                // Strip the release group, then the tags and tokens it came after: "Hades.DLC.Soundtrack.Linux-RUNE"
                 var group = TitleCleanerService.ExtractReleaseGroup(downloadName);
                 if (group != null) afterKeyword = Regex.Replace(afterKeyword, @"(^|[\s\-])" + Regex.Escape(group) + "$", "", RegexOptions.IgnoreCase);
+                afterKeyword = _dlcNameTailRegex.Replace(afterKeyword, "");
                 var dlcName = afterKeyword.Any(char.IsLetterOrDigit) ? afterKeyword : dlcMatch.Groups[1].Value;
                 // Clean separators
                 dlcName = dlcName.Replace('.', ' ').Replace('-', ' ').Replace('_', ' ');
@@ -1019,6 +1045,12 @@ namespace RetroArr.Core.Download
             return (DownloadContentType.MainGame, null, null);
         }
 
+        // Where an import can be sent, "Main" is the game's folder itself
+        private static readonly string[] ImportSubfolders = { "Main", "Patches", "DLC" };
+
+        // The subfolder in its own spelling, null for anything else: a path in it would put the files outside the game's folder
+        public static string? ImportSubfolderName(string? value) => ImportSubfolders.FirstOrDefault(s => s.Equals(value, StringComparison.OrdinalIgnoreCase));
+
         // Where a grab of the game lands, from the indexer's title: the name in the download client may not keep the marker
         public static string? ImportSubfolderFor(string releaseTitle, string? gameTitle, Platform? platform = null) => DetectContentType(releaseTitle, gameTitle, platform).Type switch
         {
@@ -1027,12 +1059,10 @@ namespace RetroArr.Core.Download
             _ => null
         };
 
-        private static bool IsBundle(string name, Match marker) =>
-            _bundleBeforeRegex.IsMatch(name.Substring(0, marker.Index)) || _bundleAfterRegex.IsMatch(name.Substring(marker.Index + marker.Length));
-
         internal static string BuildPatchFileName(string gameTitle, string? version, string extension)
         {
-            var versionPart = !string.IsNullOrEmpty(version) ? $"-v{version}" : "";
+            // a Switch version has its v already: "v65536"
+            var versionPart = string.IsNullOrEmpty(version) ? "" : version.StartsWith('v') || version.StartsWith('V') ? $"-{version}" : $"-v{version}";
             return RetroArr.Core.IO.FileNameSanitizer.Sanitize($"{gameTitle}-Patch{versionPart}", "unknown") + extension;
         }
 
@@ -1081,7 +1111,7 @@ namespace RetroArr.Core.Download
                     var main = mains[0];
                     var (dest, target) = PickDestination(importFolder, main, Stems(main));
                     if (target == ImportTarget.Taken) return (new List<ImportEntry>(), $"Target exists, not overwriting: {dest}");
-                    var renamed = new[] { (main, Path.GetFileNameWithoutExtension(dest)) };
+                    var renamed = new[] { (main, FileRenamer.Stem(dest)) };
                     return (files.Select(f =>
                     {
                         if (f == main) return new ImportEntry(f, dest, null, false, target);
@@ -1104,7 +1134,7 @@ namespace RetroArr.Core.Download
             DownloadContentType type, string? version, string? dlcName, MediaSettings settings, bool renaming)
         {
             var fileName = Path.GetFileName(sourceFile);
-            var stem = Path.GetFileNameWithoutExtension(sourceFile);
+            var stem = FileRenamer.Stem(sourceFile);
             if (FileRenamer.IsRomsetPlatform(platform) || (FileRenamer.IsSoftwarePlatform(platform) && FileRenamer.IsInstallerName(fileName)))
             {
                 yield return stem;
@@ -1158,7 +1188,7 @@ namespace RetroArr.Core.Download
         // The first stem whose name is free, or already holds this very file. Taken with the last name tried otherwise.
         private static (string Path, ImportTarget Target) PickDestination(string folder, string sourceFile, IEnumerable<string> stems)
         {
-            var ext = Path.GetExtension(sourceFile);
+            var ext = FileRenamer.Extension(sourceFile);
             string? last = null;
             foreach (var stem in stems)
             {
@@ -1234,24 +1264,36 @@ namespace RetroArr.Core.Download
 
         private static readonly Regex _junkExeRegex = new(@"unins|crash|redist|prereq|dxsetup|directx|dotnet", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-        // Lower is a better pick for ExecutablePath: set descriptors first, then installers, then program files
-        private static int Rank(string path, bool software)
+        // Lower is a better pick for ExecutablePath: set descriptors first, then an installer whose parts landed beside it,
+        // then program files. A setup.exe without parts is a settings dialog or an installer of its own, after the program.
+        // A DOS program is a .com or .bat as well: SETUP.EXE, the sound setup beside GAME.COM, is not the game.
+        private static int Rank(string path, Platform? platform, IReadOnlyCollection<string> landed)
         {
             switch (Path.GetExtension(path).ToLowerInvariant())
             {
                 case ".m3u": return 0;
                 case ".cue": return 1;
                 case ".gdi": return 2;
-                case ".exe" when software:
+                case ".exe" when FileRenamer.IsSoftwarePlatform(platform):
+                case ".com" or ".bat" when platform?.Type is PlatformType.DOS or PlatformType.DOSBox:
                     var stem = Path.GetFileNameWithoutExtension(path);
                     if (_junkExeRegex.IsMatch(stem)) return 8;
-                    return stem.StartsWith("setup", StringComparison.OrdinalIgnoreCase) || stem.StartsWith("install", StringComparison.OrdinalIgnoreCase) ? 3 : 4;
+                    if (!stem.StartsWith("setup", StringComparison.OrdinalIgnoreCase) && !stem.StartsWith("install", StringComparison.OrdinalIgnoreCase)) return 4;
+                    var dir = Path.GetDirectoryName(path);
+                    return landed.Any(p => IsInstallerPart(p) && Path.GetDirectoryName(p) == dir) ? 3 : 5;
             }
-            return FileRenamer.IsExtra(path) ? 9 : 5;
+            return FileRenamer.IsExtra(path) ? 9 : 6;
         }
 
-        private static string PickPrimary(IEnumerable<string> landed, string importFolder, bool software) =>
-            landed.OrderBy(p => Rank(p, software))
+        // An installer's data: setup-fitgirl-01.bin, GOG's setup_game-1.bin
+        private static bool IsInstallerPart(string path) =>
+            path.EndsWith(".bin", StringComparison.OrdinalIgnoreCase) && FileRenamer.IsInstallerName(Path.GetFileName(path));
+
+        // The pick is an installer to run: a setup.exe no program outranked, with its parts beside it or on its own
+        private static bool IsInstallerPick(string pick, Platform? platform, IReadOnlyCollection<string> landed) => Rank(pick, platform, landed) is 3 or 5;
+
+        private static string PickPrimary(IReadOnlyCollection<string> landed, string importFolder, Platform? platform) =>
+            landed.OrderBy(p => Rank(p, platform, landed))
                   .ThenBy(p => Path.GetRelativePath(importFolder, p).Count(c => c == Path.DirectorySeparatorChar))
                   .ThenBy(DiscNumber)
                   .ThenByDescending(SizeOf)

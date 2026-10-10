@@ -350,7 +350,11 @@ namespace RetroArr.Core.Games
             return stale.Count;
         }
 
-        public async Task SyncGameFilesAsync(int gameId, List<GameFile> files)
+        public Task SyncGameFilesAsync(int gameId, List<GameFile> files) => StoreGameFilesAsync(gameId, files, removeOthers: true);
+
+        public Task UpsertGameFilesAsync(int gameId, List<GameFile> files) => StoreGameFilesAsync(gameId, files, removeOthers: false);
+
+        private async Task StoreGameFilesAsync(int gameId, List<GameFile> files, bool removeOthers)
         {
             using var context = await _contextFactory.CreateDbContextAsync();
             var existing = await context.GameFiles
@@ -362,7 +366,7 @@ namespace RetroArr.Core.Games
 
             // Remove files no longer on disk
             var toRemove = existing.Where(f => !newPaths.Contains(f.RelativePath)).ToList();
-            if (toRemove.Count > 0)
+            if (removeOthers && toRemove.Count > 0)
                 context.GameFiles.RemoveRange(toRemove);
 
             // Add new files or update existing ones
@@ -382,10 +386,35 @@ namespace RetroArr.Core.Games
                         existingFile.FileType = file.FileType;
                         existingFile.DateAdded = file.DateAdded;
                     }
+                    // What the new classification found replaces what was stored; what it didn't find stays
+                    existingFile.Version = file.Version ?? existingFile.Version;
+                    existingFile.ContentName = file.ContentName ?? existingFile.ContentName;
+                    existingFile.TitleId = file.TitleId ?? existingFile.TitleId;
+                    existingFile.Serial = file.Serial ?? existingFile.Serial;
                 }
             }
 
             await context.SaveChangesAsync();
+        }
+
+        public async Task<List<GameFile>> GetSupplementaryFilesAsync(IReadOnlyCollection<int> gameIds)
+        {
+            var ids = gameIds.ToList();
+            using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.GameFiles.AsNoTracking()
+                .Where(f => ids.Contains(f.GameId) && f.FileType != "Main")
+                .ToListAsync();
+        }
+
+        public async Task<List<int>> RemoveGameFilesAsync(IReadOnlyCollection<int> gameFileIds)
+        {
+            if (gameFileIds.Count == 0) return new List<int>();
+            var ids = gameFileIds.ToList();
+            using var context = await _contextFactory.CreateDbContextAsync();
+            var rows = context.GameFiles.Where(f => ids.Contains(f.Id));
+            var gameIds = await rows.Select(f => f.GameId).Distinct().ToListAsync();
+            await rows.ExecuteDeleteAsync();
+            return gameIds;
         }
     }
 }

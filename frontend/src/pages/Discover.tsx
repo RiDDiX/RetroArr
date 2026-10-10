@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import apiClient, { getErrorMessage } from '../api/client';
+import apiClient, { getErrorMessage, isConflict, mediaApi } from '../api/client';
 import { t as translate, getLanguage } from '../i18n/translations';
 import './Discover.css';
 
@@ -86,6 +86,19 @@ const Discover: React.FC = () => {
       // stop spinner after 60s in case the backend doesn't expose progress; user sees the list grow regardless
       setTimeout(() => setScanning(false), 60_000);
     } catch (err) {
+      if (isConflict(err)) {
+        // Another scan is running: say so and keep refreshing the list until it is done
+        setInfo(t('scanAlreadyRunning'));
+        const wait = setInterval(async () => {
+          try {
+            if ((await mediaApi.getScanStatus()).data.isScanning) return;
+          } catch { /* stop following it */ }
+          clearInterval(wait);
+          setScanning(false);
+          loadList();
+        }, 2000);
+        return;
+      }
       setError(getErrorMessage(err));
       setScanning(false);
     }

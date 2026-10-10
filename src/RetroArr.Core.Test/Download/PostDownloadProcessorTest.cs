@@ -589,6 +589,46 @@ namespace RetroArr.Core.Test.Download
             }
         }
 
+        // A new game runs its best file, picked as the targeted import picks it and not the first one listed that says setup
+        // or install: an install guide is no game, the settings dialog beside the program is not what runs, and an installer,
+        // with its parts or on its own, is marked as one so it gets no Play button
+        [TestCase("gba", "Advance Wars", 0, "Install Guide.pdf|Advance Wars.gba", "Advance Wars.gba", false)]
+        [TestCase("gba", "Advance Wars", 7, "Install Guide.pdf|Advance Wars.gba", "Advance Wars.gba", false)]
+        [TestCase("windows", "Hades", 7, "Game.exe|Setup.exe|uninstall.exe", "Game.exe", false)]
+        [TestCase("windows", "Hades", 7, "setup_hades_1.38.exe|setup_hades_1.38-1.bin", "setup_hades_1.38.exe", true)]
+        [TestCase("windows", "Hades", 0, "setup_hades_1.38.exe", "setup_hades_1.38.exe", true)]
+        public async Task GenericImport_NewGameRunsItsBestFile(string platform, string title, int igdbId, string files, string expected, bool installer)
+        {
+            var root = Path.Combine(Path.GetTempPath(), "retroarr_pdbest_" + Path.GetRandomFileName());
+            try
+            {
+                SetUpLibrary(root, new MediaSettings());
+                var dbOptions = new DbContextOptionsBuilder<RetroArrDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+                var processor = new PostDownloadProcessor(new ConfigurationService(root), new FileMoverService(),
+                    new SqliteGameRepository(new DbFactory(dbOptions)), new FakeIgdb(title, igdbId), new ArchiveService(), new TitleCleanerService());
+                var release = Directory.CreateDirectory(Path.Combine(root, "downloads", title + "-GRP")).FullName;
+                foreach (var file in files.Split('|'))
+                    File.WriteAllText(Path.Combine(release, file), file == "Setup.exe" ? "a settings dialog, bigger than the game's exe" : file);
+
+                var result = await processor.ProcessCompletedDownloadAsync(new DownloadStatus
+                {
+                    Id = "x", Name = title, PlatformFolder = platform, DownloadPath = release, State = DownloadState.Completed
+                });
+
+                Assert.That(result.Success, Is.True, result.Reason);
+                using var check = new RetroArrDbContext(dbOptions);
+                var game = check.Games.Single();
+                Assert.That(Path.GetFileName(game.ExecutablePath), Is.EqualTo(expected));
+                Assert.That(File.Exists(game.ExecutablePath), Is.True, game.ExecutablePath);
+                // In the library with its files, so not wanted or missing; an installer stays one
+                Assert.That(game.Status, Is.EqualTo(installer ? GameStatus.InstallerDetected : GameStatus.Downloaded));
+            }
+            finally
+            {
+                Directory.Delete(root, true);
+            }
+        }
+
         // A client that completes into the very folder the import picks: the import lands inside the download, so
         // deleting the download would take the game with it
         [Test]
@@ -848,6 +888,16 @@ namespace RetroArr.Core.Test.Download
         [TestCase("Hades (DLC) - Soundtrack.zip", "Hades", "Soundtrack")]
         [TestCase("Hades.DLC.Soundtrack-RUNE", "Hades", "Soundtrack")]
         [TestCase("Borderlands.2.Season.Pass-RELOADED", "Borderlands 2", "Season Pass")]
+        // Tags and platform tokens after the name, with the group cut or still on them
+        [TestCase("Hades DLC Soundtrack [v0].nsp", "Hades", "Soundtrack")]
+        [TestCase("Mario Kart 8 Deluxe DLC [v0].nsp", "Mario Kart 8 Deluxe", null)]
+        [TestCase("Splatoon_3_DLC_Side_Order_NSW-VENOM", "Splatoon 3", "Side Order")]
+        [TestCase("Splatoon.3.DLC.Side.Order.NSW-VENOM", "Splatoon 3", "Side Order")]
+        [TestCase("Gran Turismo 7 DLC Car Pack (USA) PS5-DUPLEX", "Gran Turismo 7", "Car Pack")]
+        [TestCase("Hades DLC Soundtrack.tar.xz", "Hades", "Soundtrack")]
+        // A platform word only goes at the end, inside the name it is the name's
+        [TestCase("Hades DLC Windows of Olympus", "Hades", "Windows of Olympus")]
+        [TestCase("Hades.DLC.Soundtrack.Linux-RUNE", "Hades", "Soundtrack")]
         // The update came with the DLC and is no part of its name. "Inkling" is no "incl".
         [TestCase("Monster Hunter Rise Sunbreak DLC incl. Update v10.0.2", "Monster Hunter Rise", null)]
         [TestCase("Borderlands 2 Season Pass + Update 1.8", "Borderlands 2", "Season Pass")]
@@ -887,6 +937,17 @@ namespace RetroArr.Core.Test.Download
             Assert.That(PostDownloadProcessor.DetectContentType(input, title, platform).Type.ToString(), Is.EqualTo(expected));
         }
 
+        // A Switch update without a dotted version keeps the integer in its brackets as it is, a dotted one still wins
+        [TestCase("Metroid Dread [010093801237C800][v131072].nsp", "v131072")]
+        [TestCase("Metroid Dread [010093801237C800][v131072]", "v131072")]
+        [TestCase("Metroid Dread Update v2.0.1 [010093801237C800][v131072]", "2.0.1")]
+        public void DetectContentType_SwitchUpdate_KeepsItsVersion(string input, string expected)
+        {
+            var (type, version, _) = PostDownloadProcessor.DetectContentType(input, "Metroid Dread", PlatformDefinitions.AllPlatforms.Single(p => p.Id == 46));
+            Assert.That(type, Is.EqualTo(PostDownloadProcessor.DownloadContentType.Patch));
+            Assert.That(version, Is.EqualTo(expected));
+        }
+
         // ── Generic import: the name the game is looked up by ─────────
 
         [TestCase("Fix-It Felix Jr.", "Fix It Felix Jr")]
@@ -912,6 +973,7 @@ namespace RetroArr.Core.Test.Download
         [TestCase("Street Fighter x Tekken", "1.02", ".pkg", "Street Fighter x Tekken-Patch-v1.02.pkg")]
         [TestCase("Gran Turismo 7", "3.0.1", ".pkg", "Gran Turismo 7-Patch-v3.0.1.pkg")]
         [TestCase("MyGame", null, ".iso", "MyGame-Patch.iso")]
+        [TestCase("Metroid Dread", "v131072", ".nsp", "Metroid Dread-Patch-v131072.nsp")]
         public void BuildPatchFileName_Correct(string gameTitle, string? version, string ext, string expected)
         {
             var result = PostDownloadProcessor.BuildPatchFileName(gameTitle, version, ext);

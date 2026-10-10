@@ -46,7 +46,7 @@ namespace RetroArr.Core.Download.TrackedDownloads
                 existing.Category = downloadItem.Category;
                 existing.DownloadClientName = clientName;
                 existing.ClientMessage = downloadItem.StatusMessages.FirstOrDefault();
-                if (downloadItem.GameId.HasValue && !existing.GameId.HasValue)
+                if (downloadItem.GameId.HasValue && !existing.GameId.HasValue && !existing.GameSetByHand)
                     existing.GameId = downloadItem.GameId;
                 if (!string.IsNullOrEmpty(downloadItem.ImportSubfolder) && string.IsNullOrEmpty(existing.ImportSubfolder))
                     existing.ImportSubfolder = downloadItem.ImportSubfolder;
@@ -82,6 +82,19 @@ namespace RetroArr.Core.Download.TrackedDownloads
 
             _cache.TryAdd((clientId, downloadItem.Id), tracked);
             Save();
+            return tracked;
+        }
+
+        // Tracks a download with what the grabs know of it by its name: platform, game and import subfolder, each where
+        // it has none yet. A game mapped by hand, or no game, stays.
+        public TrackedDownload TrackDownload(DownloadStatus download, int clientId, string clientName, DownloadPlatformTracker grabs)
+        {
+            download.PlatformFolder = grabs.LookupByName(download.Name);
+            download.GameId = grabs.LookupGameId(download.Name);
+            download.ImportSubfolder = grabs.LookupImportSubfolder(download.Name);
+            var tracked = TrackDownload(download, clientId, clientName);
+            if (!string.IsNullOrEmpty(download.PlatformFolder) && string.IsNullOrEmpty(tracked.PlatformFolder))
+                tracked.PlatformFolder = download.PlatformFolder;
             return tracked;
         }
 

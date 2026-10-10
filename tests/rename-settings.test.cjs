@@ -24,6 +24,16 @@ const normalizeConflict = load(tab, 'normalizeConflict', {});
 assert(renderPreview('{Title} ({Region}) [{Languages}]', { Title: 'X', Region: '', Languages: '' }) === 'X', 'empty () or [] left in the preview');
 assert(renderPreview('{Title} - DLC - {ContentName}', { Title: 'X', ContentName: '' }) === 'X - DLC', 'dangling separator left in the preview');
 
+// Only separators next to an empty token go, a dash of the title stays
+const lacrimosa = 'Ys VIII -Lacrimosa of DANA-';
+assert(renderPreview('{Title}', { Title: lacrimosa }) === lacrimosa, 'trailing dash of the title cut in the preview');
+assert(renderPreview('{Title}', { Title: '-Zero-' }) === '-Zero-', 'dashes of the title cut in the preview');
+assert(renderPreview('{Title} - {Version}', { Title: lacrimosa, Version: '' }) === lacrimosa, 'separator before an empty token left, or the title cut');
+assert(renderPreview('{Region} - {Title}', { Region: '', Title: '-Zero-' }) === '-Zero-', 'separator after an empty token left, or the title cut');
+assert(renderPreview('{Title} - Update {Version}', { Title: '-Zero-', Version: '' }) === '-Zero- - Update', 'empty version not dropped cleanly');
+assert(renderPreview('{Title} - {Region} - {Version}', { Title: 'X', Region: '', Version: '1.02' }) === 'X - 1.02', 'separators around an empty token not collapsed');
+assert(renderPreview('{Title}-{Region}-{Version}', { Title: 'X', Region: '', Version: '1.02' }) === 'X-1.02', 'dashes around an empty token not collapsed');
+
 // The group suffix is shown once, on every template
 const preview = buildPreview({ includeReleaseGroupInFilename: true, releaseGroupSuffix: '[{ReleaseGroup}]', mainFileTemplate: '{Title}' });
 assert(preview.main === 'Chrono Trigger [FitGirl].zip', `main preview is ${preview.main}`);

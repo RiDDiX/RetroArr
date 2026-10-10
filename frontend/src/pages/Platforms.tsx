@@ -41,6 +41,7 @@ function dtoToGame(dto: GameListDto) {
     languages: dto.languages,
     revision: dto.revision,
     protonDbTier: dto.protonDbTier,
+    missingSince: dto.missingSince,
     monitored: dto.monitored,
   };
 }

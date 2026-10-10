@@ -423,6 +423,37 @@ namespace RetroArr.Core.Test.Download
             await AssertImportedAgain(r, again);
         }
 
+        // Mapped to no game by hand, the download stays unlinked: the game an earlier import recorded for it, flagged since,
+        // doesn't take it back
+        [Test]
+        public async Task ReaddedTorrent_MappedToNoGameByHand_StaysUnlinked()
+        {
+            var r = SetUpReimport(GameStatus.Missing, null);
+            var first = Seeding(r, 1);
+            first.PlatformFolder = "gba";
+            await r.Service.CheckAsync(first, Transmission);
+            await r.Service.ImportAsync(first);
+            Assert.That(first.State, Is.EqualTo(TrackedDownloadState.Imported), string.Join("; ", first.StatusMessages));
+
+            foreach (var rom in Directory.GetFiles(r.GameFolder, "*.gba", SearchOption.AllDirectories)) File.Delete(rom);
+            using (var ctx = new RetroArrDbContext(_db))
+            {
+                var game = ctx.Games.Single();
+                game.Status = GameStatus.Missing;
+                game.MissingSince = DateTime.UtcNow;
+                ctx.SaveChanges();
+            }
+            r.Tracked.StopTracking(Transmission.Id, Hash);
+            var again = Seeding(r, null);
+            again.GameSetByHand = true;
+
+            await r.Service.CheckAsync(again, Transmission);
+
+            Assert.That(again.GameId, Is.Null);
+            Assert.That(again.State, Is.EqualTo(TrackedDownloadState.Imported), "it was imported again for the history's game");
+            Assert.That(Directory.GetFiles(r.GameFolder, "*.gba", SearchOption.AllDirectories), Is.Empty);
+        }
+
         [Test]
         public async Task ReaddedTorrent_ThroughAPathMapping_IsImported()
         {

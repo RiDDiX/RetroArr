@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using RetroArr.Core.Rename;
 
 namespace RetroArr.Core.Games
 {
@@ -152,6 +153,11 @@ namespace RetroArr.Core.Games
             @"v\d+([a-zA-Z0-9._-]+)*",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+        // The version itself, for classifying: "v1.2.1.NSW-VENOM" is v1.2.1, "v05g" keeps its letter, "REV01" has none
+        private static readonly Regex _classifyVersionRegex = new Regex(
+            @"(?<![A-Za-z])v(?>\d+(?:\.\d+)*)(?:[a-z](?![a-z]))?",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
         private static readonly Regex _bareVersionRegex = new Regex(
             @"(?<!\d)(\d+(?:\.\d+)+)\s*$",
             RegexOptions.Compiled);
@@ -161,9 +167,9 @@ namespace RetroArr.Core.Games
             @"\b[AV]\d{4}\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-        // Size patterns: 2.90GB, 500MB
+        // Size patterns: 2.90GB, 500MB; whole words only, so "Mario Kart 8 Grand Prix" keeps its "8 Grand"
         private static readonly Regex _sizeRegex = new Regex(
-            @"\d+(\.\d+)?\s*(gb|mb|kb|gr|mg)",
+            @"\b\d+(?:\.\d+)?\s*(?:gb|mb|kb)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         // Bracket content
@@ -192,6 +198,7 @@ namespace RetroArr.Core.Games
             // 0. Pre-clean URL encoded brackets often found in scene releases
             string workingTitle = originalTitle.Replace("5B", "[", StringComparison.OrdinalIgnoreCase)
                                                .Replace("5D", "]", StringComparison.OrdinalIgnoreCase);
+            workingTitle = WithoutBundleTail(workingTitle);
 
             // 0. Aggressive Noise Stripping (Content in brackets/parens)
             workingTitle = workingTitle.Replace('\u00A0', ' ').Replace('_', ' ').Replace('+', ' ');
@@ -665,9 +672,80 @@ namespace RetroArr.Core.Games
         // Keywords indicating Update/Patch content
         private static readonly string[] _updateKeywords = new[]
         {
-            "update", "patch", "fix", "hotfix", "hot fix", "bugfix", "day one",
-            "day-one", "backport", "firmwar"
+            "update", "patch", "fix", "hotfix", "hot fix", "bugfix", "backport", "firmware"
         };
+
+        // Whole words, as the import reads them: "Crucifix", "Updated" hold no marker; "DLCs" and "Updates" do
+        private static readonly Regex _dlcMarkerRegex = MarkerRegex(_dlcKeywords);
+        private static readonly Regex _updateMarkerRegex = MarkerRegex(_updateKeywords);
+
+        private static Regex MarkerRegex(IEnumerable<string> keywords) =>
+            new(@"(?<![A-Za-z])(" + string.Join("|", keywords.Select(Regex.Escape)) + @")s?(?![A-Za-z])", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // The game with its update or DLC: a "+" or incl/inkl (incl., included, inklusive) right before the marker, with at
+        // most one word like "All", "the", "2", "v1.2" between them, or "included"/"applied" at most two tokens after it.
+        // "Plus" is none ("ELDEN RING v1.12 Plus 42 Trainer"), nor is "Inkling", nor a "+" in the title ("Mario + Rabbids ... DLC").
+        private static readonly Regex _bundleBeforeRegex = new(@"\+|\bin[ck]l(uded|usive)?(?![A-Za-z0-9])", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex _bundleGapRegex = new(@"^[\W_]*((all|the|v?\d+(\.\d+)*)[\W_]+)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex _bundleAfterRegex = new(@"^\W{0,3}(\S+\W+){0,2}?(included|applied)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // "1 + 2" is the title's ("Tony Hawk's Pro Skater 1 + 2 Update"): a number after the "+" counts what comes with the game
+        // only when no number stands right before it
+        private static readonly Regex _numberedTitleRegex = new(@"(?<![\w.])\d+[\W_]*\+[\W_]*\d+[\W_]*$", RegexOptions.Compiled);
+
+        // The "+" or incl that makes the marker come with the game, null when there is none
+        private static Match? BundleBefore(string name, Match marker)
+        {
+            var before = name[..marker.Index];
+            return _bundleBeforeRegex.Matches(before).LastOrDefault() is { } bundle
+                && _bundleGapRegex.IsMatch(before[(bundle.Index + bundle.Length)..]) && !_numberedTitleRegex.IsMatch(before) ? bundle : null;
+        }
+
+        private static bool IsBundle(string name, Match marker) =>
+            BundleBefore(name, marker) != null || _bundleAfterRegex.IsMatch(name[(marker.Index + marker.Length)..]);
+
+        // What a name's markers make it, for the import and the scan alike: "Patch" by its update marker unless the game
+        // comes with it ("Base+Update", "Update applied"), "DLC" by its DLC marker unless the game comes with it ("+ All
+        // DLCs"), else "Main". A DLC that comes with its update ("Sunbreak DLC incl. Update") is the DLC, read up to the
+        // bundle. Gives the name the DLC marker was read in and that marker.
+        internal static (string Type, string Name, Match Dlc) ReadContentMarkers(string name, Match update, Regex dlc)
+        {
+            if (update.Success)
+            {
+                if (!IsBundle(name, update)) return ("Patch", name, Match.Empty);
+                if (!dlc.IsMatch(name[..update.Index])) return ("Main", name, Match.Empty);
+                name = name[..(BundleBefore(name, update)?.Index ?? update.Index)];
+            }
+            var marker = dlc.Match(name);
+            return (marker.Success && !IsBundle(name, marker) ? "DLC" : "Main", name, marker);
+        }
+
+        // What a supplementary file ends in: what the import takes, the packages and patches of updates and DLC, and
+        // the extras beside them. Anything else after a dot is part of the name: "Update v1.2.0" is a folder.
+        private static readonly HashSet<string> _supplementaryFileExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".nsp", ".nsz", ".xci", ".xcz", ".cia", ".3ds", ".nds", ".gba", ".gbc", ".gb", ".nes", ".sfc", ".smc", ".n64", ".z64", ".v64",
+            ".gcm", ".wbfs", ".wad", ".wua", ".wup", ".pkg", ".rap", ".vpk", ".iso", ".bin", ".cue", ".chd", ".pbp", ".cso", ".xex", ".god",
+            ".exe", ".msi", ".dmg", ".app", ".appimage", ".sh", ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".zst", ".tgz",
+            ".tbz2", ".txz", ".md", ".smd", ".gen", ".cdi", ".gdi", ".rom", ".img", ".ips", ".bps", ".ups", ".xdelta"
+        };
+
+        // The name without what the game comes with: from the "+" or incl/inkl right before a marker ("+ All DLCs",
+        // "+ 2 DLC", "incl. Update 2.0"), or from a marker "included"/"applied" follows ("Update 1.01 Included"). A "+"
+        // joining two titles stays ("Mario + Rabbids", "Tony Hawk's Pro Skater 1 + 2"); brackets go whole later.
+        internal static string WithoutBundleTail(string name)
+        {
+            var plain = name;
+            foreach (var brackets in new[] { _squareBracketRegex, _parenRegex, _curlyBracketRegex })
+                plain = brackets.Replace(plain, m => new string(' ', m.Length));
+            var cut = name.Length;
+            foreach (var marker in _updateMarkerRegex.Matches(plain).Concat(_dlcMarkerRegex.Matches(plain)))
+            {
+                if (_bundleAfterRegex.IsMatch(plain[(marker.Index + marker.Length)..])) cut = Math.Min(cut, marker.Index);
+                if (BundleBefore(plain, marker) is { } bundle) cut = Math.Min(cut, bundle.Index);
+            }
+            return name[..cut];
+        }
 
         // Generic filenames that are always updates
         private static readonly HashSet<string> _genericUpdateNames = new(StringComparer.OrdinalIgnoreCase)
@@ -685,9 +763,9 @@ namespace RetroArr.Core.Games
             @"\[v(\d+)\]",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-        // Scene release group tags: trailing _NSW-GROUPNAME, _PS4-GROUPNAME, etc.
+        // Scene release group tags: trailing _NSW-GROUPNAME, .NSW-GROUPNAME, _PS4-GROUPNAME, etc.
         private static readonly Regex _sceneGroupTrailingRegex = new Regex(
-            @"[_\-](NSW|PS4|PS5|XBOX|PC|3DS|WiiU)[_\-]([A-Za-z0-9]+)$",
+            @"[_\-.](NSW|PS4|PS5|XBOX|PC|3DS|WiiU)[_\-]([A-Za-z0-9]+)$",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         // Scene release group prefix: sxs-, venom-, etc. (lowercase prefix ending with hyphen)
@@ -754,7 +832,9 @@ namespace RetroArr.Core.Games
             var result = new SupplementaryContentInfo();
             if (string.IsNullOrWhiteSpace(fileName)) return result;
 
-            var baseName = Path.GetFileNameWithoutExtension(fileName);
+            // Only a file's extension goes, a folder keeps all of its name ("Hades v1.38290-GOG")
+            var name = Path.GetFileName(fileName);
+            var baseName = _supplementaryFileExtensions.Contains(Path.GetExtension(name)) || FileRenamer.IsExtra(name) ? FileRenamer.Stem(name) : name;
             if (string.IsNullOrEmpty(baseName)) baseName = fileName;
 
             // Check for generic update filenames first
@@ -796,7 +876,7 @@ namespace RetroArr.Core.Games
             else
             {
                 // Try general version pattern
-                var verMatch = _versionRegex.Match(baseName);
+                var verMatch = _classifyVersionRegex.Match(baseName);
                 if (verMatch.Success)
                 {
                     result.Version = verMatch.Value;
@@ -868,29 +948,9 @@ namespace RetroArr.Core.Games
                 }
             }
 
-            // Check filename keywords if not already classified by TitleID or PS4 suffix
+            // Check filename keywords if not already classified by TitleID or PS4 suffix, as the import reads them
             if (result.FileType == "Main")
-            {
-                foreach (var kw in _dlcKeywords)
-                {
-                    if (lowerName.Contains(kw, StringComparison.OrdinalIgnoreCase))
-                    {
-                        result.FileType = "DLC";
-                        break;
-                    }
-                }
-            }
-            if (result.FileType == "Main")
-            {
-                foreach (var kw in _updateKeywords)
-                {
-                    if (lowerName.Contains(kw, StringComparison.OrdinalIgnoreCase))
-                    {
-                        result.FileType = "Patch";
-                        break;
-                    }
-                }
-            }
+                result.FileType = ReadContentMarkers(lowerName, _updateMarkerRegex.Match(lowerName), _dlcMarkerRegex).Type;
 
             // Build content name (the descriptive part, e.g. "ALL DLC", "Season Pass")
             result.ContentName = baseName;

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 
 namespace RetroArr.Core.Games
 {
@@ -36,11 +37,11 @@ namespace RetroArr.Core.Games
         Failed
     }
 
+    // A target that is there is never replaced
     public enum ConflictResolution
     {
         Skip,
-        RenameSuffix,
-        Overwrite
+        RenameSuffix
     }
 
     public class StructureIssue
@@ -99,6 +100,8 @@ namespace RetroArr.Core.Games
     public class ResortApplyRequest
     {
         public List<string>? IssueIds { get; set; }
+        // A value it doesn't have ("Overwrite", 2) is a 400, not a quiet Skip
+        [EnumDataType(typeof(ConflictResolution))]
         public ConflictResolution DefaultConflictResolution { get; set; } = ConflictResolution.Skip;
     }
 

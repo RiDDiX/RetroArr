@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -30,6 +31,8 @@ namespace RetroArr.Core.Test.Games
         private const int Ps3 = 22;
         private const int Ps1 = 20;
         private const int Pc = 1;
+        private const int Switch = 46;
+        private const int Ps4 = 23;
 
         private sealed class DbFactory : IDbContextFactory<RetroArrDbContext>
         {
@@ -79,7 +82,7 @@ namespace RetroArr.Core.Test.Games
         [SetUp]
         public void SetUp()
         {
-            _root = Path.Combine(Path.GetTempPath(), "retroarr_scanupdate_" + Path.GetRandomFileName());
+            _root = Path.Combine(Path.GetTempPath(), "retroarr_scanupdate_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Path.Combine(_root, "config"));
             // Not "library": that name counts as a container
             _lib = Directory.CreateDirectory(Path.Combine(_root, "media")).FullName;
@@ -100,11 +103,11 @@ namespace RetroArr.Core.Test.Games
             if (Directory.Exists(_root)) Directory.Delete(_root, true);
         }
 
-        private MediaScannerService Scanner(IGameMetadataServiceFactory metadata, IGameRepository? repo = null, string? winePrefix = null)
+        private MediaScannerService Scanner(IGameMetadataServiceFactory metadata, IGameRepository? repo = null, string? winePrefix = null, DiscoveredGameRepository? discoveries = null)
         {
             var config = new ConfigurationService(_root);
             config.SaveMediaSettings(new MediaSettings { FolderPath = _lib, DestinationPath = _lib, WinePrefixPath = winePrefix ?? string.Empty });
-            return new MediaScannerService(config, metadata, repo ?? new SqliteGameRepository(new DbFactory(_db)), new TitleCleanerService());
+            return new MediaScannerService(config, metadata, repo ?? new SqliteGameRepository(new DbFactory(_db)), new TitleCleanerService(), discoveryRepo: discoveries);
         }
 
         private string Folder(params string[] parts) => Directory.CreateDirectory(Path.Combine(new[] { _lib }.Concat(parts).ToArray())).FullName;
@@ -197,7 +200,97 @@ namespace RetroArr.Core.Test.Games
             Assert.That(Row(1).Path, Is.EqualTo("/lib/gba/Advance Wars"));
         }
 
+        [Test]
+        public async Task UpsertGameFilesAsync_AddsAndUpdates_NeverRemoves()
+        {
+            await Seed(new Game { Id = 1, Title = "Zelda", PlatformId = Switch });
+            var repo = new SqliteGameRepository(new DbFactory(_db));
+            await repo.SyncGameFilesAsync(1, new List<GameFile>
+            {
+                new() { RelativePath = "Zelda.nsp", Size = 1, FileType = "Main" },
+                new() { RelativePath = "Updates/Zelda v1.nsp", Size = 1, FileType = "Patch" }
+            });
+
+            await repo.UpsertGameFilesAsync(1, new List<GameFile>
+            {
+                new() { RelativePath = "Zelda.nsp", Size = 2, FileType = "Main" },
+                new() { RelativePath = "/lib/switch/Updates/Zelda v2.nsp", Size = 3, FileType = "Patch" }
+            });
+
+            var files = (await repo.GetGameFilesAsync(1)).ToDictionary(f => f.RelativePath, f => f.Size);
+            Assert.That(files, Is.EquivalentTo(new Dictionary<string, long>
+            {
+                ["Zelda.nsp"] = 2,
+                ["Updates/Zelda v1.nsp"] = 1,
+                ["/lib/switch/Updates/Zelda v2.nsp"] = 3
+            }));
+        }
+
+        [Test]
+        public async Task CachedRepository_UpsertGameFilesAsync_Invalidates()
+        {
+            await Seed(new Game { Id = 1, Title = "Zelda", PlatformId = Switch });
+            var cache = new MissingContentTest.FakeCache();
+            var repo = new CachedGameRepository(new SqliteGameRepository(new DbFactory(_db)), cache, new CacheSettings());
+
+            await repo.UpsertGameFilesAsync(1, new List<GameFile> { new() { RelativePath = "Updates/Zelda v1.nsp", Size = 1, FileType = "Patch" } });
+
+            Assert.That(cache.Removed, Is.SupersetOf(new[] { CacheKeys.GameFiles(1), CacheKeys.GameDetail(1) }));
+            Assert.That(GameFiles(1), Is.EqualTo(new[] { "Updates/Zelda v1.nsp" }));
+        }
+
+        [Test]
+        public async Task UpsertGameFilesAsync_RefreshesWhatTheNewClassificationFound()
+        {
+            await Seed(new Game { Id = 1, Title = "Zelda", PlatformId = Switch });
+            var repo = new SqliteGameRepository(new DbFactory(_db));
+            await repo.UpsertGameFilesAsync(1, new List<GameFile> { new() { RelativePath = "Updates/Zelda.nsp", Size = 1, FileType = "Patch", Version = "v1", ContentName = "Zelda" } });
+
+            await repo.UpsertGameFilesAsync(1, new List<GameFile> { new() { RelativePath = "Updates/Zelda.nsp", Size = 1, FileType = "Patch", Version = "v2", TitleId = "0100000000010800" } });
+
+            var row = (await repo.GetGameFilesAsync(1)).Single();
+            Assert.That((row.Version, row.ContentName, row.TitleId, row.Serial), Is.EqualTo(("v2", "Zelda", "0100000000010800", (string?)null)));
+        }
+
+        [Test]
+        public async Task CachedRepository_RemoveGameFilesAsync_InvalidatesTheGamesThatLostARow()
+        {
+            await Seed(new Game { Id = 1, Title = "Zelda", PlatformId = Switch }, new Game { Id = 2, Title = "Mario", PlatformId = Switch });
+            var cache = new MissingContentTest.FakeCache();
+            var repo = new CachedGameRepository(new SqliteGameRepository(new DbFactory(_db)), cache, new CacheSettings());
+            await repo.UpsertGameFilesAsync(1, new List<GameFile>
+            {
+                new() { RelativePath = "Zelda.nsp", Size = 1, FileType = "Main" },
+                new() { RelativePath = "Updates/Zelda v1.nsp", Size = 1, FileType = "Patch" },
+                new() { RelativePath = "Updates/Zelda v2.nsp", Size = 1, FileType = "Patch" }
+            });
+            cache.Removed.Clear();
+            var linked = await repo.GetSupplementaryFilesAsync(new[] { 1, 2 });
+            Assert.That(linked.Select(f => f.RelativePath), Is.EquivalentTo(new[] { "Updates/Zelda v1.nsp", "Updates/Zelda v2.nsp" }));
+
+            // Exactly these rows: game 1's v2 is not one of them, and no row has the second id
+            var games = await repo.RemoveGameFilesAsync(new[] { linked.Single(f => f.RelativePath.EndsWith("v1.nsp")).Id, 999 });
+
+            Assert.That(games, Is.EqualTo(new[] { 1 }));
+            Assert.That(cache.Removed, Is.EquivalentTo(new[] { CacheKeys.GameFiles(1), CacheKeys.GameDetail(1) }));
+            Assert.That(GameFiles(1), Is.EquivalentTo(new[] { "Zelda.nsp", "Updates/Zelda v2.nsp" }));
+        }
+
         // ---- A second release beside a game ----
+
+        // A "+" in the title makes no bundle of the game's update: it stays an update, no second game
+        [Test]
+        public async Task UpdateOfAGameWithAPlusInItsTitle_IsNoGameOfItsOwn()
+        {
+            var switchFolder = Folder("switch");
+            var game = Put(switchFolder, "Super Mario 3D World + Bowser's Fury.nsp");
+            Put(switchFolder, "Super Mario 3D World + Bowser's Fury Update v1.1.0.nsp");
+            await Seed(new Game { Id = 1, Title = "Super Mario 3D World + Bowser's Fury", PlatformId = Switch, IgdbId = 9, Path = game, ExecutablePath = game, Status = GameStatus.Downloaded, Monitored = true });
+
+            await Scanner(new FakeIgdb("Super Mario 3D World + Bowser's Fury", 9)).ScanAsync();
+
+            Assert.That(Rows().Select(g => g.Title), Is.EqualTo(new[] { "Super Mario 3D World + Bowser's Fury" }));
+        }
 
         [Test]
         public async Task RegionFileInTheGamesFolder_IsPartOfTheGame()
@@ -435,6 +528,24 @@ namespace RetroArr.Core.Test.Games
             Assert.That(Row(1).Monitored, Is.False);
         }
 
+        // A row inside a PS4 container folder is junk and goes. A library below a folder that is only named like one
+        // keeps its games.
+        [TestCase(true)]
+        [TestCase(false)]
+        public async Task ContainerOrphans_ArePrunedOnlyBelowTheLibraryRoot(bool orphan)
+        {
+            _lib = Directory.CreateDirectory(Path.Combine(_root, "backup.ps4", "media")).FullName;
+            var rom = Put(Folder("gba"), "Advance Wars.gba");
+            var junk = Put(Folder("ps4", "Bloodborne.ps4"), "CUSA03173/eboot.bin");
+            await Seed(orphan
+                ? new Game { Id = 1, Title = "Bloodborne", PlatformId = Ps4, Path = junk, Status = GameStatus.Downloaded }
+                : new Game { Id = 1, Title = "Advance Wars", PlatformId = Gba, Path = rom, ExecutablePath = rom, Status = GameStatus.Downloaded });
+
+            await Scanner(new FakeIgdb()).ScanAsync();
+
+            Assert.That(Rows().Any(g => g.Id == 1), Is.EqualTo(!orphan));
+        }
+
         // ---- Separate games are still found ----
 
         [Test]
@@ -493,6 +604,113 @@ namespace RetroArr.Core.Test.Games
 
             Assert.That(Rows().Where(g => g.IsExternal).Select(g => g.Path), Is.EqualTo(new[] { install }));
             Assert.That(Row(1).Path, Is.EqualTo(Path.Combine(_root, "apps")));
+        }
+
+        // The settings page sends the library root as the path to scan
+        [TestCase(false)]
+        [TestCase(true)]
+        public async Task SettingsStyleScan_ScansTheWinePrefixToo(bool trailingSeparator)
+        {
+            var (prefix, install) = await WinePrefixInTheFolderOfDoom();
+
+            await Scanner(new FakeIgdb(), winePrefix: prefix).ScanAsync(trailingSeparator ? _lib + Path.DirectorySeparatorChar : _lib, "default");
+
+            Assert.That(Rows().Where(g => g.IsExternal).Select(g => g.Path), Is.EqualTo(new[] { install }));
+        }
+
+        // A discovery request while a discovery scan runs is skipped: the running one stays a discovery scan and keeps
+        // its count, so the rest of what it finds doesn't land in the library
+        [Test]
+        public async Task DiscoveryRequestDuringADiscoveryScan_LeavesItsModeAndCount()
+        {
+            Put(Folder("gba"), "Advance Wars.gba");
+            Put(Folder("snes"), "Super Metroid.sfc");
+            using var held = new ManualResetEventSlim();
+            using var release = new ManualResetEventSlim();
+            var reads = 0;
+            var repo = DispatchProxy.Create<IGameRepository, MissingContentTest.HookedRepository>();
+            var hook = (MissingContentTest.HookedRepository)(object)repo;
+            hook.Inner = new SqliteGameRepository(new DbFactory(_db));
+            // Held after the first platform's files, before the second's
+            hook.Before = (method, _) =>
+            {
+                if (method.Name != nameof(IGameRepository.GetAllLightAsync) || Interlocked.Increment(ref reads) != 2) return;
+                held.Set();
+                release.Wait(TimeSpan.FromSeconds(30));
+            };
+            var discoveries = new DiscoveredGameRepository(new DbFactory(_db));
+            var scanner = Scanner(new FakeIgdb(), repo, discoveries: discoveries);
+            var running = Task.Run(() => scanner.DiscoverOnlyAsync());
+            Assert.That(held.Wait(TimeSpan.FromSeconds(30)), Is.True);
+
+            var second = await scanner.DiscoverOnlyAsync();
+
+            release.Set();
+            Assert.That(second, Is.Zero);
+            Assert.That(await running, Is.EqualTo(2));
+            Assert.That(Rows(), Is.Empty, "the rest of the discovery scan added games to the library");
+            Assert.That(await discoveries.CountAsync(), Is.EqualTo(2));
+            Assert.That(scanner.IsDiscoveryMode, Is.False, "the mode outlived its scan");
+        }
+
+        // A failing handler of the finished scan neither fails the scan nor frees the slot a second time: the scan that took
+        // it meanwhile keeps it
+        [Test]
+        public async Task ScanFinishedHandlerFails_NextScanKeepsTheSlot()
+        {
+            using var held = new ManualResetEventSlim();
+            using var release = new ManualResetEventSlim();
+            var holdNext = false;
+            var repo = DispatchProxy.Create<IGameRepository, MissingContentTest.HookedRepository>();
+            var hook = (MissingContentTest.HookedRepository)(object)repo;
+            hook.Inner = new SqliteGameRepository(new DbFactory(_db));
+            hook.Before = (method, _) =>
+            {
+                if (!holdNext || method.Name != nameof(IGameRepository.GetAllLightAsync)) return;
+                holdNext = false;
+                held.Set();
+                release.Wait(TimeSpan.FromSeconds(30));
+            };
+            var scanner = Scanner(new FakeIgdb(), repo);
+            Task<int>? next = null;
+            scanner.OnScanFinished += _ =>
+            {
+                if (next != null) return;
+                holdNext = true;
+                next = Task.Run(() => scanner.ScanAsync());
+                held.Wait(TimeSpan.FromSeconds(30));
+                throw new InvalidOperationException("handler failed");
+            };
+
+            await scanner.ScanAsync();
+            var running = scanner.IsScanning;
+
+            release.Set();
+            await next!;
+            Assert.That(running, Is.True, "the next scan's slot was freed");
+            Assert.That(scanner.IsScanning, Is.False);
+        }
+
+        // A scan that ends before it got going leaves none running, so the next one is not skipped
+        [TestCase(false)]
+        [TestCase(true)]
+        public async Task ScanEndingEarly_LeavesNoScanRunning(bool readFails)
+        {
+            var repo = DispatchProxy.Create<IGameRepository, MissingContentTest.HookedRepository>();
+            var hook = (MissingContentTest.HookedRepository)(object)repo;
+            hook.Inner = new SqliteGameRepository(new DbFactory(_db));
+            hook.Before = (method, _) =>
+            {
+                if (readFails && method.Name == nameof(IGameRepository.GetAllLightAsync)) throw new IOException("database is locked");
+            };
+            var scanner = Scanner(new FakeIgdb(), repo);
+
+            if (readFails)
+                Assert.ThrowsAsync<IOException>(() => scanner.ScanAsync());
+            else
+                Assert.That(await scanner.ScanAsync(Path.Combine(_root, "gone")), Is.Zero);
+
+            Assert.That(scanner.IsScanning, Is.False);
         }
 
         [Test]
@@ -807,6 +1025,321 @@ namespace RetroArr.Core.Test.Games
             using var ctx = new RetroArrDbContext(_db);
             Assert.That(ctx.GameFiles.Where(f => f.GameId == 1).Select(f => f.RelativePath),
                 Is.EquivalentTo(new[] { "Final Fantasy VII.m3u", "CD1/Final Fantasy VII.chd", "CD2/Final Fantasy VII.chd" }));
+        }
+
+        // ---- Updates and DLC ----
+
+        // Linked from the game's folder and from the platform's Updates folder, they outlast the resync of the
+        // game's own file and every further scan, until their file is gone
+        [Test]
+        public async Task SingleFileGame_UpdatesInItsFolderAndThePlatformsUpdatesFolder_StayLinkedUntilGone()
+        {
+            var folder = Folder("switch", "Zelda");
+            var nsp = Put(folder, "Zelda [0100000000010000].nsp");
+            Put(folder, "Updates/Zelda [0100000000010800][v65536].nsp");
+            var updates = Folder("switch", "Updates");
+            var v2 = Put(updates, "Zelda [0100000000010800][v131072].nsp");
+            var v3 = Put(updates, "Zelda [0100000000010800][v196608].nsp");
+            var dlc = Put(updates, "Zelda DLC/Zelda [0100000000011000][v0].nsp");
+            await Seed(new Game { Id = 1, Title = "Zelda", PlatformId = Switch, Path = nsp, ExecutablePath = nsp, Status = GameStatus.Downloaded });
+            string Full(string path) => path.Replace(Path.DirectorySeparatorChar, '/');
+
+            await Scanner(new FakeIgdb()).ScanAsync();
+            await Scanner(new FakeIgdb()).ScanAsync();
+
+            Assert.That(GameFiles(1), Is.EquivalentTo(new[]
+            {
+                "Zelda [0100000000010000].nsp", "Updates/Zelda [0100000000010800][v65536].nsp", Full(v2), Full(v3), Full(dlc)
+            }));
+
+            File.Delete(v2);
+            await Scanner(new FakeIgdb()).ScanAsync();
+
+            Assert.That(GameFiles(1), Is.EquivalentTo(new[]
+            {
+                "Zelda [0100000000010000].nsp", "Updates/Zelda [0100000000010800][v65536].nsp", Full(v3), Full(dlc)
+            }));
+            Assert.That(Rows(), Has.Count.EqualTo(1));
+        }
+
+        // Stored relative to the game's folder, or to the folder a single-file game lies in; a file outside it by its full path
+        [TestCase(true)]
+        [TestCase(false)]
+        public async Task UpdateInThePlatformsUpdatesFolder_IsStoredAgainstTheGamesFolder(bool folderGame)
+        {
+            var sw = Folder("switch");
+            var nsp = Put(folderGame ? Folder("switch", "Zelda") : sw, "Zelda [0100000000010000].nsp");
+            var update = Put(sw, "Updates/Zelda [0100000000010800][v65536].nsp");
+            await Seed(new Game { Id = 1, Title = "Zelda", PlatformId = Switch, Path = folderGame ? Path.GetDirectoryName(nsp) : nsp, ExecutablePath = nsp, Status = GameStatus.Downloaded });
+
+            await Scanner(new FakeIgdb()).ScanAsync();
+
+            Assert.That(GameFiles(1), Is.EquivalentTo(new[]
+            {
+                "Zelda [0100000000010000].nsp",
+                folderGame ? update.Replace(Path.DirectorySeparatorChar, '/') : "Updates/Zelda [0100000000010800][v65536].nsp"
+            }));
+        }
+
+        // Linked to the game it matched best, an update goes to a better match added since, and leaves the first
+        [Test]
+        public async Task LinkedUpdate_MovesToABetterMatchAddedLater()
+        {
+            var sw = Folder("switch");
+            var zelda = Put(sw, "Zelda.nsp");
+            var update = Put(sw, "Updates/Zelda II [0100000000020800][v65536].nsp");
+            await Seed(new Game { Id = 1, Title = "Zelda", PlatformId = Switch, Path = zelda, ExecutablePath = zelda, Status = GameStatus.Downloaded });
+            await Scanner(new FakeIgdb()).ScanAsync();
+            Assert.That(GameFiles(1), Does.Contain("Updates/Zelda II [0100000000020800][v65536].nsp"));
+
+            var zelda2 = Put(Folder("switch", "Zelda II"), "Zelda II [0100000000020000].nsp");
+            await Seed(new Game { Id = 2, Title = "Zelda II", PlatformId = Switch, Path = Path.GetDirectoryName(zelda2), ExecutablePath = zelda2, Status = GameStatus.Downloaded });
+            await Scanner(new FakeIgdb()).ScanAsync();
+
+            Assert.That(GameFiles(1), Is.EqualTo(new[] { "Zelda.nsp" }));
+            Assert.That(GameFiles(2), Is.EquivalentTo(new[] { "Zelda II [0100000000020000].nsp", update.Replace(Path.DirectorySeparatorChar, '/') }));
+        }
+
+        // A game folder named without the TitleID: its game file carries it
+        [Test]
+        public async Task Update_MatchesAFolderGameByTheTitleIdOfItsGameFile()
+        {
+            var nsp = Put(Folder("switch", "The Legend of Zelda"), "The Legend of Zelda [0100000000010000].nsp");
+            var update = Put(Folder("switch"), "Updates/BotW [0100000000010800][v65536].nsp");
+            await Seed(new Game { Id = 1, Title = "The Legend of Zelda", PlatformId = Switch, Path = Path.GetDirectoryName(nsp), ExecutablePath = nsp, Status = GameStatus.Downloaded });
+
+            await Scanner(new FakeIgdb()).ScanAsync();
+
+            Assert.That(GameFiles(1), Does.Contain(update.Replace(Path.DirectorySeparatorChar, '/')));
+        }
+
+        // The platform's linked rows are read once, so memory and time grow with them, not with games times linked files
+        [Test]
+        public async Task Unlink_ManyGamesAndFiles_StaysLinear()
+        {
+            var sw = Folder("switch");
+            var games = Enumerable.Range(1, 2000)
+                .Select(i => new Game { Id = i, Title = $"Game {i}", PlatformId = Switch, Path = Path.Combine(sw, $"Game {i}.nsp") })
+                .ToList();
+            Put(sw, "Game 1.nsp");
+            Put(sw, "Game 2.nsp");
+            await Seed(games.ToArray());
+            var linkedTo = Enumerable.Range(0, 4000).ToDictionary(i => Path.Combine(sw, "Updates", $"Update {i}.nsp"), i => i % 2000 + 1);
+            using (var ctx = new RetroArrDbContext(_db))
+            {
+                // Update 1 is game 2's now
+                ctx.GameFiles.AddRange(
+                    new GameFile { GameId = 1, RelativePath = "Updates/Update 1.nsp", FileType = "Patch" },
+                    new GameFile { GameId = 2, RelativePath = "Updates/Update 1.nsp", FileType = "Patch" });
+                await ctx.SaveChangesAsync();
+            }
+            var scanner = Scanner(new FakeIgdb());
+
+            GC.Collect();
+            var before = GC.GetTotalAllocatedBytes(true);
+            var watch = Stopwatch.StartNew();
+            await scanner.UnlinkFromOtherGamesAsync(linkedTo, games, "switch");
+            watch.Stop();
+            var allocated = GC.GetTotalAllocatedBytes(true) - before;
+
+            Assert.That(GameFiles(1), Is.Empty);
+            Assert.That(GameFiles(2), Is.EqualTo(new[] { "Updates/Update 1.nsp" }));
+            Assert.That(allocated, Is.LessThan(64L << 20), $"{allocated >> 20} MB allocated");
+            Assert.That(watch.Elapsed, Is.LessThan(TimeSpan.FromSeconds(20)));
+        }
+
+        // A file of an update or DLC is no game: a wanted game doesn't take it as its own and count as downloaded, and no
+        // entry is made for it. The game with its DLC is a game.
+        [TestCase("Mario Kart 8 Deluxe (DLCs).nsp", false)]
+        [TestCase("Mario Kart 8 Deluxe - All DLCs.nsp", false)]
+        [TestCase("Mario Kart 8 Deluxe Updates.nsp", false)]
+        [TestCase("Mario Kart 8 Deluxe + All DLCs.nsp", true)]
+        public async Task WantedGame_FileOfItsUpdateOrDlc_IsNoGame(string name, bool game)
+        {
+            var file = Put(Folder("switch"), name);
+            await Seed(new Game { Id = 1, Title = "Mario Kart 8 Deluxe", PlatformId = Switch, IgdbId = 7, Status = GameStatus.Released, Monitored = true });
+
+            await Scanner(new FakeIgdb()).ScanAsync();
+
+            var holders = Rows().Where(g => g.Path == file).ToList();
+            Assert.That(holders.Select(g => g.Status), Is.EqualTo(game ? new[] { GameStatus.Downloaded } : Array.Empty<GameStatus>()));
+            if (!game) Assert.That((Rows().Count, Row(1).Status), Is.EqualTo((1, GameStatus.Released)));
+        }
+
+        [Test]
+        public async Task UpdateAndDlcFiles_AddNoGames()
+        {
+            var sw = Folder("switch");
+            Put(sw, "Mario Kart 8 Deluxe - All DLCs.nsp");
+            Put(sw, "Mario Kart 8 Deluxe Updates.nsp");
+            Put(sw, "Mario Kart 8 Deluxe [0100152000023800][v1376256].nsp");
+
+            await Scanner(new FakeIgdb()).ScanAsync();
+
+            Assert.That(Rows(), Is.Empty);
+        }
+
+        // A folder of several games: the update beside them is not linked to every one of them
+        [Test]
+        public async Task SingleFileGamesSharingAFolder_UpdateThereIsNotLinkedToTheOtherGame()
+        {
+            var folder = Folder("switch", "Nintendo");
+            var zelda = Put(folder, "Zelda.nsp");
+            var mario = Put(folder, "Mario.nsp");
+            Put(folder, "Updates/Zelda Update v2.nsp");
+            await Seed(
+                new Game { Id = 1, Title = "Zelda", PlatformId = Switch, Path = zelda, ExecutablePath = zelda, Status = GameStatus.Downloaded },
+                new Game { Id = 2, Title = "Mario", PlatformId = Switch, Path = mario, ExecutablePath = mario, Status = GameStatus.Downloaded });
+
+            await Scanner(new FakeIgdb()).ScanAsync();
+
+            Assert.That(GameFiles(2), Is.EqualTo(new[] { "Mario.nsp" }));
+        }
+
+        // ---- An import stores the game as what it finds ----
+
+        // A game added from a file has it, and doesn't wait for the next scan to count as downloaded
+        [TestCase(false)]
+        [TestCase(true)]
+        public async Task ImportedNewGame_IsDownloadedAtOnce(bool lookupMatches)
+        {
+            var rom = Put(Folder("gba"), "Advance Wars.gba");
+
+            var imported = await Scanner(lookupMatches ? new FakeIgdb("Advance Wars", 7) : new FakeIgdb())
+                .ImportDiscoveredAsync(new DiscoveredGame { Title = "Advance Wars", Path = rom, ExecutablePath = rom, PlatformKey = "gba" });
+
+            Assert.That(imported, Is.True);
+            Assert.That(Rows().Single().Status, Is.EqualTo(GameStatus.Downloaded));
+        }
+
+        [Test]
+        public async Task ImportedFileOfAWantedGame_FoundByTheLookup_IsDownloadedAtOnce()
+        {
+            var rom = Put(Folder("gba"), "Pokemon Emerald (Europe).gba");
+            await Seed(new Game { Id = 1, Title = "Pokemon Emerald Version", Region = "Europe", PlatformId = Gba, IgdbId = 9, Status = GameStatus.Released, Monitored = true });
+
+            await Scanner(new FakeIgdb("Pokemon Emerald Version", 9, search: "Pokemon Emerald"))
+                .ImportDiscoveredAsync(new DiscoveredGame { Title = "Pokemon Emerald", Path = rom, ExecutablePath = rom, PlatformKey = "gba", Region = "Europe" });
+
+            Assert.That(Row(1).Path, Is.EqualTo(rom));
+            Assert.That(Row(1).Status, Is.EqualTo(GameStatus.Downloaded));
+            Assert.That(GameFiles(1), Is.EqualTo(new[] { "Pokemon Emerald (Europe).gba" }));
+        }
+
+        // ---- After the upgrade: games older versions stored as Released ----
+
+        [Test]
+        public async Task ContentPass_PromotesGamesWithTheirFiles_AndFlagsNothing()
+        {
+            var gba = Folder("gba");
+            var rom = Put(gba, "Advance Wars.gba");
+            var setupFolder = Folder("windows", "Some Game");
+            var setup = Put(setupFolder, "setup_some_game.exe");
+            await Seed(
+                new Game { Id = 1, Title = "Advance Wars", PlatformId = Gba, Path = rom, ExecutablePath = rom, Status = GameStatus.Released },
+                new Game { Id = 2, Title = "Some Game", PlatformId = Pc, Path = setupFolder, ExecutablePath = setup, Status = GameStatus.InstallerDetected },
+                new Game { Id = 3, Title = "Golden Sun", PlatformId = Gba, Path = Gone("gba", "Golden Sun.gba"), Status = GameStatus.Downloaded },
+                new Game { Id = 4, Title = "Metroid Fusion", PlatformId = Gba, Path = Gone("gba", "Metroid Fusion.gba"), Status = GameStatus.Released });
+
+            var promoted = await Scanner(new FakeIgdb()).PromotePresentGamesAsync();
+
+            Assert.That(promoted, Is.EqualTo(1));
+            Assert.That(Rows().OrderBy(g => g.Id).Select(g => (g.Status, g.MissingSince)), Is.EqualTo(new[]
+            {
+                (GameStatus.Downloaded, (DateTime?)null), (GameStatus.InstallerDetected, null), (GameStatus.Downloaded, null), (GameStatus.Released, null)
+            }));
+        }
+
+        [Test]
+        public async Task ContentPass_WaitsForARunningScan()
+        {
+            var rom = Put(Folder("gba"), "Advance Wars.gba");
+            await Seed(new Game { Id = 1, Title = "Advance Wars", PlatformId = Gba, Path = rom, ExecutablePath = rom, Status = GameStatus.Released });
+            using var held = new ManualResetEventSlim();
+            using var release = new ManualResetEventSlim();
+            var repo = DispatchProxy.Create<IGameRepository, MissingContentTest.HookedRepository>();
+            var hook = (MissingContentTest.HookedRepository)(object)repo;
+            hook.Inner = new SqliteGameRepository(new DbFactory(_db));
+            hook.Before = (method, _) =>
+            {
+                if (method.Name != nameof(IGameRepository.GetAllLightAsync) || held.IsSet) return;
+                held.Set();
+                release.Wait(TimeSpan.FromSeconds(30));
+            };
+            var scanner = Scanner(new FakeIgdb(), repo);
+            var running = Task.Run(() => scanner.ScanAsync());
+            Assert.That(held.Wait(TimeSpan.FromSeconds(30)), Is.True);
+
+            var promoted = await scanner.PromotePresentGamesAsync();
+            var status = Row(1).Status;
+
+            release.Set();
+            await running;
+            Assert.That(promoted, Is.Null);
+            Assert.That(status, Is.EqualTo(GameStatus.Released));
+        }
+
+        [Test]
+        public async Task ContentPass_CanBeStopped()
+        {
+            var rom = Put(Folder("gba"), "Advance Wars.gba");
+            await Seed(new Game { Id = 1, Title = "Advance Wars", PlatformId = Gba, Path = rom, ExecutablePath = rom, Status = GameStatus.Released });
+            using var held = new ManualResetEventSlim();
+            using var release = new ManualResetEventSlim();
+            var repo = DispatchProxy.Create<IGameRepository, MissingContentTest.HookedRepository>();
+            var hook = (MissingContentTest.HookedRepository)(object)repo;
+            hook.Inner = new SqliteGameRepository(new DbFactory(_db));
+            hook.Before = (method, _) =>
+            {
+                if (method.Name != nameof(IGameRepository.GetAllLightAsync)) return;
+                held.Set();
+                release.Wait(TimeSpan.FromSeconds(30));
+            };
+            var scanner = Scanner(new FakeIgdb(), repo);
+            var pass = Task.Run(() => scanner.PromotePresentGamesAsync());
+            Assert.That(held.Wait(TimeSpan.FromSeconds(30)), Is.True);
+
+            scanner.StopScan();
+            release.Set();
+
+            Assert.That(async () => await pass, Throws.InstanceOf<OperationCanceledException>());
+            Assert.That(scanner.IsScanning, Is.False);
+            Assert.That(Row(1).Status, Is.EqualTo(GameStatus.Released));
+        }
+
+        // An import while the pass ran kept its check of the library; the pass changed what it found
+        [Test]
+        public async Task ContentPass_LeavesNoCheckOfTheLibraryBehind()
+        {
+            var scanner = Scanner(new FakeIgdb());
+            var check = typeof(MediaScannerService).GetField("_libraryContent", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            check.SetValue(scanner, new Dictionary<int, GameContent> { [1] = GameContent.Gone });
+
+            await scanner.PromotePresentGamesAsync();
+
+            Assert.That(check.GetValue(scanner), Is.Null);
+        }
+
+        [Test]
+        public async Task ContentPassAfterTheUpgrade_RunsOnce()
+        {
+            var gba = Folder("gba");
+            var rom = Put(gba, "Advance Wars.gba");
+            await Seed(new Game { Id = 1, Title = "Advance Wars", PlatformId = Gba, Path = rom, ExecutablePath = rom, Status = GameStatus.Released });
+            var config = new ConfigurationService(_root);
+
+            var first = new ContentStateUpgradeService(Scanner(new FakeIgdb()), config);
+            await first.StartAsync(CancellationToken.None);
+            await first.ExecuteTask!;
+            var later = Put(gba, "Golden Sun.gba");
+            await Seed(new Game { Id = 2, Title = "Golden Sun", PlatformId = Gba, Path = later, ExecutablePath = later, Status = GameStatus.Released });
+            var second = new ContentStateUpgradeService(Scanner(new FakeIgdb()), config);
+            await second.StartAsync(CancellationToken.None);
+            await second.ExecuteTask!;
+
+            Assert.That(Row(1).Status, Is.EqualTo(GameStatus.Downloaded));
+            Assert.That(Row(2).Status, Is.EqualTo(GameStatus.Released), "the pass ran again");
+            Assert.That(File.Exists(Path.Combine(config.GetConfigDirectory(), ContentStateUpgradeService.MarkerName)), Is.True);
         }
 
         // ---- A metadata match brings the file to a game without one ----

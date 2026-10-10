@@ -23,6 +23,19 @@ namespace RetroArr.Core.Rename
 
         private static readonly Regex TokenRegex = new(@"\{([A-Za-z]+)\}", RegexOptions.Compiled);
 
+        // An empty token is marked, a filled one is fenced in, so the cleanup below only ever takes the
+        // template's own separators next to an empty token and never a dash of the title ("-Zero-").
+        private const char Empty = '\uE000';
+        private const char Fence = '\uE001';
+
+        private const string EmptyInside = @"[\s,;+\-\uE000]*\uE000[\s,;+\-\uE000]*";
+        private static readonly Regex EmptyBracketRegex = new(
+            @"\s*(\(" + EmptyInside + @"\)|\[" + EmptyInside + @"\]|\{" + EmptyInside + @"\})", RegexOptions.Compiled);
+
+        private static readonly Regex EmptyRunRegex = new(@"[\s-]*(?:\uE000[\s-]*)+", RegexOptions.Compiled);
+
+        private static readonly Regex DashRunRegex = new(@"-[\s-]*-", RegexOptions.Compiled);
+
         // Reserved filename stems on Windows. The renamer prefixes an
         // underscore if it would otherwise produce one of these.
         private static readonly HashSet<string> WindowsReservedStems = new(StringComparer.OrdinalIgnoreCase)
@@ -48,20 +61,21 @@ namespace RetroArr.Core.Rename
                 var key = m.Groups[1].Value;
                 if (variables.TryGetValue(key, out var v))
                 {
-                    return v ?? string.Empty;
+                    return string.IsNullOrEmpty(v) ? Empty.ToString() : Fence + v + Fence;
                 }
                 return m.Value;
             });
 
             // An empty token leaves "()" or "[]" behind: "{Title} ({Region})" with no region is just the title.
-            substituted = Regex.Replace(substituted, @"\s*(\([\s,;+-]*\)|\[[\s,;+-]*\]|\{[\s,;+-]*\})", "");
+            substituted = EmptyBracketRegex.Replace(substituted, Empty.ToString());
 
-            // 2. Collapse adjacent " - " separators that flank a now-empty
-            // variable: "{Title} - DLC - {ContentName}" with ContentName=""
-            // becomes "Chrono Trigger - DLC -  " -> "Chrono Trigger - DLC".
-            substituted = Regex.Replace(substituted, @"(\s-\s)+", " - ");
-            substituted = Regex.Replace(substituted, @"^\s*-\s*", "");
-            substituted = Regex.Replace(substituted, @"\s*-\s*$", "");
+            // 2. The separators next to an empty token go at either end and collapse to one in
+            // between: "{Title} - DLC - {ContentName}" with ContentName="" becomes
+            // "Chrono Trigger - DLC", "{Title} - {Region} - {Version}" "Chrono Trigger - 1.02".
+            var marked = substituted;
+            substituted = EmptyRunRegex.Replace(marked, m =>
+                m.Index == 0 || m.Index + m.Length == marked.Length ? "" : DashRunRegex.Replace(m.Value.Replace(Empty.ToString(), ""), "-"));
+            substituted = substituted.Replace(Fence.ToString(), "");
 
             // 3. Collapse runs of whitespace, trim ends.
             substituted = Regex.Replace(substituted, @"\s{2,}", " ").Trim();

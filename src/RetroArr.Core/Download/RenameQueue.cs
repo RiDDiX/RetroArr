@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using RetroArr.Core.Configuration;
 using RetroArr.Core.Games;
+using RetroArr.Core.Rename;
 
 namespace RetroArr.Core.Download
 {
@@ -52,7 +53,7 @@ namespace RetroArr.Core.Download
                 if (similarity >= MatchThreshold)
                 {
                     // Auto-rename with high confidence
-                    var newFileName = GenerateCleanFileName(expectedGameTitle, Path.GetExtension(filePath), platform);
+                    var newFileName = GenerateCleanFileName(expectedGameTitle, FileRenamer.Extension(filePath), platform);
                     var newPath = Path.Combine(Path.GetDirectoryName(filePath)!, newFileName);
                     
                     try
@@ -80,7 +81,7 @@ namespace RetroArr.Core.Download
                 else
                 {
                     // Add to pending queue for user confirmation
-                    var suggestedName = GenerateCleanFileName(expectedGameTitle, Path.GetExtension(filePath), platform);
+                    var suggestedName = GenerateCleanFileName(expectedGameTitle, FileRenamer.Extension(filePath), platform);
                     var pending = new PendingRename
                     {
                         Id = Guid.NewGuid().ToString(),
@@ -170,8 +171,8 @@ namespace RetroArr.Core.Download
         // strips scene tags, release groups, etc.
         private static string CleanReleaseName(string name)
         {
-            // Remove extension
-            name = Path.GetFileNameWithoutExtension(name);
+            // Remove extension, both of a tarball's
+            name = FileRenamer.Stem(name);
             
             // Common scene/release group patterns to remove
             var patterns = new[]

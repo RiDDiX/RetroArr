@@ -17,6 +17,8 @@ namespace RetroArr.Core.Download.TrackedDownloads
         public string? Category { get; set; }
         public string? PlatformFolder { get; set; }
         public int? GameId { get; set; }
+        // The game, or no game, was mapped by hand: a grab of the same name never fills it in again
+        public bool GameSetByHand { get; set; }
         public string? ImportSubfolder { get; set; }
         public long Size { get; set; }
         public float Progress { get; set; }

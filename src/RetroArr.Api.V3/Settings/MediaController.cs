@@ -114,6 +114,10 @@ namespace RetroArr.Api.V3.Settings
 
             [System.Text.Json.Serialization.JsonPropertyName("platform")]
             public string? Platform { get; set; }
+
+            // Scan the Wine prefix as an external library
+            [System.Text.Json.Serialization.JsonPropertyName("external")]
+            public bool External { get; set; }
         }
 
         [HttpPost("scan")]
@@ -130,13 +134,29 @@ namespace RetroArr.Api.V3.Settings
                 });
             }
 
-            _logger.Info($"TriggerScan received. FolderPath: '{request?.FolderPath}', Platform: '{request?.Platform}'");
+            if (request?.External == true)
+            {
+                var wine = _configService.LoadMediaSettings().WinePrefixPath;
+                if (string.IsNullOrWhiteSpace(wine))
+                    return BadRequest(new { message = "No Wine prefix is set." });
+                if (!System.IO.Directory.Exists(wine))
+                    return BadRequest(new { message = $"The Wine prefix '{wine}' does not exist." });
+            }
+
+            // The scanner would skip it, and "scan started" would be wrong
+            if (_scannerService.IsScanning)
+                return Conflict(new { message = MediaScannerService.ScanRunningMessage });
+
+            _logger.Info($"TriggerScan received. FolderPath: '{request?.FolderPath}', Platform: '{request?.Platform}', External: {request?.External == true}");
             // Run scan in background to avoid timeouts
             Task.Run(async () => 
             {
                 try
                 {
-                    await _scannerService.ScanAsync(request?.FolderPath, request?.Platform);
+                    if (request?.External == true)
+                        await _scannerService.ScanExternalAsync();
+                    else
+                        await _scannerService.ScanAsync(request?.FolderPath, request?.Platform);
                 }
                 catch (Exception ex)
                 {

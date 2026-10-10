@@ -305,6 +305,91 @@ namespace RetroArr.Core.Test.Download
             Assert.That(Names(folder), Is.EqualTo(new[] { expected }));
         }
 
+        // A tarball keeps both of its extensions under every name it can get
+        [TestCase("hades-1.38.tar.gz", "Hades.tar.gz")]
+        [TestCase("Hades Update v1.38.tar.gz", "Patches/Hades-Patch-v1.38.tar.gz")]
+        [TestCase("Hades DLC Soundtrack.tar.xz", "DLC/Hades-DLC-Soundtrack.tar.xz")]
+        public async Task Tarball_KeepsItsDoubleExtension(string file, string expected)
+        {
+            var (processor, folder) = await SetUpAsync("Hades", 1);
+
+            var result = await ImportFileAsync(processor, file, "tar", file);
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            Assert.That(Names(folder), Is.EqualTo(new[] { expected }));
+        }
+
+        // Mapped as the main game, a release named like an update is the game and lands in its folder
+        [Test]
+        public async Task MappedAsMain_IsTheGame()
+        {
+            var (processor, folder) = await SetUpAsync("Advance Wars", 52);
+
+            var result = await ImportFolderAsync(processor, "Advance Wars Update v1.1", false, "Main", ("Advance Wars Update v1.1.gba", Encoding.ASCII.GetBytes("rom")));
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            Assert.That(Names(folder), Is.EqualTo(new[] { "Advance Wars.gba" }));
+            Assert.That(GameRow().ExecutablePath, Is.EqualTo(Path.Combine(folder, "Advance Wars.gba")));
+            Assert.That(GameRow().Status, Is.EqualTo(GameStatus.Downloaded));
+        }
+
+        // A subfolder is Main, Patches or DLC. Anything else, a path above all, is ignored and the import goes by what the
+        // release is: nothing lands outside the game's folder.
+        [TestCase("../x")]
+        [TestCase("Patches/../..")]
+        [TestCase("absolute")]
+        [TestCase("Extras")]
+        public async Task UnknownSubfolder_IsIgnored(string subfolder)
+        {
+            var (processor, folder) = await SetUpAsync("Advance Wars", 52);
+            var outside = Path.Combine(_root, "outside");
+
+            var result = await ImportFolderAsync(processor, "Advance Wars (USA)", false, subfolder == "absolute" ? outside : subfolder,
+                ("Advance Wars (USA).gba", Encoding.ASCII.GetBytes("rom")));
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            Assert.That(Names(folder), Is.EqualTo(new[] { "Advance Wars.gba" }));
+            Assert.That(Directory.GetFileSystemEntries(Path.Combine(Library, "gba")).Select(Path.GetFileName), Is.EqualTo(new[] { "Advance Wars" }));
+            Assert.That(Directory.Exists(outside), Is.False);
+        }
+
+        // An update or DLC is linked to the game as the scan links one, relative to the folder its files are counted from.
+        // Beside a game that is one file in its platform folder nothing else would ever read the Patches folder.
+        [TestCase(true, "Advance Wars Update v1.1.ips", "Patch", "Advance Wars/Patches/Advance Wars-Patch-v1.1.ips", "1.1", null)]
+        [TestCase(true, "Advance Wars DLC Maps.ips", "DLC", "Advance Wars/DLC/Advance Wars-DLC-Maps.ips", null, "Maps")]
+        [TestCase(false, "Advance Wars Update v1.1.ips", "Patch", "Patches/Advance Wars-Patch-v1.1.ips", "1.1", null)]
+        public async Task UpdateOrDlc_IsLinkedToTheGame(bool singleFile, string file, string type, string relative, string? version, string? contentName)
+        {
+            var rom = Path.Combine(Library, "gba", "Advance Wars.gba");
+            var (processor, folder) = await SetUpAsync("Advance Wars", 52, seed: g =>
+            {
+                if (!singleFile) return;
+                File.WriteAllText(rom, "rom");
+                g.Path = rom;
+                g.ExecutablePath = rom;
+            });
+
+            var result = await ImportFileAsync(processor, file, "content");
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            using var ctx = new RetroArrDbContext(_db);
+            var linked = ctx.GameFiles.Where(f => f.GameId == 1).ToList();
+            Assert.That(linked.Select(f => (f.RelativePath, f.FileType, f.Version, f.ContentName)), Is.EqualTo(new[] { (relative, type, version, contentName) }));
+            Assert.That(File.Exists(Path.Combine(singleFile ? Path.GetDirectoryName(rom)! : folder, relative)), Is.True);
+        }
+
+        // A Switch update without a dotted version keeps the one in its brackets: two updates never share a name
+        [Test]
+        public async Task SwitchUpdate_KeepsItsVersion()
+        {
+            var (processor, folder) = await SetUpAsync("Metroid Dread", 46);
+
+            var result = await ImportFileAsync(processor, "Metroid Dread [010093801237C800][v131072].nsp", "update");
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            Assert.That(Names(folder), Is.EqualTo(new[] { "Patches/Metroid Dread-Patch-v131072.nsp" }));
+        }
+
         [TestCase(100, true)]
         [TestCase(100, false)]
         [TestCase(68, true)]
@@ -454,14 +539,17 @@ namespace RetroArr.Core.Test.Download
             Assert.That(GameRow().ExecutablePath, Is.EqualTo(expected));
         }
 
-        [Test]
-        public async Task InstalledGame_KeepsItsExe_WhenAnInstallerIsImported()
+        // "outside": installed outside the library and without a path yet, so the import gives it its folder
+        [TestCase(false)]
+        [TestCase(true)]
+        public async Task InstalledGame_KeepsItsExe_WhenAnInstallerIsImported(bool outside)
         {
             string? exe = null;
             var (processor, _) = await SetUpAsync("Hades", 1, seed: g =>
             {
-                exe = Path.Combine(g.Path!, "Hades.exe");
+                exe = outside ? Path.Combine(Directory.CreateDirectory(Path.Combine(_root, "installed")).FullName, "Hades.exe") : Path.Combine(g.Path!, "Hades.exe");
                 File.WriteAllText(exe, "game");
+                if (outside) g.Path = null;
                 g.ExecutablePath = exe;
                 g.Status = GameStatus.Downloaded;
             });
@@ -470,6 +558,7 @@ namespace RetroArr.Core.Test.Download
 
             Assert.That(result.Success, Is.True, result.Reason);
             Assert.That(GameRow().ExecutablePath, Is.EqualTo(exe));
+            Assert.That(GameRow().Status, Is.EqualTo(GameStatus.Downloaded), "the installed game lost its Play button");
         }
 
         private sealed class NoMetadata : RetroArr.Core.MetadataSource.IGameMetadataServiceFactory
@@ -599,6 +688,32 @@ namespace RetroArr.Core.Test.Download
             Assert.That(Directory.GetFiles(Path.Combine(Library, "switch"), file, SearchOption.AllDirectories), Has.Length.EqualTo(1));
         }
 
+        // So are tarballs of every kind, a Linux build of a PC game
+        [TestCase("Hades.tar.xz")]
+        [TestCase("Hades.tar.bz2")]
+        [TestCase("Hades.tar.zst")]
+        [TestCase("Hades.tgz")]
+        [TestCase("Hades.tbz2")]
+        [TestCase("Hades.txz")]
+        public async Task GenericImport_TakesTarballs(string file)
+        {
+            var config = new ConfigurationService(_root);
+            config.SaveMediaSettings(new MediaSettings { FolderPath = Library, DestinationPath = Library });
+            config.SavePostDownloadSettings(new PostDownloadSettings { EnableAutoMove = true, EnableAutoExtract = false, EnableDeepClean = false });
+            _db = new DbContextOptionsBuilder<RetroArrDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+            var processor = new PostDownloadProcessor(config, new FileMoverService(),
+                new SqliteGameRepository(new DbFactory(_db)), new NoMetadata(), new ArchiveService(), new TitleCleanerService());
+            var release = MakeRelease("Hades.Linux-GRP", (file, Encoding.ASCII.GetBytes("tar")));
+
+            var result = await processor.ProcessCompletedDownloadAsync(new DownloadStatus
+            {
+                Id = "x", Name = "Hades.Linux-GRP", PlatformFolder = "windows", DownloadPath = release, State = DownloadState.Completed
+            });
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            Assert.That(Directory.GetFiles(Path.Combine(Library, "windows"), file, SearchOption.AllDirectories), Has.Length.EqualTo(1));
+        }
+
         [Test]
         public async Task GenericImport_OfAWantedGame_KeepsWhatChangedMeanwhile()
         {
@@ -637,6 +752,42 @@ namespace RetroArr.Core.Test.Download
             Assert.That(game.ExecutablePath, Is.EqualTo(Path.Combine(Library, "gba", "Advance Wars", "Advance Wars.gba")));
         }
 
+        // A generic import that finds the wanted game marks it downloaded, as a targeted import does, so the monitor stops
+        // searching for it now and not at the next scan. A game whose path points elsewhere is the scan's to check.
+        [TestCase(false)]
+        [TestCase(true)]
+        public async Task GenericImport_OfAWantedGame_MarksItDownloaded(bool pathElsewhere)
+        {
+            var config = new ConfigurationService(_root);
+            config.SaveMediaSettings(new MediaSettings { FolderPath = Library, DestinationPath = Library });
+            config.SavePostDownloadSettings(new PostDownloadSettings { EnableAutoMove = true, EnableAutoExtract = false, EnableDeepClean = false });
+            _db = new DbContextOptionsBuilder<RetroArrDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+            using (var ctx = new RetroArrDbContext(_db))
+            {
+                ctx.Games.Add(new Game
+                {
+                    Id = 1, Title = "Advance Wars", PlatformId = 52, Monitored = true, Status = GameStatus.Missing, MissingSince = DateTime.UtcNow.AddDays(-2),
+                    Path = pathElsewhere ? Path.Combine(_root, "elsewhere", "Advance Wars") : null
+                });
+                await ctx.SaveChangesAsync();
+            }
+            var processor = new PostDownloadProcessor(config, new FileMoverService(),
+                new SqliteGameRepository(new DbFactory(_db)), new NoMetadata(), new ArchiveService(), new TitleCleanerService());
+            var source = Path.Combine(Downloads, "Advance Wars.gba");
+            File.WriteAllText(source, "rom");
+
+            var result = await processor.ProcessCompletedDownloadAsync(new DownloadStatus
+            {
+                Id = "x", Name = "Advance Wars", PlatformFolder = "gba", DownloadPath = source, State = DownloadState.Completed
+            });
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            var game = GameRow();
+            Assert.That(File.Exists(game.ExecutablePath), Is.True, game.ExecutablePath);
+            Assert.That(game.Status, Is.EqualTo(pathElsewhere ? GameStatus.Missing : GameStatus.Downloaded));
+            Assert.That(game.MissingSince, pathElsewhere ? Is.Not.Null : Is.Null);
+        }
+
         // ── Multi-file releases ─────────────────────────────────────────
 
         [Test]
@@ -650,6 +801,7 @@ namespace RetroArr.Core.Test.Download
             Assert.That(result.Success, Is.True, result.Reason);
             Assert.That(Names(folder), Is.EqualTo(new[] { "MD5/fitgirl-bins.md5", "setup-fitgirl-01.bin", "setup-fitgirl-02.bin", "setup.exe" }));
             Assert.That(GameRow().ExecutablePath, Is.EqualTo(Path.Combine(folder, "setup.exe")));
+            Assert.That(GameRow().Status, Is.EqualTo(GameStatus.InstallerDetected));
         }
 
         [TestCase("crlf")]
@@ -1358,6 +1510,8 @@ namespace RetroArr.Core.Test.Download
             var gog = ctx.Games.Single(g => g.PlatformId == 126);
             Assert.That(Names(gog.Path!), Is.EquivalentTo(parts));
             Assert.That(gog.ExecutablePath, Is.EqualTo(Path.Combine(gog.Path!, exe)));
+            // Its name alone doesn't tell the game page it is an installer, so no Play button launches it
+            Assert.That(gog.Status, Is.EqualTo(GameStatus.InstallerDetected));
         }
 
         [TestCase(121, "GAME.EXE", "GAME.DAT")]
@@ -1374,6 +1528,22 @@ namespace RetroArr.Core.Test.Download
             Assert.That(Names(folder), Is.EquivalentTo(files));
         }
 
+        // A DOS game runs its GAME.COM or GAME.BAT: SETUP.EXE beside it is the sound setup, however big, and no installer
+        [TestCase(3, "GAME.COM")]
+        [TestCase(3, "GAME.BAT")]
+        [TestCase(121, "GAME.COM")]
+        public async Task DosGame_RunsItsProgram_NotTheSoundSetup(int platformId, string program)
+        {
+            var (processor, folder) = await SetUpAsync("Commander Keen", platformId);
+
+            var result = await ImportFolderAsync(processor, "Commander.Keen-GRP",
+                ("SETUP.EXE", "the sound setup, bigger than the game"), (program, "keen"), ("GAME.DAT", "data"));
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            Assert.That(GameRow().ExecutablePath, Is.EqualTo(Path.Combine(folder, program)));
+            Assert.That(GameRow().Status, Is.EqualTo(GameStatus.Downloaded));
+        }
+
         [Test]
         public async Task PortableRelease_ExecutablePathSkipsJunk()
         {
@@ -1385,6 +1555,23 @@ namespace RetroArr.Core.Test.Download
 
             Assert.That(result.Success, Is.True, result.Reason);
             Assert.That(GameRow().ExecutablePath, Is.EqualTo(Path.Combine(folder, "Game.exe")));
+        }
+
+        // A setup.exe is the installer to run only with its parts beside it. Without them it is the program's settings
+        // dialog, however big: the game would show as an installer and never get a Play button.
+        [TestCase(false)]
+        [TestCase(true)]
+        public async Task SetupExe_IsTheExecutableOnlyWithItsParts(bool parts)
+        {
+            var (processor, folder) = await SetUpAsync("Hades", 1);
+            var files = new List<(string, string)> { ("Game.exe", "x"), ("Setup.exe", "a much larger settings dialog"), ("Game_Data/level-1.bin", "data") };
+            if (parts) files.Add(("setup-1.bin", "installer data"));
+
+            var result = await ImportFolderAsync(processor, "Hades", files.ToArray());
+
+            Assert.That(result.Success, Is.True, result.Reason);
+            Assert.That(GameRow().ExecutablePath, Is.EqualTo(Path.Combine(folder, parts ? "Setup.exe" : "Game.exe")));
+            Assert.That(GameRow().Status, Is.EqualTo(parts ? GameStatus.InstallerDetected : GameStatus.Downloaded));
         }
 
         [Test]
@@ -1504,6 +1691,26 @@ namespace RetroArr.Core.Test.Download
             Assert.That(FileRenamer.Applies(mac, Rename("windows,pc,linux,macintosh")), Is.True);
             Assert.That(FileRenamer.Applies(ps1, new MediaSettings { RenameOnImport = false, ApplyRenameToPlatforms = "ps1" }), Is.False);
             Assert.That(FileRenamer.Applies(ps1, Rename("")), Is.False);
+        }
+
+        // Both extensions of a tarball count everywhere a name is built: an extra named like it follows its rename, one in a
+        // disc set keeps them, and so does the rename queue
+        [Test]
+        public void Tarball_KeepsBothExtensions_InEveryName()
+        {
+            Assert.That(FileRenamer.ExtraName(Path.Combine(Downloads, "hades-1.38.nfo"), new[] { (Path.Combine(Downloads, "hades-1.38.tar.gz"), "Hades") }),
+                Is.EqualTo("Hades.nfo"));
+
+            var set = MakeRelease("Wipeout", ("wipeout.cue", Encoding.ASCII.GetBytes(Cue("wipeout.bin"))), ("wipeout.bin", Encoding.ASCII.GetBytes("track")),
+                ("bonus.tar.gz", Encoding.ASCII.GetBytes("tar")));
+            var planned = FileRenamer.PlanDiscRelease(set, Directory.GetFiles(set), (name, disc) => "Wipeout");
+            Assert.That(planned!.Select(p => p.Name), Is.EquivalentTo(new[] { "Wipeout.cue", "Wipeout.bin", "Wipeout.tar.gz" }));
+
+            var file = Path.Combine(Downloads, "Hades (USA).tar.gz");
+            File.WriteAllText(file, "tar");
+            var renamed = new RenameQueueService(new ConfigurationService(_root)).ProcessFile(file, "Hades", null);
+            Assert.That(renamed.NewName, Is.EqualTo("Hades.tar.gz"));
+            Assert.That(File.Exists(Path.Combine(Downloads, "Hades.tar.gz")), Is.True);
         }
 
         [Test]

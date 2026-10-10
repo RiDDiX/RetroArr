@@ -128,6 +128,27 @@ namespace RetroArr.Core.Cache
             await _cache.RemoveAsync(CacheKeys.GameDetail(gameId));
         }
 
+        public async Task UpsertGameFilesAsync(int gameId, List<GameFile> files)
+        {
+            await _inner.UpsertGameFilesAsync(gameId, files);
+            await _cache.RemoveAsync(CacheKeys.GameFiles(gameId));
+            await _cache.RemoveAsync(CacheKeys.GameDetail(gameId));
+        }
+
+        public Task<List<GameFile>> GetSupplementaryFilesAsync(IReadOnlyCollection<int> gameIds)
+            => _inner.GetSupplementaryFilesAsync(gameIds);
+
+        public async Task<List<int>> RemoveGameFilesAsync(IReadOnlyCollection<int> gameFileIds)
+        {
+            var gameIds = await _inner.RemoveGameFilesAsync(gameFileIds);
+            foreach (var gameId in gameIds)
+            {
+                await _cache.RemoveAsync(CacheKeys.GameFiles(gameId));
+                await _cache.RemoveAsync(CacheKeys.GameDetail(gameId));
+            }
+            return gameIds;
+        }
+
         public async Task<bool> UpdateGameFilePathAsync(int gameFileId, string newRelativePath)
         {
             var result = await _inner.UpdateGameFilePathAsync(gameFileId, newRelativePath);

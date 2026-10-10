@@ -22,6 +22,10 @@ namespace RetroArr.Core.IO
         private static readonly Regex IllegalRun = new(@"\s*[<>:""/\\|?*\x00-\x1F]+\s*", RegexOptions.Compiled);
         private static readonly Regex MultiSpace = new(@"\s{2,}", RegexOptions.Compiled);
 
+        // Spaces, dots and dashes left at either end; a dash stuck to a letter or digit is the name's own ("-Zero-")
+        private static readonly Regex LooseEnds = new(@"^[\s.]*(?:-+(?![-\p{L}\p{N}])[\s.]*)*|[\s.]*(?:(?<![-\p{L}\p{N}])-+[\s.]*)*$",
+            RegexOptions.Compiled);
+
         private static readonly System.Collections.Generic.HashSet<string> ReservedNames =
             new(StringComparer.OrdinalIgnoreCase)
             {
@@ -42,7 +46,7 @@ namespace RetroArr.Core.IO
             var result = IllegalRun.Replace(input, " - ");
             result = MultiSpace.Replace(result, " ").Trim();
             // Strip separators/space/dots that ended up leading or trailing.
-            result = result.Trim('-', ' ', '.').Trim();
+            result = LooseEnds.Replace(result, "");
 
             if (result.Length == 0) return fallback;
 

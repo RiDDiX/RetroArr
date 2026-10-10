@@ -26,14 +26,20 @@ const SAMPLE = {
 
 const renderPreview = (template: string, variables: Record<string, string>) => {
   if (!template) return '';
-  let result = template.replace(/\{([A-Za-z]+)\}/g, (_, key) => {
-    return variables[key] ?? `{${key}}`;
+  // An empty token is marked and a filled one fenced in, so only the template's own
+  // separators next to an empty token go, never a dash of the title ("-Zero-").
+  let result = template.replace(/\{([A-Za-z]+)\}/g, (token, key) => {
+    const value = variables[key];
+    if (value == null) return token;
+    return value === '' ? '\uE000' : `\uE001${value}\uE001`;
   });
   // An empty token leaves "()" or "[]" behind, which the backend drops as well.
-  result = result.replace(/\s*(\([\s,;+-]*\)|\[[\s,;+-]*\]|\{[\s,;+-]*\})/g, '');
-  result = result.replace(/(\s-\s)+/g, ' - ');
-  result = result.replace(/^\s*-\s*/, '');
-  result = result.replace(/\s*-\s*$/, '');
+  result = result.replace(/\s*(\([\s,;+\-\uE000]*\uE000[\s,;+\-\uE000]*\)|\[[\s,;+\-\uE000]*\uE000[\s,;+\-\uE000]*\]|\{[\s,;+\-\uE000]*\uE000[\s,;+\-\uE000]*\})/g, '\uE000');
+  // Separators next to an empty token go at either end and collapse to one in between.
+  const marked = result;
+  result = marked.replace(/[\s-]*(?:\uE000[\s-]*)+/g, (run, at) =>
+    at === 0 || at + run.length === marked.length ? '' : run.replace(/\uE000/g, '').replace(/-[\s-]*-/g, '-'));
+  result = result.replace(/\uE001/g, '');
   result = result.replace(/\s{2,}/g, ' ').trim();
   // Strip filesystem-illegal chars (cheap subset of what the backend does).
   result = result.replace(/[<>:"|?*\\/]/g, '');

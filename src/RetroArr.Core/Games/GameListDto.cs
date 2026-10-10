@@ -14,6 +14,8 @@ namespace RetroArr.Core.Games
         public int PlatformId { get; set; }
         public string? PlatformName { get; set; }
         public string? PlatformSlug { get; set; }
+        // The library list compares names ("Downloaded"), the full Game keeps sending numbers
+        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
         public GameStatus Status { get; set; }
         public int? SteamId { get; set; }
         public string? Path { get; set; }

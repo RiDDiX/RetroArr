@@ -23,6 +23,12 @@ namespace RetroArr.Core.Games
         Task<HashSet<int>> GetIgdbIdsAsync();
         Task<List<GameFile>> GetGameFilesAsync(int gameId);
         Task SyncGameFilesAsync(int gameId, List<GameFile> files);
+        // Adds the files not stored yet and updates the others; never removes a row
+        Task UpsertGameFilesAsync(int gameId, List<GameFile> files);
+        // The update and DLC rows (all but Main) of these games
+        Task<List<GameFile>> GetSupplementaryFilesAsync(IReadOnlyCollection<int> gameIds);
+        // Removes these rows; returns the games that lost one
+        Task<List<int>> RemoveGameFilesAsync(IReadOnlyCollection<int> gameFileIds);
         Task<bool> UpdateGameFilePathAsync(int gameFileId, string newRelativePath);
 
         // Missing-flag workflow: apply what a content check of checkedPath found

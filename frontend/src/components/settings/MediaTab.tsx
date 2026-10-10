@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import apiClient, { getErrorMessage, isAxiosError } from '../../api/client';
+import apiClient, { getErrorMessage, isAxiosError, isConflict } from '../../api/client';
 import FolderExplorerModal from '../FolderExplorerModal';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faFolderOpen, faSync, faSearch } from '@fortawesome/free-solid-svg-icons';
@@ -101,6 +101,12 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
       await apiClient.post('/discovery/scan');
       navigate('/discover');
     } catch (error: unknown) {
+      if (isConflict(error)) {
+        // Another scan is running: the scan status poll shows it until it is done
+        setScanning(true);
+        alert(t('scanAlreadyRunning'));
+        return;
+      }
       alert(`${t('error')}: ${getErrorMessage(error)}`);
     }
   };
@@ -121,12 +127,10 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
     return () => { if (intervalId) clearInterval(intervalId); };
   }, [scanning]);
 
-  const loadSettings = async () => {
+  // Media fields only, so a refused media save can put them back without dropping unsaved post-download edits
+  const loadMediaSettings = async () => {
     try {
-      const [mediaRes, postDownloadRes] = await Promise.all([
-        apiClient.get('/media'),
-        apiClient.get('/postdownload'),
-      ]);
+      const mediaRes = await apiClient.get('/media');
       setFolderPath(mediaRes.data.folderPath);
       setDownloadPath(mediaRes.data.downloadPath || '');
       setDestinationPath(mediaRes.data.destinationPath || '');
@@ -138,7 +142,6 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
       setTrashPath(mediaRes.data.trashPath || '');
       setTrashRetentionDays(typeof mediaRes.data.trashRetentionDays === 'number' ? mediaRes.data.trashRetentionDays : 14);
       setMissingRetentionDays(typeof mediaRes.data.missingRetentionDays === 'number' ? mediaRes.data.missingRetentionDays : 14);
-      setPostDownloadSettings(postDownloadRes.data);
 
       try {
         const biosRes = await apiClient.get('/emulator/bios');
@@ -151,6 +154,19 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
       console.error('Error loading media settings:', error);
     }
   };
+
+  const loadSettings = async () => {
+    const media = loadMediaSettings();
+    try {
+      setPostDownloadSettings((await apiClient.get('/postdownload')).data);
+    } catch (error) {
+      console.error('Error loading post-download settings:', error);
+    }
+    await media;
+  };
+
+  // The Wine prefix saves on blur; Scan now waits for that save
+  const prefixSave = useRef<Promise<boolean>>(Promise.resolve(true));
 
   const saveMediaConfig = async (overrides?: { folderPath?: string; downloadPath?: string; destinationPath?: string; destinationPathPattern?: string; useDestinationPattern?: boolean; folderNamingMode?: string; winePrefixPath?: string; biosPath?: string; trashPath?: string; trashRetentionDays?: number; missingRetentionDays?: number }) => {
     try {
@@ -168,8 +184,12 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
         MissingRetentionDays: overrides?.missingRetentionDays ?? missingRetentionDays,
         Platform: 'default'
       });
+      return true;
     } catch (error: unknown) {
-      alert(`${t('error')} ${t('mediaSettingsSaved')}: ${getErrorMessage(error)}`);
+      alert(`${t('error')}: ${getErrorMessage(error)}`);
+      // Nothing was saved, so the media fields show the stored settings again
+      loadMediaSettings();
+      return false;
     }
   };
 
@@ -178,13 +198,24 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
     saveMediaConfig();
   };
 
-  const handleScanNow = async (specificPath?: string) => {
+  // external: the Wine prefix, scanned as an external library
+  const handleScanNow = async (external = false) => {
     setScanning(true);
-    try {
-      await apiClient.post('/media/scan', { folderPath: specificPath || folderPath, platform: 'default' });
-    } catch (error: unknown) {
+    // The server scans the stored prefix: wait for a prefix save still running, stop if it was refused
+    if (external && !(await prefixSave.current)) {
       setScanning(false);
-      if (isAxiosError(error) && error.response?.status === 400) {
+      return;
+    }
+    try {
+      await apiClient.post('/media/scan', external ? { external: true } : { folderPath, platform: 'default' });
+    } catch (error: unknown) {
+      if (isConflict(error)) {
+        // Another scan is running: the scan status poll keeps the spinner until it is done
+        alert(t('scanAlreadyRunning'));
+        return;
+      }
+      setScanning(false);
+      if (isAxiosError(error) && error.response?.data?.errorCode === 'IGDB_NOT_CONFIGURED') {
         alert(t('igdbRequired'));
       } else {
         alert(`${t('error')} ${t('scanNow')}: ${getErrorMessage(error)}`);
@@ -541,8 +572,8 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
             <p className="settings-description-sm" style={{ fontSize: '0.85em', color: 'var(--ctp-subtext0)' }}>{t('winePrefixPathDesc')}</p>
             <label htmlFor="wine-path">{t('winePrefixPath')}</label>
             <div style={{ display: 'flex', gap: '10px' }}>
-              <input id="wine-path" type="text" value={winePrefixPath} onChange={(e) => setWinePrefixPath(e.target.value)} onBlur={() => saveMediaConfig({ winePrefixPath })} placeholder="/Users/name/Library/Containers/com.isaacmarovitz.Whisky/Bottles/..." style={{ flex: 1 }} />
-              <button type="button" className="btn-secondary" onClick={() => handleScanNow(winePrefixPath)} disabled={scanning || !winePrefixPath} title={t('scanNow')}>
+              <input id="wine-path" type="text" value={winePrefixPath} onChange={(e) => setWinePrefixPath(e.target.value)} onBlur={() => { prefixSave.current = saveMediaConfig({ winePrefixPath }); }} placeholder="/Users/name/Library/Containers/com.isaacmarovitz.Whisky/Bottles/..." style={{ flex: 1 }} />
+              <button type="button" className="btn-secondary" onClick={() => handleScanNow(true)} disabled={scanning || !winePrefixPath} title={t('scanNow')}>
                 <FontAwesomeIcon icon={faSync} spin={scanning} />
               </button>
               <button type="button" className="btn-secondary" onClick={() => { setActiveFolderField('wine'); setShowFolderExplorer(true); }} title={t('selectFolder')}>
@@ -605,7 +636,7 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
             else if (activeFolderField === 'download') { setDownloadPath(path); saveMediaConfig({ downloadPath: path }); }
             else if (activeFolderField === 'destination') { setDestinationPath(path); saveMediaConfig({ destinationPath: path }); }
             else if (activeFolderField === 'bios') { setBiosPath(path); saveMediaConfig({ biosPath: path }); }
-            else if (activeFolderField === 'wine') { setWinePrefixPath(path); saveMediaConfig({ winePrefixPath: path }); }
+            else if (activeFolderField === 'wine') { setWinePrefixPath(path); prefixSave.current = saveMediaConfig({ winePrefixPath: path }); }
             setShowFolderExplorer(false);
           }}
           onClose={() => setShowFolderExplorer(false)}

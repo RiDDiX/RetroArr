@@ -340,12 +340,26 @@ namespace RetroArr.Core.Games
             ".tmp", ".temp", ".cache", ".thumbs"
         };
 
-        private static readonly HashSet<string> _keywordBlacklist = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "steam_api", "crashpad", "unitycrash", "unins000", "uninstall", "update", "config", "dxsetup", "redist", "vcredist", "fna", "mono", "bios", "firmware", "retroarch", "overlay", "shdr", "slang", "glsl", "cg", "dlc", "update"
-        };
+        // Long names of junk count anywhere: "Uninstaller.exe", "GameOverlayUI.exe", "Firmwares", "UnityCrashHandler32.exe"
+        private static readonly Regex _junkNameParts = new(
+            "steam_api|crashpad|crashhandler|unins000|uninstall|config|dxsetup|redist|firmware|retroarch|overlay",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
-        private readonly HashSet<string> _filenameBlacklist = new(StringComparer.OrdinalIgnoreCase)
+        // Short ones only as a word of their own, camel case split first: "Mono.Posix.dll", "MonoGame.Framework.dll" and
+        // "bios7.bin" are junk, "Monopoly (USA).nes", "BioShock.exe", "Symbiosis.adf" and "FNAF World.exe" are games
+        private static readonly Regex _junkWords = new(
+            @"(?<!\p{L})(?:mono|bios|fna|shdr|slangp?|glslp?|cgp?)(?!\p{L})",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        private static readonly Regex _camelCase = new(@"(?<=\p{Ll})(?=\p{Lu})", RegexOptions.Compiled);
+
+        // Updates and DLC are no game of their own, read as the import reads them: "Game (DLCs).nsp", "Game Updates.nsp" and
+        // "GameUpdater.exe" are, "Game + All DLCs.nsp" is the game. A Switch title id in brackets says it outright.
+        private static readonly Regex _updateMarker = new("update", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+        private static readonly Regex _dlcMarker = new("dlc", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+        private static readonly Regex _switchTitleId = new(@"\[01[0-9A-Fa-f]{10}([0-9A-Fa-f]{4})\]", RegexOptions.Compiled);
+
+        private static readonly HashSet<string> _filenameBlacklist = new(StringComparer.OrdinalIgnoreCase)
         {
             "steam_api.dll", "steam_api64.dll", "openvr_api.dll", "nvapi.dll", "nvapi64.dll",
             "d3dcompiler_47.dll", "d3dcompiler_43.dll", "xinput1_3.dll", "xinput9_1_0.dll",
@@ -672,10 +686,9 @@ namespace RetroArr.Core.Games
         private readonly DuplicateGameMergeService? _mergeService;
 
         // discovery-only mode: walk the same paths but persist candidates instead of
-        // running the full metadata pipeline. The flag is flipped inside DiscoverOnlyAsync.
+        // running the full metadata pipeline. Set with the scan slot, cleared when it is freed.
         private bool _discoveryOnlyMode;
         private DiscoveredGameRepository? _discoveryRepo;
-        private int _discoveriesAdded;
 
         public MediaScannerService(
             ConfigurationService configService,
@@ -704,17 +717,8 @@ namespace RetroArr.Core.Games
                 Log("[Discovery] No repository wired, cannot run discovery scan.", LogLevel.Warning);
                 return 0;
             }
-            _discoveryOnlyMode = true;
-            _discoveriesAdded = 0;
-            try
-            {
-                await ScanAsync(overridePath, overridePlatform);
-                return _discoveriesAdded;
-            }
-            finally
-            {
-                _discoveryOnlyMode = false;
-            }
+            // What a discovery scan adds are discoveries
+            return await RunScanAsync(overridePath, overridePlatform, externalOnly: false, discoveryOnly: true);
         }
 
         public bool IsDiscoveryMode => _discoveryOnlyMode;
@@ -762,10 +766,12 @@ namespace RetroArr.Core.Games
 
         public void StopScan()
         {
-            if (IsScanning && _scanCts != null)
+            var cts = _scanCts;
+            if (IsScanning && cts != null)
             {
                 Log("Cancellation requested by user.");
-                _scanCts.Cancel();
+                try { cts.Cancel(); }
+                catch (ObjectDisposedException) { }
             }
         }
 
@@ -778,16 +784,98 @@ namespace RetroArr.Core.Games
             Log("Library cleaned.");
         }
 
-        public async Task<int> ScanAsync(string? overridePath = null, string? overridePlatform = null)
+        public Task<int> ScanAsync(string? overridePath = null, string? overridePlatform = null) => RunScanAsync(overridePath, overridePlatform, externalOnly: false, discoveryOnly: false);
+
+        // Only the Wine prefix, as an external library
+        public Task<int> ScanExternalAsync() => RunScanAsync(null, null, externalOnly: true, discoveryOnly: false);
+
+        public const string ScanRunningMessage = "A scan is already running. Wait for it to finish or stop it, then start the scan again.";
+
+        private async Task<int> RunScanAsync(string? overridePath, string? overridePlatform, bool externalOnly, bool discoveryOnly)
         {
-            if (IsScanning)
+            // Taken before anything is awaited, so a second request finds the scan running and leaves its mode alone
+            lock (_stateLock)
             {
-                _nlog.Warn("Scan skipped: Another scan is already in progress.");
-                return 0;
+                if (_isScanning)
+                {
+                    _nlog.Warn("Scan skipped: Another scan is already in progress.");
+                    return 0;
+                }
+                _isScanning = true;
+                _discoveryOnlyMode = discoveryOnly;
             }
 
+            // Freed once: by the scan before it tells it finished, or here when it ends any other way. A second free could
+            // release the slot of a scan that took it in between.
+            var freed = false;
+            void Free()
+            {
+                if (freed) return;
+                freed = true;
+                FreeScanSlot();
+            }
+            try
+            {
+                return await ScanClaimedAsync(overridePath, overridePlatform, externalOnly, Free);
+            }
+            finally
+            {
+                Free();
+            }
+        }
+
+        // Last thing a scan does: its mode goes with it, and the next one may start
+        private void FreeScanSlot()
+        {
+            _discoveryOnlyMode = false;
+            _isScanning = false;
+        }
+
+        // Games stored as Released while their content was there (as versions up to 1.0.223 stored new ones) count as
+        // downloaded. Only that: a loss is left to the scans. Takes the scan slot, null while a scan has it, and stops
+        // like a scan (OperationCanceledException).
+        public async Task<int?> PromotePresentGamesAsync()
+        {
+            var cts = new System.Threading.CancellationTokenSource();
+            lock (_stateLock)
+            {
+                if (_isScanning)
+                {
+                    cts.Dispose();
+                    return null;
+                }
+                _isScanning = true;
+                _scanCts = cts;
+            }
+            var ct = cts.Token;
+            try
+            {
+                var games = (await _gameRepository.GetAllLightAsync()).Where(g => !string.IsNullOrEmpty(g.Path)).ToList();
+                var promoted = 0;
+                foreach (var (game, content) in CheckAll(games, LibraryRoots(_configService.LoadMediaSettings()), new List<string>()))
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (content != GameContent.Present || !new Game { Status = game.Status, MissingSince = game.MissingSince }.ApplyContent(content, default)) continue;
+                    if ((await _gameRepository.ApplyContentStateAsync(game.Id, GameContent.Present, DateTime.UtcNow, game.Path))?.Changed == true) promoted++;
+                }
+                return promoted;
+            }
+            finally
+            {
+                // An import meanwhile kept its check of the library, which this pass made stale
+                _libraryContent = null;
+                _scanCts?.Dispose();
+                _scanCts = null;
+                FreeScanSlot();
+            }
+        }
+
+        private async Task<int> ScanClaimedAsync(string? overridePath, string? overridePlatform, bool externalOnly, Action freeSlot)
+        {
             var settings = _configService.LoadMediaSettings();
-            var folderPath = overridePath ?? settings.FolderPath;
+            // The settings page sends the library root itself, which is a full scan
+            if (SamePath(overridePath, settings.FolderPath)) overridePath = null;
+            var folderPath = externalOnly ? settings.WinePrefixPath : overridePath ?? settings.FolderPath;
             var platformKey = overridePlatform ?? (string.IsNullOrWhiteSpace(settings.Platform) ? "default" : settings.Platform);
 
             if (string.IsNullOrEmpty(folderPath) || !Directory.Exists(folderPath))
@@ -799,6 +887,7 @@ namespace RetroArr.Core.Games
                 }
                 _nlog.Warn(skipMsg);
                 Log(skipMsg);
+                freeSlot();
                 return 0;
             }
 
@@ -809,7 +898,7 @@ namespace RetroArr.Core.Games
             }
 
             // Auto-enable platforms based on existing folders
-            AutoEnablePlatformsFromFolders(folderPath);
+            if (!externalOnly) AutoEnablePlatformsFromFolders(folderPath);
 
             var logMsg = $"Starting scan. Platform: {platformKey}, FolderMode: {rule.IsFolderMode}, Path: {folderPath}";
             Log(logMsg);
@@ -819,7 +908,6 @@ namespace RetroArr.Core.Games
             var metadataService = _metadataServiceFactory.CreateService();
 
             OnScanStarted?.Invoke();
-            _isScanning = true;
             _roots = LibraryRoots(settings);
             _libraryContent = null;
             _gamesAddedCount = 0;
@@ -833,6 +921,13 @@ namespace RetroArr.Core.Games
 
             try
             {
+                if (externalOnly)
+                {
+                    Log($"Scanning Wine/Whisky External Path: {folderPath}");
+                    gamesAdded = await ScanExternalLibraryAsync(folderPath, existingGames, metadataService, _scanCts.Token);
+                    return gamesAdded;
+                }
+
                 // Auto-detect platform subfolders (e.g., /Library/3ds/, /Library/switch/, /Library/ps4/)
                 var platformSubfolders = DetectPlatformSubfolders(folderPath);
 
@@ -966,7 +1061,6 @@ namespace RetroArr.Core.Games
             }
             finally
             {
-                _isScanning = false;
                 _roots = null;
                 _libraryContent = null;
                 _currentScanDirectory = null;
@@ -976,7 +1070,10 @@ namespace RetroArr.Core.Games
                 _gamesAddedCount = gamesAdded;
                 _debugLog?.EndScan();
                 Log($"Scan Finished/Stopped. Added: {gamesAdded}");
-                OnScanFinished?.Invoke(gamesAdded);
+                // After the state above is torn down, so a scan starting now keeps its own
+                freeSlot();
+                try { OnScanFinished?.Invoke(gamesAdded); }
+                catch (Exception ex) { Log($"A handler of the finished scan failed: {ex.Message}", LogLevel.Warning); }
             }
 
             return gamesAdded;
@@ -1713,21 +1810,24 @@ namespace RetroArr.Core.Games
             return generics.Any(g => name.Equals(g, StringComparison.OrdinalIgnoreCase) || name.Contains(g, StringComparison.OrdinalIgnoreCase));
         }
         
-        private bool IsBlacklistedFile(string fileName, bool isExternal)
+        internal static bool IsBlacklistedFile(string fileName, bool isExternal)
         {
             if (string.IsNullOrEmpty(fileName)) return false;
 
             // 1. Exact Filename Blacklist
             if (_filenameBlacklist.Contains(fileName)) return true;
 
-            // 2. Keyword/Substring Blacklist (TAREA 1)
-            string lowered = fileName.ToLowerInvariant();
-            foreach (var keyword in _keywordBlacklist)
-            {
-                if (lowered.Contains(keyword)) return true;
-            }
+            // 2. Keyword Blacklist (TAREA 1)
+            if (_junkNameParts.IsMatch(fileName) || _junkWords.IsMatch(_camelCase.Replace(fileName, " "))) return true;
 
-            return false;
+            return IsUpdateOrDlc(fileName);
+        }
+
+        internal static bool IsUpdateOrDlc(string fileName)
+        {
+            var titleId = _switchTitleId.Match(fileName);
+            if (titleId.Success) return (Convert.ToInt32(titleId.Groups[1].Value, 16) & 0x1FFF) != 0;
+            return TitleCleanerService.ReadContentMarkers(fileName, _updateMarker.Match(fileName), _dlcMarker).Type != "Main";
         }
 
         private bool IsMetadataSubfolder(string name)
@@ -1871,7 +1971,6 @@ namespace RetroArr.Core.Games
                                 Revision = candidate.Revision,
                                 DiscoveredAt = DateTime.UtcNow
                             });
-                            _discoveriesAdded++;
                             added++;
                             continue;
                         }
@@ -2428,8 +2527,12 @@ namespace RetroArr.Core.Games
         }
 
         // The file matched a game in the library by its metadata id
-        private Task<bool> AdoptPathAsync(Game game, List<Game> existingGames, string? localPath, string? executablePath, bool isExternal) =>
-            UpdateGameAsync(game, g => TakePath(g, existingGames, localPath, executablePath, isExternal));
+        private async Task AdoptPathAsync(Game game, List<Game> existingGames, string? localPath, string? executablePath, bool isExternal)
+        {
+            if (!await UpdateGameAsync(game, g => TakePath(g, existingGames, localPath, executablePath, isExternal))) return;
+            await MarkPresentAsync(game);
+            await SyncGameFilesFromDisk(game.Id, game.Path);
+        }
 
         // A game with a path keeps it unless its content is known to be gone (the game was moved): a different
         // file is another release of it (a second region beside the first), and while its library may be offline
@@ -2599,7 +2702,11 @@ namespace RetroArr.Core.Games
                 }
             }
 
-            try 
+            // Stored with its content state, so it doesn't wait for a later scan to count as downloaded
+            if (CheckContent(finalGame, Roots) == GameContent.Present)
+                finalGame.ApplyContent(GameContent.Present, DateTime.UtcNow);
+
+            try
             {
                 var newGame = await _gameRepository.AddAsync(finalGame);
                 existingGames.Add(newGame);
@@ -2649,7 +2756,7 @@ namespace RetroArr.Core.Games
                         files.Add(new GameFile
                         {
                             GameId = gameId,
-                            RelativePath = Path.GetRelativePath(parentDir, member).Replace('\\', '/'),
+                            RelativePath = GameFilePaths.StoredPathIn(parentDir, member),
                             Size = mi.Length,
                             DateAdded = DateTime.UtcNow,
                             FileType = fileType
@@ -2663,7 +2770,7 @@ namespace RetroArr.Core.Games
                     foreach (var fi in rootDir.EnumerateFiles("*", SearchOption.AllDirectories).OrderBy(f => f.FullName, StringComparer.Ordinal))
                     {
                         if (fi.Name.StartsWith(".")) continue;
-                        var relativePath = Path.GetRelativePath(gamePath, fi.FullName).Replace('\\', '/');
+                        var relativePath = GameFilePaths.StoredPathIn(gamePath, fi.FullName);
 
                         // Classify file type from path context
                         string fileType = "Main";
@@ -2738,6 +2845,11 @@ namespace RetroArr.Core.Games
                 // An emptied folder clears its rows too
                 if (files.Count > 0 || isDir)
                 {
+                    // Updates and DLC linked from elsewhere stay while their file is there
+                    var folder = GameFilePaths.FilesFolder(gamePath);
+                    var read = new HashSet<string>(files.Select(f => f.RelativePath));
+                    files.AddRange((await _gameRepository.GetGameFilesAsync(gameId)).Where(f =>
+                        f.FileType != "Main" && !read.Contains(f.RelativePath) && File.Exists(GameFilePaths.ResolveIn(folder, f.RelativePath))));
                     await _gameRepository.SyncGameFilesAsync(gameId, files);
                     Log($"Synced {files.Count} file(s) for game ID {gameId}");
                 }
@@ -2979,6 +3091,8 @@ namespace RetroArr.Core.Games
         {
             try
             {
+                // Each file linked here, by the game it went to
+                var linkedTo = new Dictionary<string, int>(PathComparer);
                 var directories = Directory.GetDirectories(platformFolderPath);
                 foreach (var dir in directories)
                 {
@@ -3025,11 +3139,10 @@ namespace RetroArr.Core.Games
                         if (parentGame != null)
                         {
                             var fi = new FileInfo(filePath);
-                            var relativePath = Path.GetRelativePath(platformFolderPath, filePath).Replace('\\', '/');
                             var gameFile = new GameFile
                             {
                                 GameId = parentGame.Id,
-                                RelativePath = relativePath,
+                                RelativePath = GameFilePaths.StoredPath(parentGame.Path, filePath),
                                 Size = fi.Length,
                                 DateAdded = DateTime.UtcNow,
                                 FileType = info.FileType,
@@ -3041,7 +3154,8 @@ namespace RetroArr.Core.Games
 
                             try
                             {
-                                await _gameRepository.SyncGameFilesAsync(parentGame.Id, new List<GameFile> { gameFile });
+                                await _gameRepository.UpsertGameFilesAsync(parentGame.Id, new List<GameFile> { gameFile });
+                                linkedTo[fi.FullName] = parentGame.Id;
                                 linked++;
                                 Log($"[Supplementary] Linked '{fileName}' -> '{parentGame.Title}' as {info.FileType}");
                             }
@@ -3083,16 +3197,18 @@ namespace RetroArr.Core.Games
                         {
                             // Add all files in this DLC subfolder to the parent game
                             var dlcFiles = new List<GameFile>();
+                            var dlcPaths = new List<string>();
                             try
                             {
+                                var folder = GameFilePaths.FilesFolder(parentGame.Path);
                                 foreach (var fi in new DirectoryInfo(subDir).EnumerateFiles("*", SearchOption.AllDirectories))
                                 {
                                     if (fi.Name.StartsWith(".")) continue;
-                                    var relativePath = Path.GetRelativePath(platformFolderPath, fi.FullName).Replace('\\', '/');
+                                    dlcPaths.Add(fi.FullName);
                                     dlcFiles.Add(new GameFile
                                     {
                                         GameId = parentGame.Id,
-                                        RelativePath = relativePath,
+                                        RelativePath = GameFilePaths.StoredPathIn(folder, fi.FullName),
                                         Size = fi.Length,
                                         DateAdded = DateTime.UtcNow,
                                         FileType = info.FileType,
@@ -3112,7 +3228,8 @@ namespace RetroArr.Core.Games
                             {
                                 try
                                 {
-                                    await _gameRepository.SyncGameFilesAsync(parentGame.Id, dlcFiles);
+                                    await _gameRepository.UpsertGameFilesAsync(parentGame.Id, dlcFiles);
+                                    foreach (var path in dlcPaths) linkedTo[path] = parentGame.Id;
                                     linked += dlcFiles.Count;
                                     Log($"[Supplementary] Linked DLC folder '{subFolderName}' ({dlcFiles.Count} files) -> '{parentGame.Title}'");
                                 }
@@ -3130,11 +3247,41 @@ namespace RetroArr.Core.Games
 
                     Log($"[Supplementary] Finished '{folderName}': linked {linked} file(s) to existing games");
                 }
+
+                await UnlinkFromOtherGamesAsync(linkedTo, existingGames, platformKey);
             }
             catch (Exception ex)
             {
                 Log($"[Supplementary] Error scanning supplementary folders in '{platformFolderPath}': {ex.Message}", LogLevel.Warning);
             }
+        }
+
+        // A file linked to a game here is no other game's of the platform any more, as when a better match was added since.
+        // The platform's linked rows are read once and each resolved against its own game.
+        internal async Task UnlinkFromOtherGamesAsync(Dictionary<string, int> linkedTo, List<Game> existingGames, string platformKey)
+        {
+            var platformId = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.MatchesFolderName(platformKey))?.Id ?? 0;
+            if (linkedTo.Count == 0 || platformId == 0) return;
+
+            var folders = new Dictionary<int, string?>();
+            foreach (var game in existingGames.Where(g => g.PlatformId == platformId))
+            {
+                try { folders[game.Id] = GameFilePaths.FilesFolder(game.Path); }
+                catch (Exception ex) when (IsPathError(ex)) { }
+            }
+
+            var stale = new List<int>();
+            foreach (var row in await _gameRepository.GetSupplementaryFilesAsync(folders.Keys))
+            {
+                string? full;
+                try { full = GameFilePaths.ResolveIn(folders[row.GameId], row.RelativePath); }
+                catch (Exception ex) when (IsPathError(ex)) { continue; }
+                if (full != null && linkedTo.TryGetValue(full, out var owner) && owner != row.GameId) stale.Add(row.Id);
+            }
+
+            var unlinked = await _gameRepository.RemoveGameFilesAsync(stale);
+            if (unlinked.Count > 0)
+                Log($"[Supplementary] Unlinked files from {unlinked.Count} game(s) they no longer belong to");
         }
 
         private void CollectSupplementaryFiles(DirectoryInfo dir, List<string> results, string[]? extensions, int depth, int maxDepth)
@@ -3205,6 +3352,11 @@ namespace RetroArr.Core.Games
                     {
                         continue;
                     }
+                    // Nor a folder the file shares with other games: what lies there is not all its own
+                    if (!SamePath(gameFolder, game.Path) && platformGames.Any(g => g.Id != game.Id && IsUnder(g.Path!, normalizedGameFolder)))
+                    {
+                        continue;
+                    }
 
                     string[] subDirs;
                     try { subDirs = Directory.GetDirectories(gameFolder); }
@@ -3221,7 +3373,7 @@ namespace RetroArr.Core.Games
                             ? "DLC"
                             : "Patch";
 
-                        await LinkInGameSupplementaryAsync(game, subDir, defaultType, platformFolderPath, ct);
+                        await LinkInGameSupplementaryAsync(game, subDir, defaultType, gameFolder, ct);
                     }
                 }
             }
@@ -3232,7 +3384,7 @@ namespace RetroArr.Core.Games
             }
         }
 
-        private async Task LinkInGameSupplementaryAsync(Game parent, string supplementaryDir, string defaultType, string platformFolderPath, System.Threading.CancellationToken ct)
+        private async Task LinkInGameSupplementaryAsync(Game parent, string supplementaryDir, string defaultType, string gameFolder, System.Threading.CancellationToken ct)
         {
             var linked = new List<GameFile>();
 
@@ -3246,11 +3398,10 @@ namespace RetroArr.Core.Games
                     var info = _titleCleaner.ClassifySupplementaryContent(fi.Name);
                     if (info.FileType == "Main") info.FileType = defaultType;
 
-                    var rel = Path.GetRelativePath(platformFolderPath, fi.FullName).Replace('\\', '/');
                     linked.Add(new GameFile
                     {
                         GameId = parent.Id,
-                        RelativePath = rel,
+                        RelativePath = GameFilePaths.StoredPathIn(gameFolder, fi.FullName),
                         Size = fi.Length,
                         DateAdded = DateTime.UtcNow,
                         FileType = info.FileType,
@@ -3276,11 +3427,10 @@ namespace RetroArr.Core.Games
                     foreach (var fi in new DirectoryInfo(bundleDir).EnumerateFiles("*", SearchOption.AllDirectories))
                     {
                         if (fi.Name.StartsWith(".")) continue;
-                        var rel = Path.GetRelativePath(platformFolderPath, fi.FullName).Replace('\\', '/');
                         linked.Add(new GameFile
                         {
                             GameId = parent.Id,
-                            RelativePath = rel,
+                            RelativePath = GameFilePaths.StoredPathIn(gameFolder, fi.FullName),
                             Size = fi.Length,
                             DateAdded = DateTime.UtcNow,
                             FileType = bundleInfo.FileType,
@@ -3298,7 +3448,7 @@ namespace RetroArr.Core.Games
 
             try
             {
-                await _gameRepository.SyncGameFilesAsync(parent.Id, linked);
+                await _gameRepository.UpsertGameFilesAsync(parent.Id, linked);
                 Log($"[Supplementary] Linked {linked.Count} in-game file(s) under '{Path.GetFileName(supplementaryDir)}' -> '{parent.Title}'");
             }
             catch (Exception ex)
@@ -3351,28 +3501,11 @@ namespace RetroArr.Core.Games
                 {
                     foreach (var game in platformGames)
                     {
-                        if (!string.IsNullOrEmpty(game.Path) &&
-                            game.Path.Contains(baseTitleId, StringComparison.OrdinalIgnoreCase))
+                        // A game folder named without the TitleID has it in its game file
+                        if ((game.Path?.Contains(baseTitleId, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                            (game.ExecutablePath?.Contains(baseTitleId, StringComparison.OrdinalIgnoreCase) ?? false))
                         {
                             return game;
-                        }
-
-                        // Check existing GameFiles for TitleID
-                        if (game.GameFiles != null)
-                        {
-                            foreach (var gf in game.GameFiles)
-                            {
-                                if (!string.IsNullOrEmpty(gf.TitleId) &&
-                                    gf.TitleId.Equals(baseTitleId, StringComparison.OrdinalIgnoreCase))
-                                {
-                                    return game;
-                                }
-                                // Also check the file path for the base TitleID
-                                if (gf.RelativePath.Contains(baseTitleId, StringComparison.OrdinalIgnoreCase))
-                                {
-                                    return game;
-                                }
-                            }
                         }
                     }
                 }
@@ -3505,10 +3638,12 @@ namespace RetroArr.Core.Games
             try
             {
                 var preList = await _gameRepository.GetAllLightAsync();
+                var roots = Roots;
                 foreach (var g in preList)
                 {
                     ct.ThrowIfCancellationRequested();
-                    if (!TitleCleanerService.IsContainerOrphanPath(g.Path)) continue;
+                    // Only below a library root: a folder above it that is named like a container is not one
+                    if (!TitleCleanerService.IsContainerOrphanPath(LibraryPaths.BelowRoot(g.Path, roots))) continue;
                     try
                     {
                         await _gameRepository.DeleteAsync(g.Id);

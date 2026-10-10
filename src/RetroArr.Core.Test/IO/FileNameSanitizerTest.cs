@@ -1,4 +1,6 @@
+using System.IO;
 using NUnit.Framework;
+using RetroArr.Core.Configuration;
 using RetroArr.Core.IO;
 
 namespace RetroArr.Core.Test.IO
@@ -65,6 +67,29 @@ namespace RetroArr.Core.Test.IO
         {
             Assert.That(FileNameSanitizer.Sanitize("Gran Turismo 7 (2022) [PS5]"),
                 Is.EqualTo("Gran Turismo 7 (2022) [PS5]"));
+        }
+
+        // A dash stuck to a letter or digit at either end is the name's own; one left of a separator goes
+        [TestCase("-Zero-", "-Zero-")]
+        [TestCase("Ys VIII -Lacrimosa of DANA-", "Ys VIII -Lacrimosa of DANA-")]
+        [TestCase("Game-.", "Game-")]
+        [TestCase("Game -", "Game")]
+        [TestCase(" - Game - ", "Game")]
+        [TestCase(":Game?", "Game")]
+        [TestCase("Game.-", "Game")]
+        [TestCase("--", "unknown")]
+        public void Sanitize_DashesOfTheName_Stay(string input, string expected)
+        {
+            Assert.That(FileNameSanitizer.Sanitize(input), Is.EqualTo(expected));
+        }
+
+        // Game folders are named the same way
+        [Test]
+        public void ResolveDestinationPath_TitleWithDashesAtTheEnds_KeepsThem()
+        {
+            var settings = new MediaSettings { FolderPath = "/library", DestinationPath = "/library" };
+
+            Assert.That(settings.ResolveDestinationPath("/library", "psp", "-Zero-"), Is.EqualTo(Path.Combine("/library", "psp", "-Zero-")));
         }
     }
 }

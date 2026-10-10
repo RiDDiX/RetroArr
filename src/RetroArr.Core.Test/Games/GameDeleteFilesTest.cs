@@ -451,7 +451,7 @@ namespace RetroArr.Core.Test.Games
             var trash = new TrashService(_config);
             trash.Rename = (from, to) =>
             {
-                if (from == bin) throw new IOException("Invalid cross-device link");
+                if (from == bin) throw TrashServiceTest.CrossDevice();
                 Directory.Move(from, to);
             };
             trash.FreeSpace = _ => 0;
@@ -726,7 +726,7 @@ namespace RetroArr.Core.Test.Games
             // the bin can't go and the cue can't come back
             trash.Rename = (from, to) =>
             {
-                if (from == bin || to == cue) throw new IOException("Invalid cross-device link");
+                if (from == bin || to == cue) throw TrashServiceTest.CrossDevice();
                 Directory.Move(from, to);
             };
             trash.FreeSpace = _ => 0;
@@ -751,7 +751,7 @@ namespace RetroArr.Core.Test.Games
             Put(saves, "ff7.srm");
             await Seed(new Game { Id = 1, Title = "Final Fantasy VII", PlatformId = Ps1, Path = ff7 });
             var trash = new TrashService(_config);
-            trash.Rename = (_, _) => throw new IOException("Invalid cross-device link");
+            trash.Rename = (_, _) => throw TrashServiceTest.CrossDevice();
             var delete = trash.Delete;
             // the source delete stops halfway and what it took can't be put back
             trash.Delete = p =>

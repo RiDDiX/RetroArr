@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import apiClient, { gamesApi, reviewsApi, mediaApi, monitorApi, MetadataRescanStatus, GameListDto, BulkReviewData, ProtonDbRefreshStatus, PlatformMonitorCount } from '../api/client';
+import apiClient, { gamesApi, reviewsApi, mediaApi, monitorApi, getErrorMessage, isAxiosError, isConflict, MetadataRescanStatus, GameListDto, GameStatus, BulkReviewData, ProtonDbRefreshStatus, PlatformMonitorCount } from '../api/client';
 import GameCard from '../components/GameCard';
 import ContextMenu from '../components/ContextMenu';
 import { EmptyState } from '../components/retro';
@@ -24,7 +24,7 @@ interface Game {
   genres: string[];
   platformId?: number;
   platform?: { id?: number; name: string };
-  status: string;
+  status: GameStatus;
   steamId?: number;
   igdbId?: number;
   path?: string;
@@ -397,9 +397,10 @@ const Library: React.FC = () => {
     }
   };
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (status: GameStatus) => {
     switch (status) {
       case 'Downloaded':
+      case 'InstallerDetected':
         return 'var(--ctp-green)';
       case 'Downloading':
         return 'var(--ctp-blue)';
@@ -410,9 +411,10 @@ const Library: React.FC = () => {
     }
   };
 
-  const translateStatus = (status: string) => {
+  const translateStatus = (status: GameStatus) => {
     switch (status) {
-      case 'Downloaded': return t('statusDownloaded');
+      case 'Downloaded':
+      case 'InstallerDetected': return t('statusDownloaded');
       case 'Downloading': return t('statusDownloading');
       case 'Missing': return t('statusMissing');
       default: return t('statusUnknown');
@@ -500,9 +502,8 @@ const Library: React.FC = () => {
   const handlePlatformScan = useCallback(async (platformSlug: string) => {
     if (platformScanning) return;
     setPlatformScanning(true);
-    try {
-      await mediaApi.startScan({ platform: platformSlug });
-      // Poll scan status until finished, then reload games
+    // Poll scan status until finished, then reload games
+    const waitForScan = () => {
       const poll = setInterval(async () => {
         try {
           const res = await mediaApi.getScanStatus();
@@ -518,9 +519,20 @@ const Library: React.FC = () => {
           setPlatformScanning(false);
         }
       }, 2000);
+    };
+    try {
+      await mediaApi.startScan({ platform: platformSlug });
+      waitForScan();
     } catch (err) {
       console.error('Platform scan failed:', err);
-      setPlatformScanning(false);
+      if (isConflict(err)) {
+        // Another scan is running: the spinner follows it and the library reloads when it is done
+        alert(t('scanAlreadyRunning'));
+        waitForScan();
+      } else {
+        alert(isAxiosError(err) && err.response?.data?.errorCode === 'IGDB_NOT_CONFIGURED' ? t('igdbRequired') : getErrorMessage(err));
+        setPlatformScanning(false);
+      }
     }
   }, [platformScanning]);
 
@@ -1126,7 +1138,7 @@ const Library: React.FC = () => {
                         className="list-status-badge"
                         style={{
                           backgroundColor: getStatusColor(dto.status),
-                          color: ['Missing', 'Downloading', 'Downloaded'].includes(dto.status) ? 'var(--ctp-crust)' : 'var(--ctp-text)'
+                          color: ['Missing', 'Downloading', 'Downloaded', 'InstallerDetected'].includes(dto.status) ? 'var(--ctp-crust)' : 'var(--ctp-text)'
                         }}
                       >
                         {translateStatus(dto.status)}

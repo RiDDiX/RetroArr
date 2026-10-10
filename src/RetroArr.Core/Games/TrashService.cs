@@ -272,9 +272,9 @@ namespace RetroArr.Core.Games
                 Rename(src, dst);
                 return;
             }
-            catch (IOException)
+            catch (IOException ex) when (IsCrossDevice(ex, src, dst))
             {
-                // another volume
+                // another volume; anything else refuses the move with its error
             }
 
             var need = TryMeasure(src);
@@ -315,11 +315,17 @@ namespace RetroArr.Core.Games
             throw new IOException($"Could not remove {src} after copying it, it stays where it was: {lastDeleteError?.Message}", lastDeleteError);
         }
 
+        // A rename that failed because it goes to another volume: EXDEV on Linux and macOS, ERROR_NOT_SAME_DEVICE on
+        // Windows, which also refuses a move between drives before it tries one
+        internal static bool IsCrossDevice(IOException ex, string src, string dst) =>
+            ex.HResult == (OperatingSystem.IsWindows() ? unchecked((int)0x80070011) : 18)
+            || !string.Equals(Path.GetPathRoot(Path.GetFullPath(src)), Path.GetPathRoot(Path.GetFullPath(dst)), StringComparison.OrdinalIgnoreCase);
+
         // Copies src to dst. A link is copied as the link and never followed, so a restore brings the link back and a
         // link to a folder above can't loop. The copy of a payload is strict: a name that is there already fails it, as
         // a volume that ignores case folds Data and data into one and the source would then go with one of them lost.
         // The copy back into a source only fills in what it lacks.
-        private static void Copy(string src, string dst, bool strict)
+        internal static void Copy(string src, string dst, bool strict)
         {
             var taken = File.Exists(dst) || Directory.Exists(dst);
             if (taken && strict)

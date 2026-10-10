@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { reviewsApi, monitorApi } from '../api/client';
+import { reviewsApi, monitorApi, type GameStatus } from '../api/client';
 import { useTranslation } from '../i18n/translations';
 import { useCardTilt } from '../hooks/useCardTilt';
 import steamLogo from '../assets/steam_logo.png';
@@ -35,7 +35,7 @@ interface Game {
     name: string;
     slug?: string;
   };
-  status: string;
+  status: GameStatus;
   steamId?: number;
   path?: string;
   region?: string;
@@ -139,9 +139,9 @@ const GameCard: React.FC<GameCardProps> = ({ game, reviewData, onClick, onContex
     return () => clearTimeout(timeoutId);
   }, [game.id, reviewData]);
 
-  // Availability = the game file is actually on disk. `missingSince` is stamped by
-  // the scanner when files vanish; a game with no local path was never downloaded.
-  const isAvailable = !!game.path && !game.missingSince;
+  // Available = a scan or an import found the game's content. A wanted game can have a
+  // path without any content; `missingSince` only drives the Missing badge.
+  const isAvailable = game.status === 'Downloaded' || game.status === 'InstallerDetected';
 
   const isSteamGame = !!game.steamId;
 
@@ -175,7 +175,7 @@ const GameCard: React.FC<GameCardProps> = ({ game, reviewData, onClick, onContex
         {game.missingSince && (
           <div
             className="game-card-missing-badge"
-            title={`${t('missingBadgeTitle') || 'Files missing on disk'} (${new Date(game.missingSince).toLocaleDateString()})`}
+            title={(t('missingBadgeTitle') || 'Files missing on disk since {date}').replace('{date}', new Date(game.missingSince).toLocaleDateString())}
           >
             {t('missingBadge') || 'Missing'}
           </div>

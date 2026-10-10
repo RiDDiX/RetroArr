@@ -245,6 +245,7 @@ namespace RetroArr.Host
             builder.Services.AddSingleton<RetroArr.Core.Games.DuplicateGameMergeService>();
             builder.Services.AddSingleton<TrashService>();
             builder.Services.AddHostedService<TrashPurgeService>();
+            builder.Services.AddHostedService<ContentStateUpgradeService>();
 
             // SignalR progress hub + notifier
             builder.Services.AddSignalR();

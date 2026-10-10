@@ -56,7 +56,12 @@ namespace RetroArr.Core.Download
 
         public int? LookupGameId(string downloadName)
         {
-            lock (_lock) { return Find(downloadName, e => e.GameId.HasValue)?.GameId; }
+            // 0 is a download mapped to no game: it wins over the grab that linked one
+            lock (_lock)
+            {
+                var gameId = Find(downloadName, e => e.GameId.HasValue)?.GameId;
+                return gameId > 0 ? gameId : null;
+            }
         }
 
         public string? LookupImportSubfolder(string downloadName)
@@ -81,6 +86,17 @@ namespace RetroArr.Core.Download
             }
         }
 
+        // Ends what linked a download to a game it turned out not to be: that game's grabs and mappings under this very
+        // name. The game counts as searched for again, and the name no longer links the download to it. Another release of
+        // the game ("Halo 3 (USA)" beside "Halo 3 (USA) [TU5]") may still be downloading, its grab stays.
+        public void Unlink(string downloadName, int gameId)
+        {
+            lock (_lock)
+            {
+                if (_entries.RemoveAll(e => e.GameId == gameId && IsNamed(e, downloadName)) > 0) Save();
+            }
+        }
+
         public void MarkProcessed(string downloadName)
         {
             lock (_lock)
@@ -101,17 +117,20 @@ namespace RetroArr.Core.Download
             }
         }
 
+        // Only what is sent changes: the queue's platform editor sends no game or subfolder and keeps the ones mapped before.
+        // A game id of 0 maps the download to no game.
         public void SetPlatformForDownload(string downloadName, string platformFolder, int? gameId = null, string? importSubfolder = null)
         {
             lock (_lock)
             {
+                var before = _entries.LastOrDefault(e => e.Url.Equals(downloadName, StringComparison.OrdinalIgnoreCase) && !IsExpired(e));
                 _entries.RemoveAll(e => e.Url.Equals(downloadName, StringComparison.OrdinalIgnoreCase));
                 _entries.Add(new TrackedDownload
                 {
                     Url = downloadName,
                     PlatformFolder = platformFolder,
-                    GameId = gameId,
-                    ImportSubfolder = importSubfolder,
+                    GameId = gameId switch { null => before?.GameId, <= 0 => 0, _ => gameId },
+                    ImportSubfolder = string.IsNullOrEmpty(importSubfolder) ? before?.ImportSubfolder : importSubfolder,
                     AddedAt = DateTime.UtcNow
                 });
                 Save();
@@ -204,6 +223,14 @@ namespace RetroArr.Core.Download
                 var entryTags = Tags(entryName);
                 return entryTags.IsSubsetOf(tags) || tags.IsSubsetOf(entryTags);
             }).ToList());
+        }
+
+        // An entry stored under the name, or a grab of the release of that name: no other release of the title
+        private static bool IsNamed(TrackedDownload entry, string downloadName)
+        {
+            if (entry.Url.Equals(downloadName, StringComparison.OrdinalIgnoreCase)) return true;
+            var name = CleanName(downloadName);
+            return MeaningfulLength(name) > 0 && CleanName(ExtractName(entry.Url)) == name;
         }
 
         private static HashSet<string> Tags(string name) =>

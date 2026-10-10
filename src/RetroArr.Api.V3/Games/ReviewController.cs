@@ -13,11 +13,13 @@ namespace RetroArr.Api.V3.Games
     {
         private readonly ReviewItemService _reviewService;
         private readonly IGameRepository _gameRepository;
+        private readonly DuplicateGameMergeService _mergeService;
 
-        public ReviewController(ReviewItemService reviewService, IGameRepository gameRepository)
+        public ReviewController(ReviewItemService reviewService, IGameRepository gameRepository, DuplicateGameMergeService mergeService)
         {
             _reviewService = reviewService;
             _gameRepository = gameRepository;
+            _mergeService = mergeService;
         }
 
         [HttpGet("items")]
@@ -89,29 +91,48 @@ namespace RetroArr.Api.V3.Games
                 if (game == null)
                     return BadRequest(new { message = $"Assigned game {item.AssignedGameId} not found." });
             }
+            else if (await GameController.EntryOfAsync(_gameRepository, platformId.Value, title, item.Region) is { } entry)
+            {
+                game = await _gameRepository.GetByIdAsync(entry.Id);
+            }
 
+            var file = item.FilePaths.FirstOrDefault();
             if (game == null)
             {
                 game = new Game
                 {
                     Title = title,
                     PlatformId = platformId.Value,
-                    Path = item.FilePaths.FirstOrDefault(),
-                    ExecutablePath = item.FilePaths.FirstOrDefault(),
+                    Path = file,
+                    ExecutablePath = System.IO.File.Exists(file) ? file : null,
                     Region = item.Region,
-                    Status = GameStatus.Downloaded,
+                    Status = GameStatus.Released,
                     Added = DateTime.UtcNow
                 };
                 await _gameRepository.AddAsync(game);
             }
             else
             {
-                if (string.IsNullOrEmpty(game.Path))
-                    game.Path = item.FilePaths.FirstOrDefault();
-                if (string.IsNullOrEmpty(game.Region) && !string.IsNullOrEmpty(item.Region))
-                    game.Region = item.Region;
-                await _gameRepository.UpdateAsync(game.Id, game);
+                // A path whose content may still be there stays (the file may lie in it, its share may be offline); a
+                // game without a path or whose content is lost is the file now
+                var library = await _gameRepository.GetAllLightAsync();
+                var saved = await _gameRepository.UpdateFieldsAsync(game.Id, g =>
+                {
+                    if ((System.IO.File.Exists(file) || System.IO.Directory.Exists(file)) && (string.IsNullOrEmpty(g.Path) || _mergeService.Lost(g, library)))
+                        g.Path = file;
+                    if (System.IO.File.Exists(file) && GameController.IsSubPath(file, g.Path ?? string.Empty))
+                        g.ExecutablePath = file;
+                    if (string.IsNullOrEmpty(g.Region) && !string.IsNullOrEmpty(item.Region))
+                        g.Region = item.Region;
+                });
+                if (saved == null)
+                    return BadRequest(new { message = $"Game {game.Id} not found." });
+                game = saved;
             }
+
+            // The game is in the library now, so the monitor stops searching for it
+            if (_mergeService.CheckContent(game) == GameContent.Present)
+                await _gameRepository.ApplyContentStateAsync(game.Id, GameContent.Present, DateTime.UtcNow, game.Path);
 
             _reviewService.SetStatus(id, ReviewStatus.Finalized);
             return Ok(new { message = "Item finalized and linked to library.", gameId = game.Id, title = game.Title });

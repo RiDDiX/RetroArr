@@ -241,8 +241,9 @@ namespace RetroArr.Core.Download.TrackedDownloads
                 return false;
             }
 
-            // The game's files were deleted from the library since, and this download still has them
-            var gameId = trackedDownload.GameId ?? existingHistory.GameId;
+            // The game's files were deleted from the library since, and this download still has them. A download mapped by
+            // hand keeps its game, no game included, whatever an earlier import recorded.
+            var gameId = trackedDownload.GameSetByHand ? trackedDownload.GameId : trackedDownload.GameId ?? existingHistory.GameId;
             if (gameId.HasValue && OnDisk(localPath))
             {
                 var game = await _gameRepository.GetByIdAsync(gameId.Value);

@@ -69,16 +69,16 @@ const Settings: React.FC = () => {
     { id: 'logging',      label: t('logging') || 'Logging',                             icon: faClipboardList, group: 'system' },
     { id: 'webhooks',     label: t('webhooks') || 'Webhooks',                           icon: faBell,          group: 'system' },
     { id: 'apiaccess',    label: t('apiAccess') || 'API access',                        icon: faKey,           group: 'system' },
-    { id: 'debug',        label: 'Debug',                                               icon: faTerminal,      group: 'system' },
+    { id: 'debug',        label: t('debug') || 'Debug',                                 icon: faTerminal,      group: 'system' },
   ];
 
   const groups = [
     { key: 'library',     label: t('library') || 'Library' },
     { key: 'connections', label: t('settingsConnections') || 'Connections' },
     { key: 'downloads',   label: t('downloads') || 'Downloads' },
-    { key: 'emulator',    label: 'Emulator' },
-    { key: 'interface',   label: 'Interface' },
-    { key: 'system',      label: 'System' },
+    { key: 'emulator',    label: t('settingsGroupEmulator') || 'Emulator' },
+    { key: 'interface',   label: t('settingsGroupInterface') || 'Interface' },
+    { key: 'system',      label: t('settingsGroupSystem') || 'System' },
   ];
 
   const switchTab = (id: string) => {

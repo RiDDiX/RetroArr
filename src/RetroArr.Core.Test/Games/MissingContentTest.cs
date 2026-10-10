@@ -53,7 +53,7 @@ namespace RetroArr.Core.Test.Games
         [SetUp]
         public void SetUp()
         {
-            _root = Path.Combine(Path.GetTempPath(), "retroarr_missing_" + Path.GetRandomFileName());
+            _root = Path.Combine(Path.GetTempPath(), "retroarr_missing_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Path.Combine(_root, "config"));
             _lib = Directory.CreateDirectory(Path.Combine(_root, "library")).FullName;
             _db = new DbContextOptionsBuilder<RetroArrDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
@@ -728,6 +728,20 @@ namespace RetroArr.Core.Test.Games
             await Seed(new Game { Id = 1, Title = "Metroid Fusion", PlatformId = Gba, Path = Path.Combine(_lib, "gba", "Metroid Fusion"), Status = GameStatus.Missing, MissingSince = DateTime.UtcNow.AddDays(-20) });
 
             await Scanner().ScanAsync();
+
+            using var ctx = new RetroArrDbContext(_db);
+            Assert.That(ctx.Games.Count(), Is.EqualTo(0));
+        }
+
+        // The settings page sends the library root as the path to scan
+        [TestCase(false)]
+        [TestCase(true)]
+        public async Task UnmonitoredGone_SettingsStyleScan_PurgedAfterRetention(bool trailingSeparator)
+        {
+            Put(Folder("gba"), "gamelist.xml");
+            await Seed(new Game { Id = 1, Title = "Metroid Fusion", PlatformId = Gba, Path = Path.Combine(_lib, "gba", "Metroid Fusion"), Status = GameStatus.Missing, MissingSince = DateTime.UtcNow.AddDays(-20) });
+
+            await Scanner().ScanAsync(trailingSeparator ? _lib + Path.DirectorySeparatorChar : _lib, "default");
 
             using var ctx = new RetroArrDbContext(_db);
             Assert.That(ctx.Games.Count(), Is.EqualTo(0));

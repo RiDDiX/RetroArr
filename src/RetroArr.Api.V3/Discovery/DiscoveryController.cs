@@ -49,7 +49,7 @@ namespace RetroArr.Api.V3.Discovery
         public IActionResult TriggerDiscoveryScan([FromBody] ScanRequest? request = null)
         {
             if (_scanner.IsScanning)
-                return Conflict(new { success = false, message = "Another scan is already running." });
+                return Conflict(new { success = false, message = MediaScannerService.ScanRunningMessage });
 
             _logger.Info($"[Discovery] TriggerScan FolderPath='{request?.FolderPath}' Platform='{request?.Platform}'");
             _ = Task.Run(async () =>

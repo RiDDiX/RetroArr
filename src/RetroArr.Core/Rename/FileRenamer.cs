@@ -80,6 +80,17 @@ namespace RetroArr.Core.Rename
 
         internal static bool IsExtra(string path) => ExtraExtensions.Contains(Path.GetExtension(path));
 
+        // A tarball keeps both of its extensions: "game-1.2.tar.gz" is "<Title>.tar.gz", not "<Title>.gz"
+        private static readonly Regex _tarExtensionRegex = new(@"\.tar\.(gz|bz2|xz|zst)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        internal static string Extension(string file) => _tarExtensionRegex.Match(file) is { Success: true } tar ? tar.Value : Path.GetExtension(file);
+
+        internal static string Stem(string file)
+        {
+            var name = Path.GetFileName(file);
+            return name[..^Extension(name).Length];
+        }
+
         internal static string? DiscToken(string name)
         {
             var m = _discTokenRegex.Match(name ?? "");
@@ -145,7 +156,7 @@ namespace RetroArr.Core.Rename
             var stems = new Dictionary<string, string>(StringComparer.Ordinal);
             var contents = new Dictionary<string, byte[]>(StringComparer.Ordinal);
             bool Assign(string file, string stem) => stems.TryAdd(file, stem);
-            string NewName(string file) => stems[file] + Path.GetExtension(file);
+            string NewName(string file) => stems[file] + Extension(file);
 
             string? Resolve(string reference)
             {
@@ -278,11 +289,11 @@ namespace RetroArr.Core.Rename
         // An extra named like a renamed file follows it ("Crash (USA).nfo" next to "Crash (USA).cue"), any other keeps its name.
         internal static string ExtraName(string extra, IEnumerable<(string Source, string NewStem)> renamed)
         {
-            var stem = Path.GetFileNameWithoutExtension(extra);
+            var stem = Stem(extra);
             foreach (var (source, newStem) in renamed)
             {
-                if (string.Equals(Path.GetFileNameWithoutExtension(source), stem, StringComparison.OrdinalIgnoreCase))
-                    return newStem + Path.GetExtension(extra);
+                if (string.Equals(Stem(source), stem, StringComparison.OrdinalIgnoreCase))
+                    return newStem + Extension(extra);
             }
             return Path.GetFileName(extra);
         }

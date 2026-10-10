@@ -284,16 +284,26 @@ namespace RetroArr.Api.V3.DownloadClients
         {
             if (string.IsNullOrEmpty(request.DownloadName) || string.IsNullOrEmpty(request.PlatformFolder))
                 return BadRequest("DownloadName and PlatformFolder are required.");
+            if (!string.IsNullOrEmpty(request.ImportSubfolder) && PostDownloadProcessor.ImportSubfolderName(request.ImportSubfolder) == null)
+                return BadRequest("ImportSubfolder must be Main, Patches or DLC.");
 
             // With its ids the mapping goes onto that download. A mapping by name reaches every download of that
             // name (older builds named every NZBGet job 'RetroArr_download'), so with ids it's only stored when no
             // other tracked download has the name.
             var byId = request.ClientId.HasValue && !string.IsNullOrEmpty(request.DownloadId);
             var tracked = byId ? _trackedDownloadService.Find(request.ClientId!.Value, request.DownloadId!) : null;
+            // The games it was linked to before: its own, and the one its grab or a mapping gives the name
+            var linked = new[] { tracked?.GameId, _platformTracker.LookupGameId(request.DownloadName) };
             if (tracked != null)
             {
                 tracked.PlatformFolder = request.PlatformFolder;
-                if (request.GameId.HasValue) tracked.GameId = request.GameId;
+                // 0 is "no game": the download is no grab of the game it was linked to. Nothing sent keeps the game.
+                if (request.GameId.HasValue)
+                {
+                    tracked.GameId = request.GameId > 0 ? request.GameId : null;
+                    tracked.GameSetByHand = true;
+                }
+                // "Main" takes back a subfolder set before, nothing sent keeps it
                 if (!string.IsNullOrEmpty(request.ImportSubfolder)) tracked.ImportSubfolder = request.ImportSubfolder;
                 _trackedDownloadService.Save();
             }
@@ -304,9 +314,26 @@ namespace RetroArr.Api.V3.DownloadClients
                 _platformTracker.SetPlatformForDownload(request.DownloadName, request.PlatformFolder, request.GameId, request.ImportSubfolder);
             else if (tracked == null)
                 return NotFound($"Download '{request.DownloadId}' is not tracked");
+            // Mapped to another game or to none, it is no grab of the one it was linked to: that one is searched for again.
+            // Not while another download has the name, the grab may be that one's.
+            if (!nameShared && request.GameId.HasValue)
+            {
+                foreach (var old in linked.Where(g => g > 0 && g != request.GameId).Distinct())
+                    _platformTracker.Unlink(request.DownloadName, old!.Value);
+            }
 
             _logger.Info($"[DownloadClient] Manual platform mapping: '{request.DownloadName}' ({request.ClientId}/{request.DownloadId}) -> '{request.PlatformFolder}' (gameId={request.GameId}, subfolder={request.ImportSubfolder})");
             return Ok(new { message = $"Platform mapped to {request.PlatformFolder}" });
+        }
+
+        // Where the import would put a download with the game and platform picked for it, by the import's own rules
+        [HttpGet("queue/import-subfolder")]
+        public async Task<ActionResult> SuggestImportSubfolder([FromQuery] string title, [FromQuery] int? gameId = null, [FromQuery] string? platform = null)
+        {
+            var game = gameId.HasValue ? await _gameRepository.GetByIdAsync(gameId.Value) : null;
+            var platforms = RetroArr.Core.Games.PlatformDefinitions.AllPlatforms;
+            var picked = platforms.FirstOrDefault(p => p.MatchesFolderName(platform ?? "")) ?? platforms.FirstOrDefault(p => p.Id == game?.PlatformId);
+            return Ok(new { importSubfolder = PostDownloadProcessor.ImportSubfolderFor(title, game?.Title, picked) ?? "Main" });
         }
 
         [HttpPost("queue/{clientId}/{downloadId}/import")]
@@ -331,21 +358,9 @@ namespace RetroArr.Api.V3.DownloadClients
                 }
                 if (download == null || !InCategory(config, download)) return NotFound($"Download '{decodedId}' not found in client");
 
-                // Resolve platform, gameId, importSubfolder from tracker
-                download.PlatformFolder = _platformTracker.LookupByName(download.Name);
-                var trackedGameId = _platformTracker.LookupGameId(download.Name);
-                var trackedSubfolder = _platformTracker.LookupImportSubfolder(download.Name);
-
-                // Track via TrackedDownloadService (creates or updates)
-                var tracked = _trackedDownloadService.TrackDownload(download, clientId, config.Name ?? config.Implementation);
-
-                // Fill in platform, gameId, importSubfolder from the name lookup, but keep a mapping made for this download
-                if (!string.IsNullOrEmpty(download.PlatformFolder) && string.IsNullOrEmpty(tracked.PlatformFolder))
-                    tracked.PlatformFolder = download.PlatformFolder;
-                if (trackedGameId.HasValue && !tracked.GameId.HasValue)
-                    tracked.GameId = trackedGameId;
-                if (!string.IsNullOrEmpty(trackedSubfolder) && string.IsNullOrEmpty(tracked.ImportSubfolder))
-                    tracked.ImportSubfolder = trackedSubfolder;
+                // Track it (creates or updates) with the platform, game and subfolder its grab was sent with, but keep a
+                // mapping made for this download
+                var tracked = _trackedDownloadService.TrackDownload(download, clientId, config.Name ?? config.Implementation, _platformTracker);
 
                 // Force state to ImportPending for manual import
                 tracked.ClearWarnings();
@@ -556,6 +571,8 @@ namespace RetroArr.Api.V3.DownloadClients
         [HttpPost("add")]
         public async Task<ActionResult> AddTorrent([FromBody] AddTorrentRequest request)
         {
+            if (!string.IsNullOrEmpty(request.ImportSubfolder) && PostDownloadProcessor.ImportSubfolderName(request.ImportSubfolder) == null)
+                return BadRequest(new { message = "ImportSubfolder must be Main, Patches or DLC." });
             try
             {
                 // The URL carries the indexer's API key (Prowlarr/Jackett apikey=, tracker passkeys)
@@ -1051,8 +1068,8 @@ namespace RetroArr.Api.V3.DownloadClients
     {
         public string DownloadName { get; set; } = string.Empty;
         public string PlatformFolder { get; set; } = string.Empty;
-        public int? GameId { get; set; }
-        public string? ImportSubfolder { get; set; }
+        public int? GameId { get; set; } // 0 for no game, null to keep the one it has
+        public string? ImportSubfolder { get; set; } // "Main", "Patches", "DLC", or null to keep the one it has
         public int? ClientId { get; set; }
         public string? DownloadId { get; set; }
     }

@@ -34,11 +34,15 @@ namespace RetroArr.Core.Test.Games
             if (Directory.Exists(_root)) Directory.Delete(_root, true);
         }
 
+        // The error a rename to another volume fails with
+        internal static IOException CrossDevice() =>
+            new("Invalid cross-device link", OperatingSystem.IsWindows() ? unchecked((int)0x80070011) : 18);
+
         // A trash on another volume: the rename fails and the payload is copied
         private TrashService OtherVolume()
         {
             var trash = new TrashService(_config);
-            trash.Rename = (_, _) => throw new IOException("Invalid cross-device link");
+            trash.Rename = (_, _) => throw CrossDevice();
             return trash;
         }
 
@@ -84,6 +88,22 @@ namespace RetroArr.Core.Test.Games
 
             Assert.That(Directory.Exists(game), Is.False);
             Assert.That(Contents(entry!.TrashPath), Is.EqualTo(before));
+        }
+
+        // A rename that fails for another reason refuses the move with its error: nothing is copied, nothing goes
+        [Test]
+        public void RenameThatFailsOtherwise_RefusesTheMove()
+        {
+            var game = Game();
+            var before = Contents(game);
+            var trash = new TrashService(_config);
+            trash.Rename = (_, _) => throw new IOException("The process cannot access the file because it is being used by another process.");
+
+            var ex = Assert.ThrowsAsync<IOException>(() => trash.MoveAsync(game));
+
+            Assert.That(ex!.Message, Does.Contain("being used by another process"));
+            Assert.That(Contents(game), Is.EqualTo(before));
+            Assert.That(Directory.GetFileSystemEntries(_trash), Is.Empty);
         }
 
         [Test]
@@ -166,7 +186,7 @@ namespace RetroArr.Core.Test.Games
             {
                 Directory.CreateDirectory(to);
                 File.WriteAllText(Path.Combine(to, "Disc 1.bin"), "the other disc 1");
-                throw new IOException("Invalid cross-device link");
+                throw CrossDevice();
             };
 
             Assert.ThrowsAsync<IOException>(() => trash.MoveAsync(game));

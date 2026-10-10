@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useTranslation } from '../i18n/translations';
+import apiClient, { getErrorMessage } from '../api/client';
 import './Status.css';
 
 const API_BASE = '/api/v3/downloadclient';
@@ -180,6 +181,7 @@ const Status: React.FC = () => {
   const [mapPlatform, setMapPlatform] = useState('');
   const [mapGameId, setMapGameId] = useState<number | ''>('');
   const [mapFileType, setMapFileType] = useState<'' | 'Main' | 'Patches' | 'DLC'>('');
+  const [mapFileTouched, setMapFileTouched] = useState(false);
   const [mapGameSearch, setMapGameSearch] = useState('');
 
   // Blacklist state
@@ -192,6 +194,7 @@ const Status: React.FC = () => {
   const [gamesList, setGamesList] = useState<Array<{ id: number; title: string; platformId: number }>>([]);
   const [mapFileModal, setMapFileModal] = useState<UnmappedLocalFile | null>(null);
   const [mapFileGameId, setMapFileGameId] = useState<number | ''>('');
+  const [fileError, setFileError] = useState<string | null>(null);
   const [createGameModal, setCreateGameModal] = useState<UnmappedLocalFile | null>(null);
   const [createGameTitle, setCreateGameTitle] = useState('');
 
@@ -440,13 +443,19 @@ const Status: React.FC = () => {
     fetchCounts();
   };
 
-  const detectFileType = (title: string): '' | 'Main' | 'Patches' | 'DLC' => {
-    if (!title) return '';
-    const t = title.toLowerCase();
-    if (/\bdlc\b/.test(t) || /[-.]dlc[-.]/i.test(title)) return 'DLC';
-    if (/\bupdate\b/.test(t) || /\bpatch\b/.test(t) || /\bhotfix\b/.test(t) || /\bfix\b/.test(t)) return 'Patches';
-    return 'Main';
-  };
+  // The import's own rules pick the file type for the game and platform chosen in the dialog, until the user picks one
+  useEffect(() => {
+    if (!mapModal || mapFileTouched) return;
+    let current = true;
+    const params = new URLSearchParams({ title: mapModal.title });
+    if (mapGameId) params.set('gameId', String(mapGameId));
+    if (mapPlatform) params.set('platform', mapPlatform);
+    fetch(`${API_BASE}/queue/import-subfolder?${params}`)
+      .then(r => r.json())
+      .then(data => { if (current && data?.importSubfolder) setMapFileType(data.importSubfolder); })
+      .catch(() => {});
+    return () => { current = false; };
+  }, [mapModal, mapGameId, mapPlatform, mapFileTouched]);
 
   const handleMapAndImport = async () => {
     if (!mapModal || !mapPlatform) return;
@@ -459,8 +468,10 @@ const Status: React.FC = () => {
         clientId: mapModal.downloadClientId,
         downloadId: mapModal.downloadId,
         platformFolder: mapPlatform,
-        gameId: mapGameId || null,
-        importSubfolder: mapFileType === 'Main' || mapFileType === '' ? null : mapFileType
+        // 0 and a picked "Main" take back a game and a Patches/DLC subfolder the download was linked to. The suggestion
+        // only shows what the import would do: unpicked, the server keeps the grab's subfolder or detects it.
+        gameId: mapGameId || 0,
+        importSubfolder: mapFileTouched ? mapFileType || null : null
       })
     });
     // 2. Trigger import
@@ -484,36 +495,38 @@ const Status: React.FC = () => {
     setHistoryPage(1);
   };
 
+  // The server says why it refused (400, 409, 500); the dialog stays open with its message
+  const showFileError = (error: unknown) => {
+    const message = getErrorMessage(error);
+    setFileError(typeof message === 'string' ? message : t('error'));
+  };
+
   const handleMapFileToGame = async () => {
     if (!mapFileModal || !mapFileGameId) return;
     try {
-      await fetch(`/api/v3/game/${mapFileGameId}/map-file`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filePath: mapFileModal.fullPath })
-      });
+      await apiClient.post(`/game/${mapFileGameId}/map-file`, { filePath: mapFileModal.fullPath });
       setMapFileModal(null);
       setMapFileGameId('');
       fetchUnmappedFiles();
-    } catch { /* ignore */ }
+    } catch (error) {
+      showFileError(error);
+    }
   };
 
   const handleCreateGameFromFile = async () => {
     if (!createGameModal) return;
     try {
-      await fetch('/api/v3/game/create-from-file', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          filePath: createGameModal.fullPath,
-          title: createGameTitle || undefined,
-          platformFolder: createGameModal.platformFolder || undefined
-        })
+      await apiClient.post('/game/create-from-file', {
+        filePath: createGameModal.fullPath,
+        title: createGameTitle || undefined,
+        platformFolder: createGameModal.platformFolder || undefined
       });
       setCreateGameModal(null);
       setCreateGameTitle('');
       fetchUnmappedFiles();
-    } catch { /* ignore */ }
+    } catch (error) {
+      showFileError(error);
+    }
   };
 
   const tabBadge = (count: number) => count > 0 ? <span className="tab-badge">{count}</span> : null;
@@ -884,7 +897,7 @@ const Status: React.FC = () => {
                     <td>{formatDate(u.added)}</td>
                     <td>
                       <div className="control-actions">
-                        <button className="control-btn import-btn" onClick={() => { setMapModal(u); setMapPlatform(u.gamePlatform || ''); setMapGameId(u.gameId || ''); setMapFileType(detectFileType(u.title)); setMapGameSearch(''); }} title="Map & Import">
+                        <button className="control-btn import-btn" onClick={() => { setMapModal(u); setMapPlatform(u.gamePlatform || ''); setMapGameId(u.gameId || ''); setMapFileType(''); setMapFileTouched(false); setMapGameSearch(''); }} title="Map & Import">
                           📥
                         </button>
                       </div>
@@ -977,10 +990,10 @@ const Status: React.FC = () => {
                       <td>{formatDate(f.lastModified)}</td>
                       <td>
                         <div className="control-actions">
-                          <button className="control-btn import-btn" onClick={() => { setMapFileModal(f); setMapFileGameId(''); }} title={t('mapToGame')}>
+                          <button className="control-btn import-btn" onClick={() => { setMapFileModal(f); setMapFileGameId(''); setFileError(null); }} title={t('mapToGame')}>
                             📥
                           </button>
-                          <button className="control-btn import-btn" onClick={() => { setCreateGameModal(f); setCreateGameTitle(f.folder || ''); }} title="Create new game">
+                          <button className="control-btn import-btn" onClick={() => { setCreateGameModal(f); setCreateGameTitle(f.folder || ''); setFileError(null); }} title="Create new game">
                             ➕
                           </button>
                         </div>
@@ -1018,12 +1031,13 @@ const Status: React.FC = () => {
             </div>
             <div className="modal-field">
               <label>File Type <span className="required">*</span></label>
-              <select className="filter-select" value={mapFileType} onChange={e => setMapFileType(e.target.value as 'Main' | 'Patches' | 'DLC')}>
+              <select className="filter-select" value={mapFileType} onChange={e => { setMapFileType(e.target.value as '' | 'Main' | 'Patches' | 'DLC'); setMapFileTouched(true); }}>
+                <option value="">{t('monitorDecisionAuto')}</option>
                 <option value="Main">Main Game</option>
                 <option value="Patches">Update / Patch</option>
                 <option value="DLC">DLC</option>
               </select>
-              {mapFileType !== 'Main' && mapFileType !== '' && (
+              {!mapFileTouched && (mapFileType === 'Patches' || mapFileType === 'DLC') && (
                 <div style={{ fontSize: '0.8em', color: 'var(--ctp-yellow)', marginTop: '4px' }}>
                   Auto-detected as {mapFileType === 'Patches' ? 'Update/Patch' : 'DLC'} from title
                 </div>
@@ -1039,7 +1053,7 @@ const Status: React.FC = () => {
               return (
                 <div className="modal-field">
                   <label>
-                    {mapFileType === 'Main'
+                    {mapFileType !== 'Patches' && mapFileType !== 'DLC'
                       ? 'Map to existing game (search by name)'
                       : 'Link to game'}
                   </label>
@@ -1058,7 +1072,7 @@ const Status: React.FC = () => {
                     onChange={e => setMapGameId(e.target.value ? Number(e.target.value) : '')}
                   >
                     <option value="">
-                      {mapFileType === 'Main'
+                      {mapFileType !== 'Patches' && mapFileType !== 'DLC'
                         ? '- New game from download title -'
                         : '- Select game (optional) -'}
                     </option>
@@ -1142,6 +1156,7 @@ const Status: React.FC = () => {
                 ))}
               </select>
             </div>
+            {fileError && <div className="modal-value small" style={{ color: 'var(--ctp-red)' }}>{t('error')}: {fileError}</div>}
             <div className="modal-actions">
               <button className="btn-secondary" onClick={() => setMapFileModal(null)}>Cancel</button>
               <button className="btn-primary" disabled={!mapFileGameId} onClick={handleMapFileToGame}>
@@ -1179,6 +1194,7 @@ const Status: React.FC = () => {
                 placeholder="Enter game title..."
               />
             </div>
+            {fileError && <div className="modal-value small" style={{ color: 'var(--ctp-red)' }}>{t('error')}: {fileError}</div>}
             <div className="modal-actions">
               <button className="btn-secondary" onClick={() => setCreateGameModal(null)}>Cancel</button>
               <button className="btn-primary" disabled={!createGameTitle.trim()} onClick={handleCreateGameFromFile}>

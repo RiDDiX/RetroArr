@@ -94,7 +94,7 @@ namespace RetroArr.Core.Download
         /// <summary>
         /// Phase 1: Poll a download client and update tracked downloads.
         /// </summary>
-        private async Task RefreshClientDownloadsAsync(DownloadClient config, HashSet<(int, string)> seenDownloadIds)
+        internal async Task RefreshClientDownloadsAsync(DownloadClient config, HashSet<(int, string)> seenDownloadIds)
         {
             IDownloadClient? client = CreateClient(config);
             if (client == null) return;
@@ -118,31 +118,8 @@ namespace RetroArr.Core.Download
                     // Track which IDs are still reported by clients
                     seenDownloadIds.Add((config.Id, download.Id));
 
-                    // Resolve platform folder, game ID, and import subfolder from tracker
-                    download.PlatformFolder = _platformTracker.LookupByName(download.Name);
-                    download.GameId = _platformTracker.LookupGameId(download.Name);
-                    download.ImportSubfolder = _platformTracker.LookupImportSubfolder(download.Name);
-
-                    // Track the download (creates or updates)
-                    var tracked = _trackedDownloadService.TrackDownload(download, config.Id, config.Name);
-
-                    // Propagate platform folder if resolved later
-                    if (!string.IsNullOrEmpty(download.PlatformFolder) && string.IsNullOrEmpty(tracked.PlatformFolder))
-                    {
-                        tracked.PlatformFolder = download.PlatformFolder;
-                    }
-
-                    // Propagate game ID if resolved
-                    if (download.GameId.HasValue && !tracked.GameId.HasValue)
-                    {
-                        tracked.GameId = download.GameId;
-                    }
-
-                    // Propagate import subfolder (Patches, DLC, etc.)
-                    if (!string.IsNullOrEmpty(download.ImportSubfolder) && string.IsNullOrEmpty(tracked.ImportSubfolder))
-                    {
-                        tracked.ImportSubfolder = download.ImportSubfolder;
-                    }
+                    // Track the download (creates or updates) with the platform, game and subfolder its grab was sent with
+                    _trackedDownloadService.TrackDownload(download, config.Id, config.Name, _platformTracker);
                 }
             }
             catch (Exception ex)

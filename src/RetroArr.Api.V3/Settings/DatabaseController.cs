@@ -250,10 +250,31 @@ namespace RetroArr.Api.V3.Settings
                 var result = new DatabaseRepairResult();
                 var knownPlatformIds = PlatformDefinitions.PlatformDictionary.Keys.ToHashSet();
 
-                // 1. Null regions → ''
-                var nullRegionRows = await context.Games.Where(g => g.Region == null).ToListAsync();
-                foreach (var g in nullRegionRows) g.Region = string.Empty;
-                result.RegionsCanonicalised = nullRegionRows.Count;
+                // 1. Null regions → '', but not for a title with another untagged row on the platform (the
+                // duplicate merge below takes those)
+                result.RegionsCanonicalised = await CanonicaliseRegionsAsync(context);
+
+                // A platform change below must not put a second row of a title and region, or of an IGDB id, on a
+                // platform (unique indexes; case ignored, as some databases do). Such a row stays where it is, and the
+                // duplicate merge takes it as a row of the platform it belongs to.
+                var placed = await context.Games.Select(g => new { g.Title, g.PlatformId, g.Region, g.IgdbId }).ToListAsync();
+                var titles = placed.Select(g => TitleKey(g.Title, g.PlatformId, g.Region)).ToHashSet();
+                var igdbIds = placed.Where(g => g.IgdbId != null).Select(g => (g.IgdbId!.Value, g.PlatformId)).ToHashSet();
+                var waiting = new Dictionary<int, int>();
+                bool Move(Game g, int platformId)
+                {
+                    var title = TitleKey(g.Title, platformId, g.Region);
+                    if (titles.Contains(title) || (g.IgdbId != null && igdbIds.Contains((g.IgdbId.Value, platformId))))
+                    {
+                        waiting[g.Id] = platformId;
+                        return false;
+                    }
+                    g.PlatformId = platformId;
+                    titles.Add(title);
+                    if (g.IgdbId != null) igdbIds.Add((g.IgdbId.Value, platformId));
+                    waiting.Remove(g.Id);
+                    return true;
+                }
 
                 // 2. Orphan PlatformIds: park on Unknown so folder stays absolute and the row hits review.
                 var orphans = await context.Games
@@ -261,12 +282,11 @@ namespace RetroArr.Api.V3.Settings
                     .ToListAsync();
                 foreach (var g in orphans)
                 {
-                    g.PlatformId = PlatformDefinitions.UnknownPlatformId;
+                    if (Move(g, PlatformDefinitions.UnknownPlatformId)) result.OrphansFixed++;
                     g.NeedsMetadataReview = true;
                     if (string.IsNullOrEmpty(g.MetadataReviewReason))
                         g.MetadataReviewReason = "Original platform could not be resolved. Please reassign.";
                 }
-                result.OrphansFixed = orphans.Count;
 
                 // 3. Path-based platform heal (opt-in)
                 if (request.HealPlatformFromPath)
@@ -278,22 +298,21 @@ namespace RetroArr.Api.V3.Settings
                     foreach (var g in candidates)
                     {
                         var suggested = PlatformDefinitions.ResolvePlatformFromPath(g.Path);
-                        if (suggested != null && suggested.Id != g.PlatformId && knownPlatformIds.Contains(suggested.Id))
-                        {
-                            g.PlatformId = suggested.Id;
+                        if (suggested != null && suggested.Id != g.PlatformId && knownPlatformIds.Contains(suggested.Id) && Move(g, suggested.Id))
                             result.PlatformsHealed++;
-                        }
                     }
                 }
 
-                // 4. Container orphans: rows pointing into .psvita / .ps4 etc.
+                // 4. Container orphans: rows pointing into .psvita / .ps4 etc. Only below a library root: a folder above
+                // it that is named like a container is not one, and a row outside every root stays.
                 if (request.PruneContainerOrphans)
                 {
+                    var roots = LibraryPaths.Roots(_configService.LoadMediaSettings());
                     var pathRows = await context.Games
                         .Where(g => g.Path != null && g.Path != "")
                         .ToListAsync();
                     var orphanRows = pathRows
-                        .Where(g => TitleCleanerService.IsContainerOrphanPath(g.Path))
+                        .Where(g => TitleCleanerService.IsContainerOrphanPath(LibraryPaths.BelowRoot(g.Path, roots)))
                         .ToList();
                     if (orphanRows.Count > 0)
                     {
@@ -318,8 +337,13 @@ namespace RetroArr.Api.V3.Settings
                 // and the manual repair button stay in sync.
                 if (request.MergeDuplicates)
                 {
-                    var mergeResult = await DuplicateGameMergeService.MergeAsync(context);
+                    var mergeResult = await _mergeService.MergeAsync(waiting);
                     result.DuplicatesMerged = mergeResult.RowsMerged;
+
+                    // what is left of untagged duplicates can take '' now
+                    using var merged = await _contextFactory.CreateDbContextAsync();
+                    result.RegionsCanonicalised += await CanonicaliseRegionsAsync(merged);
+                    await merged.SaveChangesAsync();
                 }
 
                 return Ok(result);
@@ -328,6 +352,27 @@ namespace RetroArr.Api.V3.Settings
             {
                 return BadRequest(new { error = ex.Message });
             }
+        }
+
+        private static (string, int, string) TitleKey(string title, int platformId, string? region) =>
+            (title.ToUpperInvariant(), platformId, (region ?? string.Empty).ToUpperInvariant());
+
+        // '' where two untagged rows of a title on a platform would collide (unique index; case ignored, as some
+        // databases do)
+        private static async Task<int> CanonicaliseRegionsAsync(RetroArrDbContext context)
+        {
+            var untagged = await context.Games.Where(g => g.Region == null || g.Region == "")
+                .Select(g => new { g.Title, g.PlatformId })
+                .ToListAsync();
+            var twice = untagged.GroupBy(g => (g.Title.ToUpperInvariant(), g.PlatformId))
+                .Where(x => x.Count() > 1)
+                .Select(x => x.Key)
+                .ToHashSet();
+            var rows = (await context.Games.Where(g => g.Region == null).ToListAsync())
+                .Where(g => !twice.Contains((g.Title.ToUpperInvariant(), g.PlatformId)))
+                .ToList();
+            foreach (var g in rows) g.Region = string.Empty;
+            return rows.Count;
         }
 
         [HttpPost("reset/challenge")]

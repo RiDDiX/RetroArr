@@ -7,6 +7,8 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using RetroArr.Core.Configuration;
+using RetroArr.Core.Download;
+using RetroArr.Core.Rename;
 
 namespace RetroArr.Core.Games
 {
@@ -427,6 +429,14 @@ namespace RetroArr.Core.Games
                         if (companionFiles.Count > 0) effectiveType = OperationType.MoveFileSet;
                     }
                 }
+                else if (effectiveType is OperationType.MoveGameFolder or OperationType.RenameGameFolder && Directory.Exists(issue.CurrentPath))
+                {
+                    // A folder another entry lies in too ("snes/Collection") stays: moved, that entry would go missing
+                    var other = library.FirstOrDefault(g => g.Id != issue.GameId
+                        && new[] { g.Path, g.ExecutablePath }.Any(p => !string.IsNullOrEmpty(p) && IsPathWithinRoot(p, issue.CurrentPath)));
+                    if (other != null)
+                        refused = $"Refused: {other.Title} lies in this folder too.";
+                }
 
                 var op = new StructureOperation
                 {
@@ -618,20 +628,16 @@ namespace RetroArr.Core.Games
                 return;
             }
 
-            // Handle conflict
+            // Handle conflict: a target that is there is never replaced
             if (targetExists)
             {
-                if (op.Conflict == ConflictResolution.Skip || op.Conflict == null)
+                if (op.Conflict != ConflictResolution.RenameSuffix)
                 {
                     op.Status = OperationStatus.Skipped;
                     op.ErrorMessage = "Target already exists (conflict skipped).";
                     return;
                 }
-                if (op.Conflict == ConflictResolution.RenameSuffix)
-                {
-                    op.TargetPath = FindAvailablePath(op.TargetPath);
-                }
-                // Overwrite: proceed, target will be replaced
+                op.TargetPath = FindAvailablePath(op.TargetPath);
             }
 
             switch (op.Type)
@@ -741,6 +747,14 @@ namespace RetroArr.Core.Games
             }
         }
 
+        // internal for unit tests: a rename that fails as it does across volumes, a copy or delete that stops halfway
+        internal Action<string, string> RenameDirectory = Directory.Move;
+        internal Action<string, string, bool> CopyDirectory = TrashService.Copy;
+        internal Action<string> DeleteDirectory = path => Directory.Delete(path, recursive: true);
+
+        // A rename, which never replaces a target. Only across volumes it is a copy and a delete, as the trash does it:
+        // links go as links, the copy never goes into a folder that is there, one that fails is taken away again, and
+        // when the delete stops halfway the source gets back what it lost before the copy goes.
         private void MoveDirectory(string source, string target)
         {
             var targetParent = Path.GetDirectoryName(target);
@@ -749,33 +763,38 @@ namespace RetroArr.Core.Games
             // Same volume: instant rename
             try
             {
-                Directory.Move(source, target);
+                RenameDirectory(source, target);
                 _logger.Info($"[Resort] Moved directory: {source} -> {target}");
                 return;
             }
-            catch (IOException)
+            catch (IOException ex) when (TrashService.IsCrossDevice(ex, source, target))
             {
-                // Cross-volume: copy + delete
                 _logger.Info($"[Resort] Cross-volume move (copy+delete): {source} -> {target}");
             }
 
-            // Fallback: recursive copy then delete
-            CopyDirectoryRecursive(source, target);
-            Directory.Delete(source, recursive: true);
-            _logger.Info($"[Resort] Cross-volume move complete: {source} -> {target}");
-        }
+            if (Directory.Exists(target) || File.Exists(target))
+                throw new IOException($"Target already exists: {target}");
+            try
+            {
+                CopyDirectory(source, target, true);
+            }
+            catch
+            {
+                try { DeleteDirectory(target); } catch { }
+                throw;
+            }
 
-        private static void CopyDirectoryRecursive(string source, string target)
-        {
-            Directory.CreateDirectory(target);
-            foreach (var file in Directory.GetFiles(source))
+            try
             {
-                File.Copy(file, Path.Combine(target, Path.GetFileName(file)), overwrite: true);
+                DeleteDirectory(source);
             }
-            foreach (var dir in Directory.GetDirectories(source))
+            catch (Exception ex)
             {
-                CopyDirectoryRecursive(dir, Path.Combine(target, Path.GetFileName(dir)));
+                CopyDirectory(target, source, false);
+                DeleteDirectory(target);
+                throw new IOException($"Could not remove {source} after copying it, it stays where it was: {ex.Message}", ex);
             }
+            _logger.Info($"[Resort] Cross-volume move complete: {source} -> {target}");
         }
 
         // Writes only the path on the row as stored now, so an edit made meanwhile survives
@@ -792,11 +811,10 @@ namespace RetroArr.Core.Games
             });
             if (saved == null) return;
 
-            // GameFiles are relative to the game's folder, or to the folder a single-file game lies in
-            var baseDir = File.Exists(newPath) ? Path.GetDirectoryName(newPath)! : newPath;
+            var folder = GameFilePaths.FilesFolder(newPath);
             foreach (var gf in await _gameRepository.GetGameFilesAsync(gameId))
             {
-                if (!string.IsNullOrEmpty(gf.RelativePath) && !File.Exists(Path.Combine(baseDir, gf.RelativePath)))
+                if (!string.IsNullOrEmpty(gf.RelativePath) && !File.Exists(GameFilePaths.ResolveIn(folder, gf.RelativePath)))
                     _logger.Warn($"[Resort] Warning: GameFile '{gf.RelativePath}' not found at new path for game {gameId}.");
             }
 
@@ -1049,48 +1067,71 @@ namespace RetroArr.Core.Games
 
         // ── SUPPLEMENTARY FILE RENAME ────────────────────────────────────
 
+        private static readonly FileRenamer _renamer = new(new TemplateRenderer());
+
+        // Updates and DLC get the names the import gives them: from the templates where renaming applies, else as it
+        // named them before. What is found by its name keeps it, as on import: program folders, romsets, and files
+        // that come as a set - a pkg with its rap, the files of a folder of their own ("DLC/Expansion", an unpacked update).
         public async Task<List<SupplementaryRenameOp>> PreviewSupplementaryRenameAsync(int gameId)
         {
             var game = await _gameRepository.GetByIdAsync(gameId);
             if (game == null) return new();
 
-            var settings = _configService.LoadMediaSettings();
-            var libraryRoot = ResolveLibraryRoot(settings);
-            if (string.IsNullOrEmpty(libraryRoot)) return new();
-
             var platform = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.Id == game.PlatformId);
-            if (platform == null) return new();
+            if (platform == null || FileRenamer.IsRomsetPlatform(platform) || FileRenamer.IsSoftwarePlatform(platform)) return new();
+            var settings = _configService.LoadMediaSettings();
+            var renaming = FileRenamer.Applies(platform, settings);
 
-            var platformFolder = platform.GetEffectiveFolderName(settings.FolderNamingMode);
-            var platformPath = Path.Combine(libraryRoot, platformFolder);
+            var folder = GameFilePaths.FilesFolder(game.Path);
+            var files = (game.GameFiles ?? new())
+                .Where(gf => gf.FileType != "Main" && !string.IsNullOrEmpty(gf.RelativePath))
+                .Select(gf => (Row: gf, Path: GameFilePaths.ResolveIn(folder, gf.RelativePath) ?? ""))
+                .Where(f => f.Path.Length > 0)
+                .ToList();
+            bool InASet(GameFile gf, string path) =>
+                (!Path.IsPathRooted(gf.RelativePath) && gf.RelativePath.Count(c => c == '/' || c == Path.DirectorySeparatorChar) > 1)
+                || files.Any(o => o.Row != gf && string.Equals(Path.GetDirectoryName(o.Path), Path.GetDirectoryName(path), PathComparison)
+                    && (string.Equals(FileRenamer.Stem(o.Path), FileRenamer.Stem(path), PathComparison)
+                        || (gf.ContentName != null && o.Row.ContentName == gf.ContentName)));
 
             var ops = new List<SupplementaryRenameOp>();
 
-            foreach (var gf in game.GameFiles ?? new())
+            foreach (var (gf, currentFullPath) in files)
             {
-                if (gf.FileType == "Main") continue;
-                if (string.IsNullOrEmpty(gf.RelativePath)) continue;
+                if (InASet(gf, currentFullPath)) continue;
 
-                var currentFileName = Path.GetFileName(gf.RelativePath);
-                var ext = Path.GetExtension(currentFileName);
-                var dir = Path.GetDirectoryName(gf.RelativePath) ?? "";
+                var currentFileName = Path.GetFileName(currentFullPath);
+                var stem = FileRenamer.Stem(currentFileName);
+                var update = gf.FileType == "Patch";
+                var suffix = renaming ? _renamer.GroupSuffix(currentFileName, "", settings) : "";
+                string Name(string? value) => RetroArr.Core.IO.FileNameSanitizer.Sanitize((renaming, update) switch
+                {
+                    (true, true) => _renamer.Render(settings.UpdateFileTemplate, game, platform, currentFileName, "", null, value, null),
+                    (true, false) => _renamer.Render(settings.DlcFileTemplate, game, platform, currentFileName, "", null, null, value),
+                    (false, true) => PostDownloadProcessor.BuildPatchFileName(game.Title, value, ""),
+                    _ => PostDownloadProcessor.BuildDlcFileName(game.Title, value, "")
+                } + suffix, "unknown");
 
-                string expectedFileName;
-                if (gf.FileType == "Patch")
-                {
-                    expectedFileName = BuildSupplementaryFileName(game.Title, "Patch", gf.Version, null, ext);
-                }
-                else
-                {
-                    expectedFileName = BuildSupplementaryFileName(game.Title, "DLC", null, gf.ContentName, ext);
-                }
+                // A name its template made stays, whatever stands in for the version or content name
+                var token = update ? "{Version}" : "{ContentName}";
+                var shape = Name(token).Split(token);
+                if (shape.Length == 2 && stem.Length > shape[0].Length + shape[1].Length
+                    && stem.StartsWith(shape[0], PathComparison) && stem.EndsWith(shape[1], PathComparison))
+                    continue;
+
+                // What the name says, as the import reads a release name, else the row's values. The rows of an
+                // update folder carry no version; an update without one keeps its name rather than lose it.
+                var named = PostDownloadProcessor.DetectContentType(stem, game.Title, platform);
+                var value = update ? named.Version ?? gf.Version : named.ContentName ?? DlcName(gf.ContentName ?? stem, game.Title);
+                if (update && string.IsNullOrEmpty(value)) continue;
+                // The import reads "1.02" out of "v1.02"; the plain name puts its own v in front
+                if (update) value = Regex.Replace(value!, @"^v(?=\d)", "", RegexOptions.IgnoreCase);
+                var expectedFileName = Name(value) + FileRenamer.Extension(currentFileName);
 
                 if (currentFileName.Equals(expectedFileName, PathComparison))
                     continue;
 
-                var currentFullPath = Path.Combine(platformPath, gf.RelativePath.Replace('/', Path.DirectorySeparatorChar));
-                var newRelativePath = string.IsNullOrEmpty(dir) ? expectedFileName : $"{dir}/{expectedFileName}";
-                var newFullPath = Path.Combine(platformPath, newRelativePath.Replace('/', Path.DirectorySeparatorChar));
+                var newFullPath = Path.Combine(Path.GetDirectoryName(currentFullPath)!, expectedFileName);
 
                 ops.Add(new SupplementaryRenameOp
                 {
@@ -1102,12 +1143,27 @@ namespace RetroArr.Core.Games
                     CurrentFileName = currentFileName,
                     NewFileName = expectedFileName,
                     NewPath = newFullPath,
-                    NewRelativePath = newRelativePath,
+                    NewRelativePath = GameFilePaths.StoredPathIn(folder, newFullPath),
                     Conflict = File.Exists(newFullPath) && !currentFullPath.Equals(newFullPath, PathComparison)
                 });
             }
 
             return ops;
+        }
+
+        // A DLC's own name, without the game's title and the DLC marker in front: "Hades - DLC - Soundtrack" is "Soundtrack"
+        private static string? DlcName(string name, string title)
+        {
+            foreach (var t in new[] { title, RetroArr.Core.IO.FileNameSanitizer.Sanitize(title, "") })
+            {
+                if (t.Length > 0 && name.StartsWith(t, StringComparison.OrdinalIgnoreCase))
+                {
+                    name = name.Substring(t.Length);
+                    break;
+                }
+            }
+            name = Regex.Replace(name, @"^[\s._-]*(?:dlc\b[\s._-]*)?", "", RegexOptions.IgnoreCase);
+            return name.Length > 0 ? name : null;
         }
 
         public async Task<SupplementaryRenameResult> ApplySupplementaryRenameAsync(int gameId)
@@ -1141,7 +1197,17 @@ namespace RetroArr.Core.Games
                         continue;
                     }
 
-                    await _gameRepository.UpdateGameFilePathAsync(op.GameFileId, op.NewRelativePath);
+                    // A row that can't follow gets its file back
+                    try
+                    {
+                        if (!await _gameRepository.UpdateGameFilePathAsync(op.GameFileId, op.NewRelativePath))
+                            throw new InvalidOperationException("The file's row is gone.");
+                    }
+                    catch
+                    {
+                        File.Move(op.NewPath, op.CurrentPath);
+                        throw;
+                    }
                     op.Status = "Applied";
                     result.Applied++;
                 }
@@ -1155,30 +1221,6 @@ namespace RetroArr.Core.Games
 
             result.Operations = ops;
             return result;
-        }
-
-        internal static string BuildSupplementaryFileName(string gameTitle, string type, string? version, string? contentName, string extension)
-        {
-            string raw;
-
-            if (type == "Patch")
-            {
-                var versionPart = !string.IsNullOrEmpty(version) ? $"-{version}" : "";
-                raw = $"{gameTitle}-Patch{versionPart}";
-            }
-            else
-            {
-                // For DLC: strip the game title from contentName if it's a prefix
-                var name = contentName;
-                if (!string.IsNullOrEmpty(name) && name.StartsWith(gameTitle, StringComparison.OrdinalIgnoreCase))
-                {
-                    name = name.Substring(gameTitle.Length).TrimStart(' ', '-', '_');
-                }
-                var namePart = !string.IsNullOrEmpty(name) ? $"-{name}" : "";
-                raw = $"{gameTitle}-DLC{namePart}";
-            }
-
-            return RetroArr.Core.IO.FileNameSanitizer.Sanitize(raw, "unknown") + extension;
         }
 
         // ── Platform comparison ─────────────────────────────────────────

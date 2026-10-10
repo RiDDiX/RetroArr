@@ -87,6 +87,50 @@ namespace RetroArr.Core.Test.Games
             Assert.That(title, Is.EqualTo(expected));
         }
 
+        // A number followed by a word starting like a unit is no size
+        [TestCase("Mario Kart 8 Grand Prix", "Mario Kart 8 Grand Prix")]
+        [TestCase("Gran Turismo 4 Greatest Hits", "Gran Turismo 4 Greatest Hits")]
+        [TestCase("FIFA 22 Green Edition", "FIFA 22 Green")]
+        [TestCase("Metal Gear Solid 3 MGS", "Metal Gear Solid 3 MGS")]
+        [TestCase("Advance Wars 2 GBA", "Advance Wars 2 GBA")]
+        [TestCase("Hades.v1.2-GRP", "Hades GRP")]
+        public void CleanGameTitle_NumberBeforeAWord_IsKept(string input, string expected)
+        {
+            var (title, _) = _sut.CleanGameTitle(input);
+            Assert.That(title, Is.EqualTo(expected));
+        }
+
+        // What the game comes with is no part of its title; a "+" between two titles is
+        [TestCase("Mario Kart 8 Deluxe + All DLCs.nsp", "Mario Kart 8 Deluxe")]
+        [TestCase("Mario Kart 8 Deluxe + 2 DLC", "Mario Kart 8 Deluxe")]
+        [TestCase("Zelda Breath of the Wild + Patch 1.6.0", "Zelda Breath of the Wild")]
+        [TestCase("Red Dead Redemption 2 + Bonus Content", "Red Dead Redemption 2")]
+        [TestCase("Die Sims 4 inkl. Patch 1.2", "Die Sims 4")]
+        [TestCase("Halo 3 Patch 1.2 Applied", "Halo 3")]
+        [TestCase("Mario + Rabbids Sparks of Hope + Season Pass", "Mario Rabbids Sparks of Hope")]
+        [TestCase("Mario Kart 8 Deluxe (incl. Update 2.0)", "Mario Kart 8 Deluxe")]
+        [TestCase("The Legend of Zelda Breath of the Wild [Base+Update+DLC].nsz", "The Legend of Zelda Breath of the Wild")]
+        [TestCase("Tony Hawk's Pro Skater 1 + 2", "Tony Hawk's Pro Skater 1 2")]
+        [TestCase("Tony Hawk's Pro Skater 1 + 2 Update v1.02", "Tony Hawk's Pro Skater 1 2")]
+        [TestCase("Hollow Knight - v1.5.78 + 4 DLCs + Bonus OST", "Hollow Knight")]
+        [TestCase("Mario + Rabbids Kingdom Battle", "Mario Rabbids Kingdom Battle")]
+        [TestCase("Mario + Rabbids Kingdom Battle Donkey Kong Adventure DLC", "Mario Rabbids Kingdom Battle Donkey Kong Adventure")]
+        public void CleanGameTitle_BundleTail_IsNoPartOfTheTitle(string input, string expected)
+        {
+            var (title, _) = _sut.CleanGameTitle(input);
+            Assert.That(title, Is.EqualTo(expected));
+        }
+
+        [TestCase("Halo 3 4.7 GB", "Halo 3")]
+        [TestCase("Halo 3 700MB", "Halo 3")]
+        [TestCase("Halo.3.2.90GB", "Halo 3")]
+        [TestCase("Halo 3 512 KB", "Halo 3")]
+        public void CleanGameTitle_SizeTag_IsStripped(string input, string expected)
+        {
+            var (title, _) = _sut.CleanGameTitle(input);
+            Assert.That(title, Is.EqualTo(expected));
+        }
+
         [TestCase("EP9000-CUSA07408_00-GODOFWAR00000000", "God of War")]
         public void CleanGameTitle_PS4ContentId_StripsPrefix(string input, string _)
         {
@@ -396,6 +440,102 @@ namespace RetroArr.Core.Test.Games
         {
             var info = _sut.ClassifySupplementaryContent("Persona_5_Strikers_DLC_NSW-SXS.nsp");
             Assert.That(info.FileType, Is.EqualTo("DLC"));
+        }
+
+        // A dotted scene name has its group after the platform too
+        [TestCase("Game.DLC.Pack.NSW-VENOM", "VENOM")]
+        [TestCase("Super.Mario.Odyssey.NSW-BigBlueBox", "BigBlueBox")]
+        [TestCase("Bloodborne.PS4-DUPLEX", "DUPLEX")]
+        [TestCase("Persona_5_Strikers_DLC_NSW-SXS", "SXS")]
+        [TestCase("Hades-RUNE", "RUNE")]
+        [TestCase("Some.Game.PC", null)]
+        [TestCase("Game.NSW.Edition", null)]
+        public void ExtractReleaseGroup_AfterThePlatformTag(string name, string? expected)
+        {
+            Assert.That(TitleCleanerService.ExtractReleaseGroup(name), Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void Classify_DottedSceneTag_IsNoPartOfTheParentTitle()
+        {
+            var info = _sut.ClassifySupplementaryContent("Pokemon.Sword.DLC.NSW-VENOM.nsp");
+            Assert.That(info.FileType, Is.EqualTo("DLC"));
+            Assert.That(info.CleanParentTitle, Is.EqualTo("Pokemon Sword"));
+        }
+
+        // The version alone: the scene tail after it is no part of it, and a "V01" inside a word is none
+        [TestCase("The.Legend.of.Zelda.Tears.of.the.Kingdom.Update.v1.2.1.NSW-VENOM.nsp", "v1.2.1")]
+        [TestCase("Cyberpunk.2077.Update.v2.13-RUNE.zip", "v2.13")]
+        [TestCase("Starfield.v1.7.23.0.Hotfix-RUNE.zip", "v1.7.23.0")]
+        [TestCase("Sonic The Hedgehog (W) (REV01) [!].bin", null)]
+        [TestCase("Game Update v05g.pkg", "v05g")]
+        [TestCase("Resident_Evil_2_Update_v1.02.pkg", "v1.02")]
+        public void Classify_Version_IsTheVersionAlone(string name, string? version)
+        {
+            Assert.That(_sut.ClassifySupplementaryContent(name).Version, Is.EqualTo(version));
+        }
+
+        // Read by the import's rule: what the game comes with is no update or DLC of it, a DLC that comes with its update is the DLC
+        [TestCase("Cyberpunk 2077 Update v2.12 incl DLC-RUNE", "Patch")]
+        [TestCase("The Witcher 3 Wild Hunt Complete Edition v4.04 + All DLCs [DODI Repack]", "Main")]
+        [TestCase("Red Dead Redemption 2 Ultimate Edition v1491.50 + Bonus Content [FitGirl Repack]", "Main")]
+        [TestCase("Super Mario Odyssey (Base+Update 1.3.0).xci", "Main")]
+        [TestCase("Game v1.2 Update applied", "Main")]
+        [TestCase("Monster Hunter Rise Sunbreak DLC incl. Update", "DLC")]
+        [TestCase("Game Update v1.2", "Patch")]
+        [TestCase("Game Season Pass", "DLC")]
+        public void Classify_WhatTheGameComesWith_IsNoUpdateOrDlc(string name, string type)
+        {
+            Assert.That(_sut.ClassifySupplementaryContent(name).FileType, Is.EqualTo(type));
+        }
+
+        // Only a "+" or incl right before the marker makes a bundle, a "+" in the title doesn't; both readers agree
+        [TestCase("Super Mario 3D World + Bowser's Fury Update v1.1.0.nsp", "Patch")]
+        [TestCase("Mario + Rabbids Kingdom Battle - Donkey Kong Adventure DLC.nsp", "DLC")]
+        [TestCase("Doom + Doom II Update 1.1.pkg", "Patch")]
+        [TestCase("Mario + Rabbids Donkey Kong Adventure DLC Update Applied", "DLC")]
+        [TestCase("Tony Hawk's Pro Skater 1 + 2 Update v1.02.pkg", "Patch")]
+        [TestCase("Bayonetta 1 + 2 DLC.nsp", "DLC")]
+        [TestCase("Zelda TotK [NSP] + Update 1.2.1", "Main")]
+        [TestCase("Cyberpunk 2077 v2.1 + All DLCs + Bonus Content", "Main")]
+        [TestCase("Hollow Knight - v1.5.78 + 4 DLCs + Bonus OST", "Main")]
+        public void Classify_PlusInTheTitle_IsNoBundle(string name, string type)
+        {
+            Assert.That(_sut.ClassifySupplementaryContent(name).FileType, Is.EqualTo(type));
+            Assert.That(RetroArr.Core.Download.PostDownloadProcessor.DetectContentType(name).Type.ToString().Replace("MainGame", "Main"), Is.EqualTo(type));
+        }
+
+        // A keyword inside another word is no marker, and the import reads the name the same way
+        [TestCase("Crucifix DLC Pack.nsp", "DLC")]
+        [TestCase("Zelda DLC Updated Costumes.nsp", "DLC")]
+        [TestCase("Day One Garrys Incident DLC.pkg", "DLC")]
+        [TestCase("DYNASTY WARRIORS ORIGINS (CRACK FIXED)", "Main")]
+        public void Classify_KeywordInsideAWord_IsNoMarker(string name, string type)
+        {
+            Assert.That(_sut.ClassifySupplementaryContent(name).FileType, Is.EqualTo(type));
+            Assert.That(RetroArr.Core.Download.PostDownloadProcessor.DetectContentType(name).Type.ToString().Replace("MainGame", "Main"), Is.EqualTo(type));
+        }
+
+        // The plural is the keyword still
+        [TestCase("Game All DLCs", "DLC")]
+        [TestCase("Game Updates", "Patch")]
+        [TestCase("Game Firmware 17.0.1.pkg", "Patch")]
+        public void Classify_PluralOrWholeKeyword_IsAMarker(string name, string type)
+        {
+            Assert.That(_sut.ClassifySupplementaryContent(name).FileType, Is.EqualTo(type));
+        }
+
+        // A folder keeps all of its name, only a file's extension goes: "Update v1.2.0" is no "Update v1.2" of type ".0"
+        [TestCase("Update v1.2.0", "v1.2.0", "Update v1.2.0")]
+        [TestCase("Hades v1.38290-GOG", "v1.38290", "Hades v1.38290-GOG")]
+        [TestCase("Elden.Ring.Update.v1.03.2-CODEX", "v1.03.2", "Elden.Ring.Update.v1.03.2-CODEX")]
+        [TestCase("Updates/Update v1.2.0", "v1.2.0", "Update v1.2.0")]
+        [TestCase("Game Update v1.2.0.nsp", "v1.2.0", "Game Update v1.2.0")]
+        [TestCase("Game Update v1.2.0.tar.gz", "v1.2.0", "Game Update v1.2.0")]
+        public void Classify_FolderKeepsItsWholeName(string name, string version, string contentName)
+        {
+            var info = _sut.ClassifySupplementaryContent(name);
+            Assert.That((info.Version, info.ContentName), Is.EqualTo((version, contentName)));
         }
 
         // --- Space-delimited version normalization ---

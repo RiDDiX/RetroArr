@@ -132,6 +132,11 @@ export function getErrorMessage(error: unknown, fallback = 'Request failed'): st
   return fallback;
 }
 
+// 409: the server is busy with the same kind of job (e.g. a scan is already running)
+export function isConflict(error: unknown): boolean {
+  return axios.isAxiosError(error) && error.response?.status === 409;
+}
+
 export function isTimeoutError(error: unknown): boolean {
   if (axios.isAxiosError(error)) {
     return error.code === 'ECONNABORTED' || (error.message?.includes('timeout') ?? false);
@@ -140,6 +145,9 @@ export function isTimeoutError(error: unknown): boolean {
 }
 
 // ===== Type Definitions =====
+
+// GET /game/paged sends the status by name, the full Game by its enum number
+export type GameStatus = 'TBA' | 'Announced' | 'Released' | 'Downloading' | 'Downloaded' | 'Missing' | 'InstallerDetected';
 
 export interface Game {
   id: number;
@@ -159,7 +167,7 @@ export interface Game {
   releaseDate?: string;
   rating?: number;
   ratingCount?: number;
-  status: string;
+  status: number;
   monitored: boolean;
   path?: string;
   sizeOnDisk?: number;
@@ -564,7 +572,7 @@ export interface GameListDto {
   platformId: number;
   platformName?: string;
   platformSlug?: string;
-  status: string;
+  status: GameStatus;
   steamId?: number;
   path?: string;
   region?: string;

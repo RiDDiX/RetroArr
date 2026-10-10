@@ -17,12 +17,14 @@ namespace RetroArr.Api.V3.Metadata
         private readonly IGameRepository _gameRepository;
         private readonly IGameMetadataServiceFactory _metadataServiceFactory;
         private readonly LocalMediaExportService _localMediaExport;
+        private readonly DuplicateGameMergeService _mergeService;
 
-        public MetadataReviewController(IGameRepository gameRepository, IGameMetadataServiceFactory metadataServiceFactory, LocalMediaExportService localMediaExport)
+        public MetadataReviewController(IGameRepository gameRepository, IGameMetadataServiceFactory metadataServiceFactory, LocalMediaExportService localMediaExport, DuplicateGameMergeService mergeService)
         {
             _gameRepository = gameRepository;
             _metadataServiceFactory = metadataServiceFactory;
             _localMediaExport = localMediaExport;
+            _mergeService = mergeService;
         }
 
         [HttpGet]
@@ -158,55 +160,58 @@ namespace RetroArr.Api.V3.Metadata
             var game = await _gameRepository.GetByIdAsync(gameId);
             if (game == null) return NotFound();
 
+            // Applied to the stored row as well, so what someone changed since the read stays
+            Action<Game> apply;
             if (request.Source == "ScreenScraper" && request.ScreenScraperData != null)
             {
                 var ss = request.ScreenScraperData;
-                if (!string.IsNullOrEmpty(ss.Title)) game.Title = ss.Title;
-                if (!string.IsNullOrEmpty(ss.Overview)) game.Overview = ss.Overview;
-                if (ss.Year > 0) game.Year = ss.Year;
-                if (!string.IsNullOrEmpty(ss.Developer)) game.Developer = ss.Developer;
-                if (!string.IsNullOrEmpty(ss.Publisher)) game.Publisher = ss.Publisher;
-                if (ss.Rating.HasValue) game.Rating = ss.Rating;
-                if (ss.Genres != null && ss.Genres.Count > 0) game.Genres = ss.Genres;
-                if (!string.IsNullOrEmpty(ss.CoverUrl)) game.Images.CoverUrl = ss.CoverUrl;
-                if (!string.IsNullOrEmpty(ss.CoverLargeUrl)) game.Images.CoverLargeUrl = ss.CoverLargeUrl;
-                if (!string.IsNullOrEmpty(ss.BackgroundUrl)) game.Images.BackgroundUrl = ss.BackgroundUrl;
-                if (!string.IsNullOrEmpty(ss.BannerUrl)) game.Images.BannerUrl = ss.BannerUrl;
-                if (ss.Screenshots != null && ss.Screenshots.Count > 0) game.Images.Screenshots = ss.Screenshots;
-                game.MetadataSource = "ScreenScraper";
+                apply = g =>
+                {
+                    if (!string.IsNullOrEmpty(ss.Title)) g.Title = ss.Title;
+                    if (!string.IsNullOrEmpty(ss.Overview)) g.Overview = ss.Overview;
+                    if (ss.Year > 0) g.Year = ss.Year;
+                    if (!string.IsNullOrEmpty(ss.Developer)) g.Developer = ss.Developer;
+                    if (!string.IsNullOrEmpty(ss.Publisher)) g.Publisher = ss.Publisher;
+                    if (ss.Rating.HasValue) g.Rating = ss.Rating;
+                    if (ss.Genres != null && ss.Genres.Count > 0) g.Genres = ss.Genres;
+                    if (!string.IsNullOrEmpty(ss.CoverUrl)) g.Images.CoverUrl = ss.CoverUrl;
+                    if (!string.IsNullOrEmpty(ss.CoverLargeUrl)) g.Images.CoverLargeUrl = ss.CoverLargeUrl;
+                    if (!string.IsNullOrEmpty(ss.BackgroundUrl)) g.Images.BackgroundUrl = ss.BackgroundUrl;
+                    if (!string.IsNullOrEmpty(ss.BannerUrl)) g.Images.BannerUrl = ss.BannerUrl;
+                    if (ss.Screenshots != null && ss.Screenshots.Count > 0) g.Images.Screenshots = ss.Screenshots;
+                    g.MetadataSource = "ScreenScraper";
+                };
             }
             else
             {
                 var metadataService = _metadataServiceFactory.CreateService();
                 var fullMetadata = await metadataService.GetGameMetadataAsync(request.IgdbId);
 
-                if (fullMetadata != null)
+                apply = g =>
                 {
-                    game.IgdbId = fullMetadata.IgdbId;
-                    game.Title = fullMetadata.Title;
-                    game.Overview = fullMetadata.Overview;
-                    game.Storyline = fullMetadata.Storyline;
-                    game.Developer = fullMetadata.Developer;
-                    game.Publisher = fullMetadata.Publisher;
-                    game.Rating = fullMetadata.Rating;
-                    game.RatingCount = fullMetadata.RatingCount;
-                    game.Year = fullMetadata.Year;
-                    game.ReleaseDate = fullMetadata.ReleaseDate;
-                    game.Genres = fullMetadata.Genres;
-                    game.Images = fullMetadata.Images;
-                }
-                else
-                {
-                    game.IgdbId = request.IgdbId;
-                }
-                game.MetadataSource = "IGDB";
+                    if (fullMetadata != null)
+                    {
+                        g.IgdbId = fullMetadata.IgdbId;
+                        g.Title = fullMetadata.Title;
+                        g.Overview = fullMetadata.Overview;
+                        g.Storyline = fullMetadata.Storyline;
+                        g.Developer = fullMetadata.Developer;
+                        g.Publisher = fullMetadata.Publisher;
+                        g.Rating = fullMetadata.Rating;
+                        g.RatingCount = fullMetadata.RatingCount;
+                        g.Year = fullMetadata.Year;
+                        g.ReleaseDate = fullMetadata.ReleaseDate;
+                        g.Genres = fullMetadata.Genres;
+                        g.Images = fullMetadata.Images;
+                    }
+                    else
+                    {
+                        g.IgdbId = request.IgdbId;
+                    }
+                    g.MetadataSource = "IGDB";
+                };
             }
-
-            game.MetadataConfirmedByUser = true;
-            game.MetadataConfirmedAt = DateTime.UtcNow;
-            game.NeedsMetadataReview = false;
-            game.MetadataReviewReason = null;
-            game.MatchConfidence = request.Score;
+            apply(game);
 
             // Guard: if the title changed, check for Title+PlatformId+Region collision. Another region of the
             // title is a release of its own.
@@ -221,72 +226,80 @@ namespace RetroArr.Api.V3.Metadata
             var holder = game.IgdbId > 0
                 ? allGames.FirstOrDefault(g => g.Id != gameId && g.Id != collision?.Id && g.PlatformId == game.PlatformId && g.IgdbId == game.IgdbId)
                 : null;
+            string? reason = null;
             if (holder != null)
             {
-                game.MetadataReviewReason = $"IGDB id {game.IgdbId} stays with entry {holder.Id} ('{holder.Title}'{(string.IsNullOrWhiteSpace(holder.Region) ? "" : $", {holder.Region}")}), one per platform";
-                _logger.Info($"[MetadataReview] Game {gameId} is confirmed without its IGDB id: {game.MetadataReviewReason}");
+                reason = $"IGDB id {game.IgdbId} stays with entry {holder.Id} ('{holder.Title}'{(string.IsNullOrWhiteSpace(holder.Region) ? "" : $", {holder.Region}")}), one per platform";
+                _logger.Info($"[MetadataReview] Game {gameId} is confirmed without its IGDB id: {reason}");
                 game.IgdbId = null;
+            }
+
+            void Confirm(Game g)
+            {
+                g.MetadataConfirmedByUser = true;
+                g.MetadataConfirmedAt = DateTime.UtcNow;
+                g.NeedsMetadataReview = false;
+                g.MetadataReviewReason = reason;
+                g.MatchConfidence = request.Score;
             }
 
             if (collision != null)
             {
                 _logger.Info($"[MetadataReview] Merging game {gameId} into existing {collision.Id} ('{collision.Title}' on platform {collision.PlatformId})");
 
-                // Transfer path/executable from reviewed game to the existing entry
-                if (!string.IsNullOrEmpty(game.Path) && string.IsNullOrEmpty(collision.Path))
-                    collision.Path = game.Path;
-                if (!string.IsNullOrEmpty(game.ExecutablePath) && string.IsNullOrEmpty(collision.ExecutablePath))
-                    collision.ExecutablePath = game.ExecutablePath;
+                // What hangs off the reviewed entry moves over, and the existing entry keeps a path whose content may
+                // still be there or takes the reviewed entry's
+                var survivor = await _mergeService.MergeIntoAsync(_gameRepository, game, collision.Id, allGames, c =>
+                {
+                    // Apply confirmed metadata to the surviving entry
+                    if (game.IgdbId.HasValue) c.IgdbId = game.IgdbId;
+                    c.Overview = game.Overview;
+                    c.Storyline = game.Storyline;
+                    c.Developer = game.Developer;
+                    c.Publisher = game.Publisher;
+                    c.Rating = game.Rating;
+                    c.RatingCount = game.RatingCount;
+                    c.Year = game.Year;
+                    c.ReleaseDate = game.ReleaseDate;
+                    c.Genres = game.Genres;
+                    c.Images = game.Images;
+                    c.MetadataSource = game.MetadataSource;
+                    Confirm(c);
+                });
+                if (survivor == null) return NotFound();
 
-                // Apply confirmed metadata to the surviving entry
-                if (game.IgdbId.HasValue) collision.IgdbId = game.IgdbId;
-                collision.Overview = game.Overview;
-                collision.Storyline = game.Storyline;
-                collision.Developer = game.Developer;
-                collision.Publisher = game.Publisher;
-                collision.Rating = game.Rating;
-                collision.RatingCount = game.RatingCount;
-                collision.Year = game.Year;
-                collision.ReleaseDate = game.ReleaseDate;
-                collision.Genres = game.Genres;
-                collision.Images = game.Images;
-                collision.MetadataSource = game.MetadataSource;
-                collision.MetadataConfirmedByUser = true;
-                collision.MetadataConfirmedAt = DateTime.UtcNow;
-                collision.NeedsMetadataReview = false;
-                collision.MetadataReviewReason = game.MetadataReviewReason;
-                collision.MatchConfidence = request.Score;
-
-                await _gameRepository.UpdateAsync(collision.Id, collision);
-                await _gameRepository.DeleteAsync(gameId);
-
-                try { await _localMediaExport.ExportMediaForGameAsync(collision); }
+                try { await _localMediaExport.ExportMediaForGameAsync(survivor); }
                 catch (Exception ex) { _logger.Error($"[MetadataReview] Media export error: {ex.Message}"); }
 
-                return Ok(new { success = true, title = collision.Title, merged = true, survivorId = collision.Id });
+                return Ok(new { success = true, title = survivor.Title, merged = true, survivorId = survivor.Id });
             }
 
-            await _gameRepository.UpdateAsync(gameId, game);
+            var saved = await _gameRepository.UpdateFieldsAsync(gameId, g =>
+            {
+                apply(g);
+                if (holder != null) g.IgdbId = null;
+                Confirm(g);
+            });
+            if (saved == null) return NotFound();
 
-            try { await _localMediaExport.ExportMediaForGameAsync(game); }
+            try { await _localMediaExport.ExportMediaForGameAsync(saved); }
             catch (Exception ex) { _logger.Error($"[MetadataReview] Media export error: {ex.Message}"); }
 
-            return Ok(new { success = true, title = game.Title, igdbIdKeptOn = holder?.Id, message = holder != null ? game.MetadataReviewReason : null });
+            return Ok(new { success = true, title = saved.Title, igdbIdKeptOn = holder?.Id, message = reason });
         }
 
         // stops re-prompting for a configurable period
         [HttpPost("{gameId}/skip")]
         public async Task<ActionResult> SkipReview(int gameId)
         {
-            var game = await _gameRepository.GetByIdAsync(gameId);
-            if (game == null) return NotFound();
-
-            game.MetadataConfirmedByUser = true;
-            game.MetadataConfirmedAt = DateTime.UtcNow;
-            game.NeedsMetadataReview = false;
-            game.MetadataReviewReason = "Skipped by user";
-
-            await _gameRepository.UpdateAsync(gameId, game);
+            var saved = await _gameRepository.UpdateFieldsAsync(gameId, g =>
+            {
+                g.MetadataConfirmedByUser = true;
+                g.MetadataConfirmedAt = DateTime.UtcNow;
+                g.NeedsMetadataReview = false;
+                g.MetadataReviewReason = "Skipped by user";
+            });
+            if (saved == null) return NotFound();
 
             return Ok(new { success = true });
         }
@@ -295,15 +308,14 @@ namespace RetroArr.Api.V3.Metadata
         [HttpPost("{gameId}/dismiss")]
         public async Task<ActionResult> DismissReview(int gameId)
         {
-            var game = await _gameRepository.GetByIdAsync(gameId);
-            if (game == null) return NotFound();
-
-            game.MetadataConfirmedByUser = true;
-            game.MetadataConfirmedAt = DateTime.UtcNow;
-            game.NeedsMetadataReview = false;
-            game.MetadataReviewReason = null;
-
-            await _gameRepository.UpdateAsync(gameId, game);
+            var saved = await _gameRepository.UpdateFieldsAsync(gameId, g =>
+            {
+                g.MetadataConfirmedByUser = true;
+                g.MetadataConfirmedAt = DateTime.UtcNow;
+                g.NeedsMetadataReview = false;
+                g.MetadataReviewReason = null;
+            });
+            if (saved == null) return NotFound();
 
             return Ok(new { success = true });
         }
