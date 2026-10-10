@@ -1,3 +1,8 @@
+## v1.0.224 (2026-10-10)
+
+### Changes
+- run as PUID/PGID and fix config folder ownership on start (a91e1cc)
+
 ## v1.0.223 (2026-09-30)
 
 ### Changes
