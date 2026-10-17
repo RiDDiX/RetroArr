@@ -815,6 +815,10 @@ namespace RetroArr.Api.V3.DownloadClients
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 25)
         {
+            // as GameController.GetPaged; page 0 gave a negative OFFSET
+            if (page < 1) page = 1;
+            if (pageSize < 1) pageSize = 25;
+            if (pageSize > 1000) pageSize = 1000;
             var (items, totalCount) = await _historyRepo.SearchAsync(
                 query, platform, state, fromDate, toDate, sortBy, sortDescending, page, pageSize);
 

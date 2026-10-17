@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
 using RetroArr.Core.Configuration;
 using RetroArr.Core.Games;
 
@@ -13,15 +15,16 @@ namespace RetroArr.Core.Data
         private static readonly (string Name, string SqliteType, string PgType, string MariaType)[] GamesColumns = new[]
         {
             ("ExecutablePath",          "TEXT",                           "TEXT",                            "TEXT"),
-            ("IsExternal",              "INTEGER DEFAULT 0",             "INTEGER DEFAULT 0",               "INT DEFAULT 0"),
+            ("IsExternal",              "INTEGER DEFAULT 0",             "BOOLEAN NOT NULL DEFAULT FALSE",  "INT DEFAULT 0"),
             ("Images_CoverUrl",         "TEXT",                          "TEXT",                            "TEXT"),
             ("Images_CoverLargeUrl",    "TEXT",                          "TEXT",                            "TEXT"),
             ("Images_BackgroundUrl",    "TEXT",                          "TEXT",                            "TEXT"),
             ("Images_BannerUrl",        "TEXT",                          "TEXT",                            "TEXT"),
-            ("Images_Screenshots",      "TEXT",                          "TEXT",                            "LONGTEXT"),
-            ("Images_Artworks",         "TEXT",                          "TEXT",                            "LONGTEXT"),
-            ("Genres",                  "TEXT",                          "TEXT",                            "LONGTEXT"),
-            ("IsInstallable",           "INTEGER NOT NULL DEFAULT 0",    "INTEGER NOT NULL DEFAULT 0",      "INT NOT NULL DEFAULT 0"),
+            // JSON lists EF reads as NOT NULL; MySQL takes a TEXT default only as an expression
+            ("Images_Screenshots",      "TEXT NOT NULL DEFAULT '[]'",    "TEXT NOT NULL DEFAULT '[]'",      "LONGTEXT NOT NULL DEFAULT ('[]')"),
+            ("Images_Artworks",         "TEXT NOT NULL DEFAULT '[]'",    "TEXT NOT NULL DEFAULT '[]'",      "LONGTEXT NOT NULL DEFAULT ('[]')"),
+            ("Genres",                  "TEXT NOT NULL DEFAULT '[]'",    "TEXT NOT NULL DEFAULT '[]'",      "LONGTEXT NOT NULL DEFAULT ('[]')"),
+            ("IsInstallable",           "INTEGER NOT NULL DEFAULT 0",    "BOOLEAN NOT NULL DEFAULT FALSE",  "INT NOT NULL DEFAULT 0"),
             ("InstallPath",             "TEXT",                          "TEXT",                            "TEXT"),
             ("IgdbId",                  "INTEGER",                       "INTEGER",                         "INT"),
             ("SteamId",                 "INTEGER",                       "INTEGER",                         "INT"),
@@ -29,9 +32,9 @@ namespace RetroArr.Core.Data
             ("EpicId",                  "TEXT",                          "TEXT",                            "VARCHAR(255)"),
             ("PreferredRunner",         "TEXT",                          "TEXT",                            "VARCHAR(255)"),
             ("MatchConfidence",         "REAL",                          "DOUBLE PRECISION",                "DOUBLE"),
-            ("MetadataConfirmedByUser", "INTEGER NOT NULL DEFAULT 0",    "INTEGER NOT NULL DEFAULT 0",      "INT NOT NULL DEFAULT 0"),
-            ("MetadataConfirmedAt",     "TEXT",                          "TEXT",                            "TEXT"),
-            ("NeedsMetadataReview",     "INTEGER NOT NULL DEFAULT 0",    "INTEGER NOT NULL DEFAULT 0",      "INT NOT NULL DEFAULT 0"),
+            ("MetadataConfirmedByUser", "INTEGER NOT NULL DEFAULT 0",    "BOOLEAN NOT NULL DEFAULT FALSE",  "INT NOT NULL DEFAULT 0"),
+            ("MetadataConfirmedAt",     "TEXT",                          "TIMESTAMPTZ",                     "TEXT"),
+            ("NeedsMetadataReview",     "INTEGER NOT NULL DEFAULT 0",    "BOOLEAN NOT NULL DEFAULT FALSE",  "INT NOT NULL DEFAULT 0"),
             ("MetadataReviewReason",    "TEXT",                          "TEXT",                            "TEXT"),
             ("Region",                  "TEXT",                          "TEXT",                            "VARCHAR(255)"),
             ("Languages",               "TEXT",                          "TEXT",                            "TEXT"),
@@ -40,7 +43,7 @@ namespace RetroArr.Core.Data
             ("Images_VideoUrl",         "TEXT",                          "TEXT",                            "TEXT"),
             ("MetadataSource",          "TEXT",                          "TEXT",                            "VARCHAR(255)"),
             ("ProtonDbTier",            "TEXT",                          "TEXT",                            "VARCHAR(50)"),
-            ("MissingSince",            "TEXT",                          "TIMESTAMP",                       "DATETIME"),
+            ("MissingSince",            "TEXT",                          "TIMESTAMPTZ",                     "DATETIME(6)"),
             ("PreferredReleaseGroup",   "TEXT",                          "TEXT",                            "VARCHAR(100)")
         };
 
@@ -51,8 +54,27 @@ namespace RetroArr.Core.Data
             ("ContentName", "TEXT", "TEXT", "VARCHAR(500)"),
             ("TitleId",     "TEXT", "TEXT", "VARCHAR(255)"),
             ("Serial",      "TEXT", "TEXT", "VARCHAR(255)"),
-            ("LastAutoRenameAt", "TEXT", "TIMESTAMP", "DATETIME")
+            ("LastAutoRenameAt", "TEXT", "TIMESTAMPTZ", "DATETIME(6)")
         };
+
+        // EnsureCreated does nothing once the database holds any table, also another
+        // app's, so a shared database would be left without RetroArr's tables.
+        public static void EnsureSchema(RetroArrDbContext context)
+        {
+            if (context.Database.EnsureCreated()) return;
+
+            context.Database.OpenConnection();
+            try
+            {
+                var dbType = DatabaseServiceExtensions.RunningType(context);
+                if (GetExistingColumns(context.Database.GetDbConnection(), "Games", dbType).Count > 0) return;
+            }
+            finally
+            {
+                context.Database.CloseConnection();
+            }
+            context.GetService<IRelationalDatabaseCreator>().CreateTables();
+        }
 
         public static void ApplyMigrations(RetroArrDbContext context, DatabaseType dbType = DatabaseType.SQLite)
         {
@@ -69,9 +91,11 @@ namespace RetroArr.Core.Data
                 EnsureDiscoveryTablesSafe(connection, dbType);
                 EnsureWishlistTablesSafe(connection, dbType);
                 EnsureIndexesSafe(connection, dbType);
+                EnsureColumnShapesSafe(connection, dbType);
                 EnsurePlatformsSafe(connection, dbType);
                 RescueOrphanPlatformRefs(connection, dbType);
                 CanonicalizeNullRegions(connection, dbType);
+                BackfillGamesSafe(connection, dbType);
 
                 connection.Close();
                 _logger.Info($"[Database] schema migrations applied ({dbType}).");
@@ -102,7 +126,8 @@ namespace RetroArr.Core.Data
                     break;
 
                 case DatabaseType.PostgreSQL:
-                    cmd.CommandText = $"SELECT column_name FROM information_schema.columns WHERE table_name = '{tableName.ToLower()}';";
+                    // EF creates quoted, case-kept names ("Games")
+                    cmd.CommandText = $"SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = '{tableName}';";
                     using (var reader = cmd.ExecuteReader())
                     {
                         while (reader.Read())
@@ -319,7 +344,7 @@ namespace RetroArr.Core.Data
                 {
                     DatabaseType.PostgreSQL => @"
                         CREATE TABLE IF NOT EXISTS ""WishlistPriceWatches"" (
-                            ""Id"" SERIAL PRIMARY KEY,
+                            ""Id"" INTEGER GENERATED BY DEFAULT AS IDENTITY,
                             ""GameId"" INTEGER NOT NULL,
                             ""Provider"" VARCHAR(20) NOT NULL DEFAULT 'steam',
                             ""ExternalId"" VARCHAR(64) NOT NULL,
@@ -330,10 +355,11 @@ namespace RetroArr.Core.Data
                             ""NotifyOnAnyDrop"" BOOLEAN NOT NULL DEFAULT TRUE,
                             ""IsOnSale"" BOOLEAN NOT NULL DEFAULT FALSE,
                             ""DiscountPercent"" INTEGER,
-                            ""LastCheckedAt"" TIMESTAMP,
-                            ""LastChangedAt"" TIMESTAMP,
-                            ""CreatedAt"" TIMESTAMP NOT NULL DEFAULT NOW(),
-                            CONSTRAINT FK_WishlistPriceWatches_Games_GameId FOREIGN KEY (""GameId"") REFERENCES ""Games"" (""Id"") ON DELETE CASCADE
+                            ""LastCheckedAt"" TIMESTAMPTZ,
+                            ""LastChangedAt"" TIMESTAMPTZ,
+                            ""CreatedAt"" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            CONSTRAINT ""PK_WishlistPriceWatches"" PRIMARY KEY (""Id""),
+                            CONSTRAINT ""FK_WishlistPriceWatches_Games_GameId"" FOREIGN KEY (""GameId"") REFERENCES ""Games"" (""Id"") ON DELETE CASCADE
                         );
                         CREATE UNIQUE INDEX IF NOT EXISTS ""IX_WishlistPriceWatches_GameId_Provider"" ON ""WishlistPriceWatches"" (""GameId"", ""Provider"");
                         CREATE INDEX IF NOT EXISTS ""IX_WishlistPriceWatches_Provider"" ON ""WishlistPriceWatches"" (""Provider"");",
@@ -350,9 +376,9 @@ namespace RetroArr.Core.Data
                             NotifyOnAnyDrop TINYINT(1) NOT NULL DEFAULT 1,
                             IsOnSale TINYINT(1) NOT NULL DEFAULT 0,
                             DiscountPercent INT,
-                            LastCheckedAt DATETIME,
-                            LastChangedAt DATETIME,
-                            CreatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                            LastCheckedAt DATETIME(6),
+                            LastChangedAt DATETIME(6),
+                            CreatedAt DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
                             UNIQUE KEY IX_WishlistPriceWatches_GameId_Provider (GameId, Provider),
                             INDEX IX_WishlistPriceWatches_Provider (Provider),
                             CONSTRAINT FK_WishlistPriceWatches_Games_GameId FOREIGN KEY (GameId) REFERENCES Games(Id) ON DELETE CASCADE
@@ -413,6 +439,62 @@ namespace RetroArr.Core.Data
             }
         }
 
+        // Column changes EnsureCreated never makes on an existing table: Collections.Color
+        // was varchar(7) but holds 'var(--ctp-mauve)', and on MariaDB see the IsMySql block in
+        // RetroArrDbContext. SQLite enforces neither length nor collation.
+        private static void EnsureColumnShapesSafe(DbConnection connection, DatabaseType dbType)
+        {
+            if (dbType == DatabaseType.SQLite) return;
+            var pg = dbType == DatabaseType.PostgreSQL;
+            var changes = pg
+                ? new (string Table, string Column, int Length, string? Collation, string Sql)[]
+                {
+                    ("Collections", "Color", 32, null, @"ALTER TABLE ""Collections"" ALTER COLUMN ""Color"" TYPE character varying(32)")
+                }
+                : new (string Table, string Column, int Length, string? Collation, string Sql)[]
+                {
+                    ("Collections", "Color", 32, null, "ALTER TABLE Collections MODIFY Color varchar(32) CHARACTER SET utf8mb4 NULL"),
+                    ("Games", "Path", 768, "utf8mb4_bin", "ALTER TABLE Games MODIFY Path varchar(768) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL"),
+                    ("Games", "Title", 255, "utf8mb4_bin", "ALTER TABLE Games MODIFY Title varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL"),
+                    ("Games", "Region", 255, "utf8mb4_bin", "ALTER TABLE Games MODIFY Region varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL"),
+                    ("DiscoveredGames", "Path", 768, "utf8mb4_bin", "ALTER TABLE DiscoveredGames MODIFY Path varchar(768) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL"),
+                    ("Tags", "Name", 50, "utf8mb4_bin", "ALTER TABLE Tags MODIFY Name varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL")
+                };
+
+            foreach (var change in changes)
+            {
+                try
+                {
+                    using (var cmd = connection.CreateCommand())
+                    {
+                        cmd.CommandText = pg
+                            ? "SELECT character_maximum_length, collation_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = @t AND column_name = @c"
+                            : "SELECT CHARACTER_MAXIMUM_LENGTH, COLLATION_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = @t AND COLUMN_NAME = @c";
+                        AddParam(cmd, "@t", change.Table);
+                        AddParam(cmd, "@c", change.Column);
+                        using var reader = cmd.ExecuteReader();
+                        if (!reader.Read()) continue;
+                        var length = reader.IsDBNull(0) ? (long?)null : Convert.ToInt64(reader[0]);
+                        var collation = reader.IsDBNull(1) ? null : reader.GetString(1);
+                        // never narrows a column; done when length and collation are there
+                        if (length == null || length > change.Length) continue;
+                        if (length == change.Length && (change.Collation == null || collation == change.Collation)) continue;
+                    }
+
+                    using (var alter = connection.CreateCommand())
+                    {
+                        alter.CommandText = change.Sql;
+                        alter.ExecuteNonQuery();
+                    }
+                    _logger.Info($"[Database] Changed column: {change.Table}.{change.Column}");
+                }
+                catch (Exception ex)
+                {
+                    _logger.Info($"[Database] Column change '{change.Table}.{change.Column}' skipped: {ex.Message}");
+                }
+            }
+        }
+
         private static void EnsurePlatformsSafe(DbConnection connection, DatabaseType dbType)
         {
             foreach (var platform in PlatformDefinitions.AllPlatforms)
@@ -440,7 +522,8 @@ namespace RetroArr.Core.Data
                     AddParam(cmd, $"{prefix}slug", platform.Slug);
                     AddParam(cmd, $"{prefix}folder", platform.FolderName);
                     AddParam(cmd, $"{prefix}type", (int)platform.Type);
-                    AddParam(cmd, $"{prefix}enabled", platform.Enabled ? 1 : 0);
+                    // a bool: PostgreSQL refuses an integer for a boolean column
+                    AddParam(cmd, $"{prefix}enabled", platform.Enabled);
                     AddParam(cmd, $"{prefix}cat", (object?)platform.Category ?? DBNull.Value);
                     AddParam(cmd, $"{prefix}igdb", (object?)platform.IgdbPlatformId ?? DBNull.Value);
                     AddParam(cmd, $"{prefix}ss", (object?)platform.ScreenScraperSystemId ?? DBNull.Value);
@@ -486,18 +569,24 @@ namespace RetroArr.Core.Data
 
                 _logger.Warn($"[Database] Rescuing {orphans.Count} game row(s) with unknown PlatformId - pinning to PC and flagging for review.");
 
+                // TRUE and @id work on all three providers
                 string updateSql = dbType == DatabaseType.PostgreSQL
-                    ? @"UPDATE ""Games"" SET ""PlatformId"" = 1, ""NeedsMetadataReview"" = 1, ""MetadataReviewReason"" = 'Original platform could not be resolved during upgrade. Please reassign.' WHERE ""Id"" = @id"
-                    : "UPDATE Games SET PlatformId = 1, NeedsMetadataReview = 1, MetadataReviewReason = 'Original platform could not be resolved during upgrade. Please reassign.' WHERE Id = $id";
-
-                var prefix = dbType == DatabaseType.SQLite ? "$" : "@";
+                    ? @"UPDATE ""Games"" SET ""PlatformId"" = 1, ""NeedsMetadataReview"" = TRUE, ""MetadataReviewReason"" = 'Original platform could not be resolved during upgrade. Please reassign.' WHERE ""Id"" = @id"
+                    : "UPDATE Games SET PlatformId = 1, NeedsMetadataReview = TRUE, MetadataReviewReason = 'Original platform could not be resolved during upgrade. Please reassign.' WHERE Id = @id";
 
                 foreach (var (id, _) in orphans)
                 {
-                    using var cmd = connection.CreateCommand();
-                    cmd.CommandText = updateSql;
-                    AddParam(cmd, $"{prefix}id", id);
-                    cmd.ExecuteNonQuery();
+                    try
+                    {
+                        using var cmd = connection.CreateCommand();
+                        cmd.CommandText = updateSql;
+                        AddParam(cmd, "@id", id);
+                        cmd.ExecuteNonQuery();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Warn($"[Database] Orphan rescue skipped game {id}: {ex.Message}");
+                    }
                 }
             }
             catch (Exception ex)
@@ -511,23 +600,87 @@ namespace RetroArr.Core.Data
         // the DB constraint and the controller-side duplicate check agree.
         private static void CanonicalizeNullRegions(DbConnection connection, DatabaseType dbType)
         {
+            // Row by row: two untagged rows of one title would collide on the
+            // unique index and fail a single UPDATE for every row.
             try
             {
-                string sql = dbType == DatabaseType.PostgreSQL
-                    ? @"UPDATE ""Games"" SET ""Region"" = '' WHERE ""Region"" IS NULL"
-                    : "UPDATE Games SET Region = '' WHERE Region IS NULL";
+                var pg = dbType == DatabaseType.PostgreSQL;
+                var ids = new List<int>();
+                using (var select = connection.CreateCommand())
+                {
+                    select.CommandText = pg
+                        ? @"SELECT ""Id"" FROM ""Games"" WHERE ""Region"" IS NULL"
+                        : "SELECT Id FROM Games WHERE Region IS NULL";
+                    using var reader = select.ExecuteReader();
+                    while (reader.Read()) ids.Add(Convert.ToInt32(reader[0]));
+                }
 
-                using var cmd = connection.CreateCommand();
-                cmd.CommandText = sql;
-                var affected = cmd.ExecuteNonQuery();
+                var affected = 0;
+                foreach (var id in ids)
+                {
+                    try
+                    {
+                        using var cmd = connection.CreateCommand();
+                        cmd.CommandText = pg
+                            ? @"UPDATE ""Games"" SET ""Region"" = '' WHERE ""Id"" = @id"
+                            : "UPDATE Games SET Region = '' WHERE Id = @id";
+                        AddParam(cmd, "@id", id);
+                        affected += cmd.ExecuteNonQuery();
+                    }
+                    catch
+                    {
+                        // left for Settings > Database > Repair (merge duplicates)
+                    }
+                }
                 if (affected > 0)
                 {
                     _logger.Info($"[Database] Canonicalised {affected} Region column(s) from NULL to ''.");
+                }
+                if (affected < ids.Count)
+                {
+                    _logger.Info($"[Database] {ids.Count - affected} untagged duplicate(s) left with NULL Region; run Repair with 'merge duplicates'.");
                 }
             }
             catch (Exception ex)
             {
                 _logger.Info($"[Database] Region canonicalisation skipped: {ex.Message}");
+            }
+        }
+
+        // Earlier builds added the JSON list columns nullable, leaving NULL in every old row, and
+        // games of old builds have Added = DateTime.MinValue ('-infinity' on PostgreSQL); their
+        // first file is the closest date there is. Both match nothing once done.
+        private static void BackfillGamesSafe(DbConnection connection, DatabaseType dbType)
+        {
+            var statements = dbType == DatabaseType.PostgreSQL
+                ? new[]
+                {
+                    @"UPDATE ""Games"" SET ""Genres"" = COALESCE(""Genres"", '[]'), ""Images_Screenshots"" = COALESCE(""Images_Screenshots"", '[]'), ""Images_Artworks"" = COALESCE(""Images_Artworks"", '[]')
+                      WHERE ""Genres"" IS NULL OR ""Images_Screenshots"" IS NULL OR ""Images_Artworks"" IS NULL",
+                    @"UPDATE ""Games"" SET ""Added"" = (SELECT MIN(f.""DateAdded"") FROM ""GameFiles"" f WHERE f.""GameId"" = ""Games"".""Id"" AND f.""DateAdded"" >= '0001-01-02')
+                      WHERE ""Added"" < '0001-01-02' AND EXISTS (SELECT 1 FROM ""GameFiles"" f WHERE f.""GameId"" = ""Games"".""Id"" AND f.""DateAdded"" >= '0001-01-02')"
+                }
+                : new[]
+                {
+                    @"UPDATE Games SET Genres = COALESCE(Genres, '[]'), Images_Screenshots = COALESCE(Images_Screenshots, '[]'), Images_Artworks = COALESCE(Images_Artworks, '[]')
+                      WHERE Genres IS NULL OR Images_Screenshots IS NULL OR Images_Artworks IS NULL",
+                    @"UPDATE Games SET Added = (SELECT MIN(f.DateAdded) FROM GameFiles f WHERE f.GameId = Games.Id AND f.DateAdded >= '0001-01-02')
+                      WHERE Added < '0001-01-02' AND EXISTS (SELECT 1 FROM GameFiles f WHERE f.GameId = Games.Id AND f.DateAdded >= '0001-01-02')"
+                };
+
+            foreach (var sql in statements)
+            {
+                try
+                {
+                    using var cmd = connection.CreateCommand();
+                    cmd.CommandText = sql;
+                    var rows = cmd.ExecuteNonQuery();
+                    if (rows > 0) _logger.Info($"[Database] Backfilled {rows} game row(s).");
+                }
+                catch (Exception ex)
+                {
+                    _logger.Info($"[Database] Games backfill skipped: {ex.Message}");
+                }
             }
         }
 

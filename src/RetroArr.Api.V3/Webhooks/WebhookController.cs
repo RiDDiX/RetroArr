@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using RetroArr.Core.Data;
@@ -135,15 +136,17 @@ namespace RetroArr.Api.V3.Webhooks
 
             try
             {
-                // Send a test event
-                await _webhookService.TriggerAsync(WebhookEvents.OnScanCompleted, new
+                // Only this webhook, even when it doesn't listen to OnScanCompleted
+                await _webhookService.SendAsync(webhook, WebhookEvents.OnScanCompleted, new
                 {
                     test = true,
                     message = "This is a test webhook from RetroArr",
                     timestamp = DateTime.UtcNow
                 });
 
-                return Ok(new { success = true, message = "Test webhook sent" });
+                if (webhook.LastError != null)
+                    return BadRequest(new { success = false, message = $"HTTP {webhook.LastResponseCode}: {webhook.LastError}" });
+                return Ok(new { success = true, message = $"Test webhook sent (HTTP {webhook.LastResponseCode})" });
             }
             catch (Exception ex)
             {
@@ -190,10 +193,13 @@ namespace RetroArr.Api.V3.Webhooks
         }
     }
 
+    // Limits as the Webhooks columns, so a long value is a 400 and not a database error
     public class CreateWebhookRequest
     {
+        [MaxLength(100)]
         public string Name { get; set; } = string.Empty;
         public string Url { get; set; } = string.Empty;
+        [MaxLength(10)]
         public string? Method { get; set; }
         public string? Headers { get; set; }
         public string? PayloadTemplate { get; set; }
@@ -203,8 +209,10 @@ namespace RetroArr.Api.V3.Webhooks
 
     public class UpdateWebhookRequest
     {
+        [MaxLength(100)]
         public string? Name { get; set; }
         public string? Url { get; set; }
+        [MaxLength(10)]
         public string? Method { get; set; }
         public string? Headers { get; set; }
         public string? PayloadTemplate { get; set; }

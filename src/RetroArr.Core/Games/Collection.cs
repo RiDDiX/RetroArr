@@ -20,8 +20,8 @@ namespace RetroArr.Core.Games
         [MaxLength(50)]
         public string? Icon { get; set; }
 
-        // hex, e.g. #ff6b35
-        [MaxLength(7)]
+        // a CSS color; the UI sends theme variables, e.g. var(--ctp-mauve)
+        [MaxLength(32)]
         public string? Color { get; set; }
 
         public string? CoverUrl { get; set; }

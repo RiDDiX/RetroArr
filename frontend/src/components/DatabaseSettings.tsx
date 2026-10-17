@@ -62,6 +62,9 @@ const DatabaseSettings: React.FC<DatabaseSettingsProps> = () => {
         try {
             const response = await settingsApi.getDatabase();
             setConfig(response.data);
+            if (response.data.startupError) {
+                setMessage({ type: 'error', text: `Database could not be set up at startup: ${response.data.startupError}. Fix the settings below or start the database, then restart RetroArr.` });
+            }
         } catch (error) {
             console.error('Error loading database settings:', error);
         } finally {
@@ -75,6 +78,7 @@ const DatabaseSettings: React.FC<DatabaseSettingsProps> = () => {
             setStats(response.data);
         } catch (error) {
             console.error('Error loading database stats:', error);
+            setMessage((current) => current ?? { type: 'error', text: getErrorMessage(error, 'Database not reachable') });
         }
     };
 
@@ -224,10 +228,10 @@ const DatabaseSettings: React.FC<DatabaseSettingsProps> = () => {
 
     const handleTypeChange = (type: string) => {
         const newConfig = { ...config, type };
-        if (type === 'PostgreSQL') {
-            newConfig.port = 5432;
-        } else if (type === 'MariaDB') {
-            newConfig.port = 3306;
+        const defaultPorts: Record<string, number> = { PostgreSQL: 5432, MariaDB: 3306 };
+        // keep a custom port, only swap an empty one or the other type's default
+        if (defaultPorts[type] && (!config.port || Object.values(defaultPorts).includes(config.port))) {
+            newConfig.port = defaultPorts[type];
         }
         setConfig(newConfig);
     };

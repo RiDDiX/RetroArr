@@ -220,6 +220,7 @@ const WebhooksTab: React.FC<Props> = ({ t }) => {
           type="text"
           value={form.name}
           onChange={(e) => setForm({ ...form, name: e.target.value })}
+          maxLength={100}
           disabled={busy}
         />
       </div>

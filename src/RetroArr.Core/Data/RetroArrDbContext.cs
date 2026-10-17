@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using RetroArr.Core.Games;
 using RetroArr.Core.Download.History;
 using RetroArr.Core.Notifications;
@@ -104,14 +105,15 @@ namespace RetroArr.Core.Data
                     .IsUnique()
                     .HasDatabaseName("IX_Games_Title_PlatformId_Region");
 
+                // No HasFilter: "[Col]" quoting is SQL Server only and broke
+                // EnsureCreated on PostgreSQL. SQLite, PostgreSQL and MariaDB
+                // all treat NULLs as distinct in unique indexes anyway.
                 entity.HasIndex(e => e.Path)
                     .IsUnique()
-                    .HasFilter("[Path] IS NOT NULL")
                     .HasDatabaseName("IX_Games_Path");
 
                 entity.HasIndex(e => new { e.IgdbId, e.PlatformId })
                     .IsUnique()
-                    .HasFilter("[IgdbId] IS NOT NULL")
                     .HasDatabaseName("IX_Games_IgdbId_PlatformId");
 
                 entity.HasIndex(e => e.PlatformId)
@@ -264,6 +266,39 @@ namespace RetroArr.Core.Data
                 entity.HasIndex(e => e.Provider)
                     .HasDatabaseName("IX_WishlistPriceWatches_Provider");
             });
+
+            // Pomelo makes indexed strings varchar(255) in the server's default
+            // collation, which ignores case and accents. Paths get the longest
+            // key InnoDB takes (768 x 4 bytes), and paths, titles and tag names
+            // compare by bytes like on SQLite and PostgreSQL.
+            // DatabaseMigrator.EnsureColumnShapesSafe brings existing tables along.
+            if (Database.IsMySql())
+            {
+                modelBuilder.Entity<Game>().Property(e => e.Path).HasMaxLength(768).UseCollation("utf8mb4_bin");
+                modelBuilder.Entity<Game>().Property(e => e.Title).UseCollation("utf8mb4_bin");
+                modelBuilder.Entity<Game>().Property(e => e.Region).UseCollation("utf8mb4_bin");
+                modelBuilder.Entity<DiscoveredGame>().Property(e => e.Path).HasMaxLength(768).UseCollation("utf8mb4_bin");
+                modelBuilder.Entity<Tag>().Property(e => e.Name).UseCollation("utf8mb4_bin");
+            }
+        }
+
+        // Npgsql only takes Kind=Utc for timestamptz, on writes and on query
+        // parameters. Unspecified is what SQLite and MariaDB hand back and what
+        // FromUnixTimeSeconds(..).DateTime gives, and it is UTC here. Reads come
+        // back as Utc, so the API sends them with a 'Z'.
+        protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+        {
+            configurationBuilder.Properties<DateTime>().HaveConversion<UtcDateTimeConverter>();
+            configurationBuilder.Properties<DateTime?>().HaveConversion<UtcDateTimeConverter>();
+        }
+
+        private sealed class UtcDateTimeConverter : ValueConverter<DateTime, DateTime>
+        {
+            public UtcDateTimeConverter() : base(
+                v => v.Kind == DateTimeKind.Local ? v.ToUniversalTime() : DateTime.SpecifyKind(v, DateTimeKind.Utc),
+                v => DateTime.SpecifyKind(v, DateTimeKind.Utc))
+            {
+            }
         }
     }
 }

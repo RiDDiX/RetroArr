@@ -1983,7 +1983,7 @@ namespace RetroArr.Core.Games
                     catch (OperationCanceledException) { throw; }
                     catch (Exception ex)
                     {
-                        Log($"[Scanner] Error processing candidate '{candidate.Title}' at '{candidate.Path}': {ex.Message}. Continuing.", LogLevel.Warning);
+                        Log($"[Scanner] Error processing candidate '{candidate.Title}' at '{candidate.Path}': {ex.GetBaseException().Message}. Continuing.", LogLevel.Warning);
                     }
                 }
 
@@ -2720,7 +2720,7 @@ namespace RetroArr.Core.Games
             }
             catch (Exception ex)
             {
-                 var innerParam = ex.InnerException != null ? $" Inner: {ex.InnerException.Message}" : "";
+                 var innerParam = ex.InnerException != null ? $" Inner: {ex.GetBaseException().Message}" : "";
                  Log($"Error saving game to DB {gameTitle} (with Metadata: {finalGame.IgdbId.HasValue}): {ex.Message}{innerParam}");
                  return false;
             }

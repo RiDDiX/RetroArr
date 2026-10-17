@@ -176,6 +176,17 @@ namespace RetroArr.Core.Cache
             return count;
         }
 
+        // For a change made past the repository (a merge in one transaction)
+        public async Task InvalidateAsync(params int[] ids)
+        {
+            foreach (var id in ids)
+            {
+                await _cache.RemoveAsync(CacheKeys.GameDetail(id));
+                await _cache.RemoveAsync(CacheKeys.GameFiles(id));
+            }
+            await InvalidateListCaches();
+        }
+
         private async Task InvalidateListCaches()
         {
             await _cache.RemoveAsync(CacheKeys.GamesAll);

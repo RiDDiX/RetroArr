@@ -244,6 +244,31 @@ Everything lives under `config/` (Docker: `/app/config`) as JSON files. Nothing 
 | `/app/savestates` | EmulatorJS save states (optional, separate volume keeps them out of backups) |
 | `/downloads` | Where download clients drop files (optional) |
 
+**External database (PostgreSQL / MariaDB)**
+
+SQLite needs no setup. For PostgreSQL or MariaDB, create an empty database owned by (or fully granted to) the RetroArr user; RetroArr creates its tables on first start.
+
+```sql
+-- PostgreSQL. On 15+ "GRANT ALL ON DATABASE" is not enough, the user needs CREATE on schema public.
+CREATE ROLE retroarr LOGIN PASSWORD 'change-me';
+CREATE DATABASE retroarr OWNER retroarr;
+
+-- MariaDB / MySQL
+CREATE DATABASE retroarr CHARACTER SET utf8mb4;
+CREATE USER 'retroarr'@'%' IDENTIFIED BY 'change-me';
+GRANT ALL PRIVILEGES ON retroarr.* TO 'retroarr'@'%';
+```
+
+To move an existing library: Settings → Database, pick the type, fill in the connection, **Test Connection**, then **Migrate** and restart. **Save** alone switches to the new database empty. The SQLite file stays as it was (plus a backup next to it), so switching back to SQLite returns you to the state before the migration.
+
+The settings live in `config/database.json`. `Type` is `0` (SQLite), `1` (PostgreSQL) or `2` (MariaDB), the names work too:
+
+```json
+{ "Type": 1, "Host": "postgres", "Port": 5432, "Database": "retroarr", "Username": "retroarr", "Password": "change-me", "UseSsl": false }
+```
+
+If the database can't be set up at startup, the reason is shown under Settings → Database and in `config/logs/app.log`.
+
 ## Development
 
 ```bash

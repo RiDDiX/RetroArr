@@ -19,6 +19,30 @@ env:
 jobs:
   quality-gate:
     runs-on: ubuntu-latest
+    # Real servers for ProviderIntegrationTest; SQLite alone let issue #10 through
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -59,6 +83,9 @@ jobs:
 
       - name: Run tests
         working-directory: src
+        env:
+          RETROARR_TEST_PG: Host=127.0.0.1;Port=5432;Database=retroarr_test;Username=postgres;Password=postgres
+          RETROARR_TEST_MARIADB: Server=127.0.0.1;Port=3306;Database=retroarr_test;User ID=root;Password=root
         run: dotnet test RetroArr.Core.Test/RetroArr.Core.Test.csproj --no-build -c Release --verbosity normal
 
   build:

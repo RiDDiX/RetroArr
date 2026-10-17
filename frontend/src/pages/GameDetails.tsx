@@ -2822,6 +2822,7 @@ const GameDetails: React.FC = () => {
               type="text"
               value={newTagName}
               onChange={(e) => setNewTagName(e.target.value)}
+              maxLength={50}
               placeholder={t('tagName') || 'Tag name...'}
               style={{
                 flex: 1,

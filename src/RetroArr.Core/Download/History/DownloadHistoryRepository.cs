@@ -113,7 +113,7 @@ namespace RetroArr.Core.Download.History
 
             var totalCount = await q.CountAsync();
 
-            q = sortBy.ToLower() switch
+            var ordered = sortBy.ToLower() switch
             {
                 "title" => sortDescending ? q.OrderByDescending(h => h.Title) : q.OrderBy(h => h.Title),
                 "platform" => sortDescending ? q.OrderByDescending(h => h.Platform) : q.OrderBy(h => h.Platform),
@@ -121,6 +121,8 @@ namespace RetroArr.Core.Download.History
                 "state" => sortDescending ? q.OrderByDescending(h => h.State) : q.OrderBy(h => h.State),
                 _ => sortDescending ? q.OrderByDescending(h => h.ImportedAt) : q.OrderBy(h => h.ImportedAt),
             };
+            // a unique last key, so ties don't move between pages
+            q = sortDescending ? ordered.ThenByDescending(h => h.Id) : ordered.ThenBy(h => h.Id);
 
             var items = await q
                 .Skip((page - 1) * pageSize)

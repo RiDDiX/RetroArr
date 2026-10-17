@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using RetroArr.Core.Data;
@@ -237,11 +238,16 @@ namespace RetroArr.Api.V3.Collections
         }
     }
 
+    // Limits as the Collections columns, so a long value is a 400 and not a database error
     public class CreateCollectionRequest
     {
+        [MaxLength(100)]
         public string Name { get; set; } = string.Empty;
+        [MaxLength(500)]
         public string? Description { get; set; }
+        [MaxLength(50)]
         public string? Icon { get; set; }
+        [MaxLength(32)]
         public string? Color { get; set; }
         public bool IsSmartCollection { get; set; }
         public string? SmartRules { get; set; }
@@ -249,9 +255,13 @@ namespace RetroArr.Api.V3.Collections
 
     public class UpdateCollectionRequest
     {
+        [MaxLength(100)]
         public string? Name { get; set; }
+        [MaxLength(500)]
         public string? Description { get; set; }
+        [MaxLength(50)]
         public string? Icon { get; set; }
+        [MaxLength(32)]
         public string? Color { get; set; }
         public string? CoverUrl { get; set; }
         public int? SortOrder { get; set; }

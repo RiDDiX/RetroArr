@@ -28,21 +28,22 @@ namespace RetroArr.Core.Notifications
                 .Where(w => w.Enabled && (w.Events & eventType) == eventType)
                 .ToListAsync();
 
+            // Awaited, not Task.Run: the HttpClient and the DbContext belong to the
+            // caller's scope and are disposed once it ends.
             foreach (var webhook in webhooks)
             {
-                _ = Task.Run(async () =>
+                try
                 {
-                    try
-                    {
-                        await SendWebhookAsync(webhook, eventType, data);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.Error($"[Webhook] Error triggering {webhook.Name}: {ex.Message}");
-                    }
-                });
+                    await SendWebhookAsync(webhook, eventType, data);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error($"[Webhook] Error triggering {webhook.Name}: {ex.Message}");
+                }
             }
         }
+
+        public Task SendAsync(Webhook webhook, WebhookEvents eventType, object? data) => SendWebhookAsync(webhook, eventType, data);
 
         private async Task SendWebhookAsync(Webhook webhook, WebhookEvents eventType, object? data)
         {
@@ -94,7 +95,9 @@ namespace RetroArr.Core.Notifications
                     catch { }
                 }
 
-                var response = await _httpClient.SendAsync(request);
+                // awaited by the Test button and the wishlist refresh, so don't wait 100 s
+                using var timeout = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(15));
+                var response = await _httpClient.SendAsync(request, timeout.Token);
                 
                 webhook.LastTriggeredAt = DateTime.UtcNow;
                 webhook.LastResponseCode = (int)response.StatusCode;

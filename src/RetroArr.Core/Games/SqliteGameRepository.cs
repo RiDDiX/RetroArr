@@ -61,7 +61,7 @@ namespace RetroArr.Core.Games
             // like string directly, so map each tier to a number first.
             query = sortOrder switch
             {
-                "desc" => query.OrderByDescending(g => g.Title),
+                "desc" => query.OrderByDescending(g => g.Title).ThenBy(g => g.Id),
                 "protondb" => query
                     .OrderBy(g => g.ProtonDbTier == null || g.ProtonDbTier == "" ? 99
                         : g.ProtonDbTier.ToLower() == "platinum" ? 1
@@ -72,7 +72,7 @@ namespace RetroArr.Core.Games
                         : g.ProtonDbTier.ToLower() == "pending" ? 6
                         : g.ProtonDbTier.ToLower() == "borked" ? 7
                         : 98)
-                    .ThenBy(g => g.Title),
+                    .ThenBy(g => g.Title).ThenBy(g => g.Id),
                 "protondb-desc" => query
                     .OrderByDescending(g => g.ProtonDbTier == null || g.ProtonDbTier == "" ? 0
                         : g.ProtonDbTier.ToLower() == "borked" ? 1
@@ -83,8 +83,10 @@ namespace RetroArr.Core.Games
                         : g.ProtonDbTier.ToLower() == "gold" ? 6
                         : g.ProtonDbTier.ToLower() == "platinum" ? 7
                         : 0)
-                    .ThenBy(g => g.Title),
-                _ => query.OrderBy(g => g.Title)
+                    .ThenBy(g => g.Title).ThenBy(g => g.Id),
+                // Id last: PostgreSQL and MariaDB return ties in any order, so equal
+                // titles could show on two pages or none
+                _ => query.OrderBy(g => g.Title).ThenBy(g => g.Id)
             };
 
             var platformLookup = PlatformDefinitions.PlatformDictionary;
@@ -145,9 +147,11 @@ namespace RetroArr.Core.Games
         {
             EnsureKnownPlatform(game.PlatformId);
             CanonicalizeRegion(game);
+            // the Library add, the scanner and discovery import don't set it
+            if (game.Added == default) game.Added = DateTime.UtcNow;
             using var context = await _contextFactory.CreateDbContextAsync();
             context.Games.Add(game);
-            await context.SaveChangesAsync();
+            await SaveAsync(context, game.Id, game.Title);
             return game;
         }
 
@@ -192,7 +196,7 @@ namespace RetroArr.Core.Games
             return existing;
         }
 
-        private static async Task SaveAsync(RetroArrDbContext context, int id, string title)
+        internal static async Task SaveAsync(RetroArrDbContext context, int id, string title)
         {
             try
             {
@@ -201,19 +205,28 @@ namespace RetroArr.Core.Games
             catch (DbUpdateException ex)
             {
                 var inner = ex.GetBaseException();
-                _logger.Error($"[Game] Update failed for id={id}: {inner.GetType().Name}: {inner.Message}");
+                _logger.Error($"[Game] Save failed for id={id}: {inner.GetType().Name}: {inner.Message}");
 
                 var msg = inner.Message ?? string.Empty;
-                if (msg.Contains("UNIQUE constraint failed", StringComparison.OrdinalIgnoreCase))
+                // SQLite names the column ("Games.Path"), PostgreSQL (23505) and MariaDB (1062) the index ("IX_Games_Path")
+                if (msg.Contains("UNIQUE constraint failed", StringComparison.OrdinalIgnoreCase)
+                    || msg.Contains("duplicate key value", StringComparison.OrdinalIgnoreCase)
+                    || msg.Contains("Duplicate entry", StringComparison.OrdinalIgnoreCase))
                 {
                     string? field = null;
-                    if (msg.Contains("Games.Title", StringComparison.OrdinalIgnoreCase)) field = "Title+PlatformId";
-                    else if (msg.Contains("Games.Path", StringComparison.OrdinalIgnoreCase)) field = "Path";
-                    else if (msg.Contains("Games.IgdbId", StringComparison.OrdinalIgnoreCase)) field = "IgdbId+PlatformId";
+                    if (msg.Contains("Games.Title", StringComparison.OrdinalIgnoreCase) || msg.Contains("IX_Games_Title", StringComparison.OrdinalIgnoreCase)) field = "Title+PlatformId";
+                    else if (msg.Contains("Games.Path", StringComparison.OrdinalIgnoreCase) || msg.Contains("IX_Games_Path", StringComparison.OrdinalIgnoreCase)) field = "Path";
+                    else if (msg.Contains("Games.IgdbId", StringComparison.OrdinalIgnoreCase) || msg.Contains("IX_Games_IgdbId", StringComparison.OrdinalIgnoreCase)) field = "IgdbId+PlatformId";
                     throw new DuplicateGameException(
                         $"Another library entry already has this {field ?? "value"}.",
                         field, title, ex);
                 }
+
+                // A value too long for its column (MariaDB 1406 "Data too long", PostgreSQL 22001 "value too long") or for
+                // its index (PostgreSQL 54000 "index row size ... exceeds", "index row requires ..."): the caller's value
+                if (msg.Contains("too long", StringComparison.OrdinalIgnoreCase)
+                    || msg.Contains("index row", StringComparison.OrdinalIgnoreCase))
+                    throw new ArgumentException(inner.Message, ex);
 
                 throw new InvalidOperationException(
                     $"Could not save game {id}: {inner.Message}", ex);
@@ -258,7 +271,7 @@ namespace RetroArr.Core.Games
             await context.SaveChangesAsync();
         }
 
-        private static void EnsureKnownPlatform(int platformId)
+        internal static void EnsureKnownPlatform(int platformId)
         {
             if (platformId <= 0 || !PlatformDefinitions.PlatformDictionary.ContainsKey(platformId))
             {
@@ -272,7 +285,7 @@ namespace RetroArr.Core.Games
         // with the same Title + PlatformId slip past (Title, PlatformId, Region).
         // Collapse NULL to empty string so the DB constraint and controller-side
         // duplicate checks agree.
-        private static void CanonicalizeRegion(Game game)
+        internal static void CanonicalizeRegion(Game game)
         {
             game.Region ??= string.Empty;
         }

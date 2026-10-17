@@ -432,44 +432,8 @@ namespace RetroArr.Host
                 }));
             }
 
-            // Initialize database
-            using (var scope = app.Services.CreateScope())
-            {
-                var context = scope.ServiceProvider.GetRequiredService<RetroArrDbContext>();
-                try
-                {
-                    context.Database.EnsureCreated();
-                    Console.WriteLine("[Database] Schema ensured.");
-
-                    // Consolidated schema migrations (columns, tables, indexes)
-                    var dbSettings = configService.LoadDatabaseSettings();
-                    RetroArr.Core.Data.DatabaseMigrator.ApplyMigrations(context, dbSettings.Type);
-
-                    // Ensure ALL platforms from PlatformDefinitions exist in DB
-                    Console.WriteLine("[Database] Verifying all platforms from PlatformDefinitions...");
-                    
-                    bool changesMade = false;
-                    foreach (var platform in RetroArr.Core.Games.PlatformDefinitions.AllPlatforms)
-                    {
-                        if (!context.Platforms.Any(p => p.Id == platform.Id))
-                        {
-                            Console.WriteLine($"[Database] Seeding missing platform: {platform.Name} (ID: {platform.Id})");
-                            context.Platforms.Add(platform);
-                            changesMade = true;
-                        }
-                    }
-
-                    if (changesMade)
-                    {
-                        context.SaveChanges();
-                        Console.WriteLine("[Database] Platforms updated.");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[Database] Error initializing database: {ex.Message}");
-                }
-            }
+            // Initialize database; retried in the background while it is not reachable
+            RetroArr.Core.Data.DatabaseServiceExtensions.InitializeDatabase(app.Services, TimeSpan.FromSeconds(30), app.Lifetime.ApplicationStopping);
 
             // Configure static files - Look for _output/UI relative to the EXECUTABLE
             // In dev: AppContext.BaseDirectory is usually bin/Debug/net8.0/

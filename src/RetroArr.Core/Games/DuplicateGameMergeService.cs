@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using RetroArr.Core.Cache;
 using RetroArr.Core.Configuration;
 using RetroArr.Core.Data;
 
@@ -107,31 +108,39 @@ namespace RetroArr.Core.Games
 
         // A merge through the repository (metadata review, merge-into): what hangs off the source moves to the target
         // and the source row goes, so the target can take its path (unique). TakeOver and change are then applied to
-        // the stored target. library: the games in the library, for the breaker. Null when the target is gone.
+        // the stored target. library: the games in the library, for the breaker. Null when the target is gone. One
+        // transaction: a target that can't be saved leaves the source and what hangs off it as they were.
         public async Task<Game?> MergeIntoAsync(IGameRepository repository, Game source, int targetId, IEnumerable<Game> library, Action<Game>? change = null)
         {
-            using (var context = await _contextFactory.CreateDbContextAsync())
+            var roots = Roots();
+            using var context = await _contextFactory.CreateDbContextAsync();
+            // PostgreSQL and MariaDB retry on failure, which takes a transaction only inside the strategy
+            var saved = await context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
             {
+                context.ChangeTracker.Clear();
+                await using var transaction = await context.Database.BeginTransactionAsync();
+                var target = await context.Games.FindAsync(targetId);
+                if (target == null) return null;
+
                 await ReattachReferencesAsync(context, new[] { source.Id }, targetId, null, default);
                 await context.SaveChangesAsync();
-            }
-            await repository.DeleteAsync(source.Id);
-            var roots = Roots();
-            var saved = await repository.UpdateFieldsAsync(targetId, t =>
-            {
-                TakeOver(t, source, roots, library);
-                change?.Invoke(t);
-                if (MediaScannerService.CheckContent(t, roots) == GameContent.Present)
-                    t.ApplyContent(GameContent.Present, DateTime.UtcNow);
-            });
-            if (saved == null) return null;
+                await context.Games.Where(g => g.Id == source.Id).ExecuteDeleteAsync();
 
-            // Its files by the path it has now
-            using (var context = await _contextFactory.CreateDbContextAsync())
-            {
-                await MoveFilesAsync(context, Array.Empty<int>(), targetId, saved.Path, default);
+                TakeOver(target, source, roots, library);
+                change?.Invoke(target);
+                if (MediaScannerService.CheckContent(target, roots) == GameContent.Present)
+                    target.ApplyContent(GameContent.Present, DateTime.UtcNow);
+                SqliteGameRepository.EnsureKnownPlatform(target.PlatformId);
+                SqliteGameRepository.CanonicalizeRegion(target);
+                await SqliteGameRepository.SaveAsync(context, targetId, target.Title);
+
+                // Its files by the path it has now
+                await MoveFilesAsync(context, Array.Empty<int>(), targetId, target.Path, default);
                 await context.SaveChangesAsync();
-            }
+                await transaction.CommitAsync();
+                return target;
+            });
+            if (saved != null && repository is CachedGameRepository cached) await cached.InvalidateAsync(source.Id, targetId);
             return saved;
         }
 

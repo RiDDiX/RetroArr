@@ -121,12 +121,13 @@ namespace RetroArr.Api.V3.Dashboard
                 query = query.Where(g => g.PlatformId == platformId.Value);
             }
 
+            var games = await query.ToListAsync();
+
+            // Genres is a JSON column, so this can't run in SQL
             if (!string.IsNullOrEmpty(genre))
             {
-                query = query.Where(g => g.Genres != null && g.Genres.Contains(genre));
+                games = games.Where(g => g.Genres != null && g.Genres.Contains(genre)).ToList();
             }
-
-            var games = await query.ToListAsync();
             
             if (!games.Any())
             {
@@ -198,10 +199,12 @@ namespace RetroArr.Api.V3.Dashboard
                     g.IgdbId,
                     g.SteamId,
                     g.GogId,
+                    g.EpicId,
                     g.Rating,
                     g.Status,
                     g.InstallPath,
                     g.IsExternal,
+                    g.Region,
                     g.Added,
                     Images = g.Images
                 }),
@@ -246,42 +249,51 @@ namespace RetroArr.Api.V3.Dashboard
         }
 
         [HttpPost("import")]
-        public async Task<ActionResult> ImportLibrary([FromBody] JsonElement importData)
+        public async Task<ActionResult> ImportLibrary([FromBody] Newtonsoft.Json.Linq.JObject body)
         {
             try
             {
-                var gamesElement = importData.GetProperty("games");
+                // MVC binds bodies with Newtonsoft here, so a JsonElement parameter came in empty
+                using var document = JsonDocument.Parse(body.ToString(Newtonsoft.Json.Formatting.None));
+                var gamesElement = document.RootElement.GetProperty("games");
                 var importedCount = 0;
                 var skippedCount = 0;
 
+                // Same keys as the unique indexes, so a game on two platforms or in two regions comes back twice
+                var platformIds = (await _context.Platforms.Select(p => p.Id).ToListAsync()).ToHashSet();
+                var existing = await _context.Games.Select(g => new { g.Title, g.PlatformId, g.Region, g.IgdbId }).ToListAsync();
+                var titles = existing.Select(g => (g.Title, g.PlatformId, g.Region ?? string.Empty)).ToHashSet();
+                var igdbIds = existing.Where(g => g.IgdbId != null).Select(g => (g.IgdbId!.Value, g.PlatformId)).ToHashSet();
+                var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+
                 foreach (var gameElement in gamesElement.EnumerateArray())
                 {
-                    var title = gameElement.GetProperty("title").GetString();
-                    
-                    // Check if game already exists
-                    var existingGame = await _context.Games.FirstOrDefaultAsync(g => g.Title == title);
-                    if (existingGame != null)
+                    // The export writes Game's own property names
+                    var game = gameElement.Deserialize<Game>(jsonOptions);
+                    if (game == null || string.IsNullOrEmpty(game.Title) || !platformIds.Contains(game.PlatformId))
                     {
                         skippedCount++;
                         continue;
                     }
 
-                    var game = new Game
+                    game.Region ??= string.Empty;
+                    var key = (game.Title, game.PlatformId, game.Region);
+                    if (titles.Contains(key) || (game.IgdbId is int igdbId && igdbIds.Contains((igdbId, game.PlatformId))))
                     {
-                        Title = title ?? "Unknown",
-                        Overview = gameElement.TryGetProperty("overview", out var ov) ? ov.GetString() : null,
-                        Year = gameElement.TryGetProperty("year", out var yr) && yr.ValueKind != JsonValueKind.Null ? yr.GetInt32() : 0,
-                        Developer = gameElement.TryGetProperty("developer", out var dev) ? dev.GetString() : null,
-                        Publisher = gameElement.TryGetProperty("publisher", out var pub) ? pub.GetString() : null,
-                        PlatformId = gameElement.TryGetProperty("platformId", out var plat) ? plat.GetInt32() : 6,
-                        Added = DateTime.UtcNow,
-                        Status = GameStatus.Released
-                    };
-
-                    if (gameElement.TryGetProperty("genres", out var genres) && genres.ValueKind == JsonValueKind.Array)
-                    {
-                        game.Genres = genres.EnumerateArray().Select(g => g.GetString()!).Where(s => s != null).ToList();
+                        skippedCount++;
+                        continue;
                     }
+                    titles.Add(key);
+                    if (game.IgdbId is int newIgdbId) igdbIds.Add((newIgdbId, game.PlatformId));
+
+                    // Row ids, files and the folder belong to the install the export came from
+                    game.Id = 0;
+                    game.Path = null;
+                    game.Platform = null;
+                    game.GameFiles = new();
+                    game.Genres ??= new();
+                    game.Images ??= new();
+                    if (game.Added == default) game.Added = DateTime.UtcNow;
 
                     _context.Games.Add(game);
                     importedCount++;
@@ -292,7 +304,7 @@ namespace RetroArr.Api.V3.Dashboard
                 return Ok(new
                 {
                     success = true,
-                    message = $"Import completed: {importedCount} games imported, {skippedCount} skipped (already exist)"
+                    message = $"Import completed: {importedCount} games imported, {skippedCount} skipped (already in the library or unknown platform)"
                 });
             }
             catch (Exception ex)

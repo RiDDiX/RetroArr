@@ -188,8 +188,8 @@ namespace RetroArr.Core.Wishlist
             await _db.SaveChangesAsync(ct).ConfigureAwait(false);
             _logger.Info($"[Wishlist] refresh complete. checked={summary.Checked} updated={summary.Updated} dropped={summary.Dropped} target_reached={summary.TargetReached} failed={summary.Failed}");
 
-            // Fire webhooks. TriggerAsync is fire-and-forget internally, so we
-            // don't await per-event - just kick them and move on.
+            // Fire webhooks. TriggerAsync sends them before it returns and logs
+            // its own failures.
             foreach (var watch in dropped)
             {
                 try { await _webhooks.TriggerAsync(WebhookEvents.OnWishlistPriceDropped, BuildPayload(watch)).ConfigureAwait(false); }

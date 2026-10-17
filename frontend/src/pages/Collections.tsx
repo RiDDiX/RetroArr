@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collectionsApi, Collection } from '../api/client';
+import { collectionsApi, Collection, getErrorMessage } from '../api/client';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faFolder, 
@@ -19,6 +19,7 @@ const Collections: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingCollection, setEditingCollection] = useState<Collection | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -46,41 +47,45 @@ const Collections: React.FC = () => {
   const handleCreate = async () => {
     if (!formData.name.trim()) return;
 
+    setError(null);
     try {
       await collectionsApi.create(formData);
       loadCollections();
       setShowCreateModal(false);
       setFormData({ name: '', description: '', color: 'var(--ctp-mauve)' });
-    } catch (error) {
-      console.error('Failed to create collection:', error);
+    } catch (e) {
+      setError(getErrorMessage(e, 'Failed to create collection'));
     }
   };
 
   const handleUpdate = async () => {
     if (!editingCollection || !formData.name.trim()) return;
 
+    setError(null);
     try {
       await collectionsApi.update(editingCollection.id, formData);
       loadCollections();
       setEditingCollection(null);
       setFormData({ name: '', description: '', color: 'var(--ctp-mauve)' });
-    } catch (error) {
-      console.error('Failed to update collection:', error);
+    } catch (e) {
+      setError(getErrorMessage(e, 'Failed to update collection'));
     }
   };
 
   const handleDelete = async (id: number) => {
     if (!window.confirm('Are you sure you want to delete this collection?')) return;
 
+    setError(null);
     try {
       await collectionsApi.delete(id);
       loadCollections();
-    } catch (error) {
-      console.error('Failed to delete collection:', error);
+    } catch (e) {
+      setError(getErrorMessage(e, 'Failed to delete collection'));
     }
   };
 
   const openEditModal = (collection: Collection) => {
+    setError(null);
     setEditingCollection(collection);
     setFormData({
       name: collection.name,
@@ -88,6 +93,10 @@ const Collections: React.FC = () => {
       color: collection.color || 'var(--ctp-mauve)'
     });
   };
+
+  const openCreateModal = () => { setError(null); setShowCreateModal(true); };
+  const closeModal = () => { setShowCreateModal(false); setEditingCollection(null); setError(null); };
+  const modalOpen = showCreateModal || !!editingCollection;
 
   const colorOptions = [
     'var(--ctp-mauve)', 'var(--ctp-blue)', 'var(--ctp-green)', 'var(--ctp-yellow)', 
@@ -114,12 +123,14 @@ const Collections: React.FC = () => {
         </div>
         <button 
           className="btn-create"
-          onClick={() => setShowCreateModal(true)}
+          onClick={openCreateModal}
         >
           <FontAwesomeIcon icon={faPlus} />
           New Collection
         </button>
       </div>
+
+      {error && !modalOpen && <div className="alert alert-error">{error}</div>}
 
       <div className="collections-grid">
         {collections.map(collection => (
@@ -185,7 +196,7 @@ const Collections: React.FC = () => {
             <FontAwesomeIcon icon={faFolder} />
             <h3>No collections yet</h3>
             <p>Create your first collection to organize your games</p>
-            <button onClick={() => setShowCreateModal(true)}>
+            <button onClick={openCreateModal}>
               <FontAwesomeIcon icon={faPlus} />
               Create Collection
             </button>
@@ -195,12 +206,12 @@ const Collections: React.FC = () => {
 
       {/* Create/Edit Modal */}
       <Modal
-        isOpen={showCreateModal || !!editingCollection}
-        onClose={() => { setShowCreateModal(false); setEditingCollection(null); }}
+        isOpen={modalOpen}
+        onClose={closeModal}
         title={editingCollection ? 'Edit Collection' : 'New Collection'}
         footer={
           <>
-            <button className="btn-secondary" onClick={() => { setShowCreateModal(false); setEditingCollection(null); }}>
+            <button className="btn-secondary" onClick={closeModal}>
               Cancel
             </button>
             <button 
@@ -213,12 +224,14 @@ const Collections: React.FC = () => {
           </>
         }
       >
+        {error && <div className="alert alert-error">{error}</div>}
         <div className="form-group">
           <label>Name</label>
           <input
             type="text"
             value={formData.name}
             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            maxLength={100}
             placeholder="My Collection"
             autoFocus
           />
@@ -228,6 +241,7 @@ const Collections: React.FC = () => {
           <textarea
             value={formData.description}
             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+            maxLength={500}
             placeholder="A brief description..."
             rows={3}
           />

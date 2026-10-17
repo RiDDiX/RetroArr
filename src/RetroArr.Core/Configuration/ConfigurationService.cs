@@ -650,8 +650,14 @@ namespace RetroArr.Core.Configuration
                 try
                 {
                     var json = File.ReadAllText(_databaseConfigFile);
-                    var loaded = JsonSerializer.Deserialize<DatabaseSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new DatabaseSettings();
+                    // "Type": 1 as written by the app, or "PostgreSQL" by hand
+                    var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true, Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } };
+                    var loaded = JsonSerializer.Deserialize<DatabaseSettings>(json, options) ?? new DatabaseSettings();
                     loaded.Password = Unprotect(loaded.Password);
+                    // Without "Port" the PostgreSQL default of the property stays, also for MariaDB
+                    using var doc = JsonDocument.Parse(json);
+                    if (loaded.Port <= 0 || !doc.RootElement.EnumerateObject().Any(p => p.Name.Equals("Port", StringComparison.OrdinalIgnoreCase)))
+                        loaded.Port = loaded.GetDefaultPort();
                     return loaded;
                 }
                 catch (Exception ex)
@@ -669,7 +675,8 @@ namespace RetroArr.Core.Configuration
                 WriteEncryptedJson(_databaseConfigFile, settings, s => s.Password = Protect(s.Password));
                 _logger.Info($"[Configuration] Database settings saved. Type: {settings.Type}");
             }
-            catch (Exception ex) { _logger.Error($"Error saving database settings: {ex.Message}"); }
+            // rethrown: Save and Migrate must not report a switch that never got written
+            catch (Exception ex) { _logger.Error($"Error saving database settings: {ex.Message}"); throw; }
         }
 
         public CacheSettings LoadCacheSettings()

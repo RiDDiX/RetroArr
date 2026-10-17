@@ -47,7 +47,7 @@ namespace RetroArr.Core.Configuration
             var builder = new Npgsql.NpgsqlConnectionStringBuilder
             {
                 Host = Host,
-                Port = Port,
+                Port = Port > 0 ? Port : GetDefaultPort(),
                 Database = Database,
                 Username = Username,
                 Password = Password,
@@ -61,8 +61,18 @@ namespace RetroArr.Core.Configuration
 
         private string BuildMariaDbConnectionString()
         {
-            var sslMode = UseSsl ? "Required" : "None";
-            return $"Server={Host};Port={Port};Database={Database};User={Username};Password={Password};SslMode={sslMode};ConnectionTimeout={ConnectionTimeout}";
+            // The builder quotes a ';' in a password. Preferred, like PostgreSQL's Prefer:
+            // None breaks MySQL 8 caching_sha2_password logins on a cold auth cache.
+            return new MySqlConnector.MySqlConnectionStringBuilder
+            {
+                Server = Host,
+                Port = (uint)(Port > 0 ? Port : GetDefaultPort()),
+                Database = Database,
+                UserID = Username,
+                Password = Password,
+                SslMode = UseSsl ? MySqlConnector.MySqlSslMode.Required : MySqlConnector.MySqlSslMode.Preferred,
+                ConnectionTimeout = (uint)ConnectionTimeout
+            }.ConnectionString;
         }
 
         public int GetDefaultPort()

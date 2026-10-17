@@ -56,7 +56,7 @@ namespace RetroArr.Core.Test.Configuration
         }
 
         [Test]
-        public void MariaDb_BuildsServerStringWithSslDisabledByDefault()
+        public void MariaDb_BuildsServerStringWithSslPreferredByDefault()
         {
             var s = new DatabaseSettings
             {
@@ -74,7 +74,24 @@ namespace RetroArr.Core.Test.Configuration
             Assert.That(cs, Does.Contain("Server=maria.example.org"));
             Assert.That(cs, Does.Contain("Port=3306"));
             Assert.That(cs, Does.Contain("Database=retroarr"));
-            Assert.That(cs, Does.Contain("SslMode=None"));
+            // None breaks MySQL 8 caching_sha2_password logins on a cold auth cache
+            Assert.That(cs, Does.Contain("SSL Mode=Preferred"));
+        }
+
+        [Test]
+        public void MariaDb_KeepsSemicolonInPassword()
+        {
+            var s = new DatabaseSettings
+            {
+                Type = DatabaseType.MariaDB,
+                Host = "h", Port = 3306, Database = "d", Username = "u",
+                Password = "ab;cd"
+            };
+
+            var parsed = new MySqlConnector.MySqlConnectionStringBuilder(s.GetConnectionString(string.Empty));
+
+            Assert.That(parsed.Password, Is.EqualTo("ab;cd"));
+            Assert.That(parsed.Database, Is.EqualTo("d"));
         }
 
         [Test]

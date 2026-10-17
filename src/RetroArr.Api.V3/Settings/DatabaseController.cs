@@ -48,7 +48,8 @@ namespace RetroArr.Api.V3.Settings
                 HasPassword = !string.IsNullOrEmpty(settings.Password),
                 UseSsl = settings.UseSsl,
                 ConnectionTimeout = settings.ConnectionTimeout,
-                IsConfigured = settings.IsConfigured
+                IsConfigured = settings.IsConfigured,
+                StartupError = DatabaseServiceExtensions.StartupError
             });
         }
 
@@ -82,21 +83,10 @@ namespace RetroArr.Api.V3.Settings
             try
             {
                 var settings = ParseSettings(request);
-                // Same write-only contract as PUT: empty == use the stored one.
-                if (string.IsNullOrEmpty(request.Password))
-                {
-                    var existing = _configService.LoadDatabaseSettings();
-                    if (existing.Host == settings.Host
-                        && existing.Port == settings.Port
-                        && existing.Database == settings.Database
-                        && existing.Username == settings.Username)
-                    {
-                        settings.Password = existing.Password;
-                    }
-                }
+                UseStoredPassword(settings, request);
                 var configPath = _configService.GetConfigDirectory();
                 var success = DatabaseServiceExtensions.TestConnection(settings, configPath, out var errorMessage);
-                return Ok(new { success, message = success ? "Connection successful!" : errorMessage });
+                return Ok(new { success, message = success && errorMessage.Length == 0 ? "Connection successful!" : errorMessage });
             }
             catch (Exception ex)
             {
@@ -124,6 +114,7 @@ namespace RetroArr.Api.V3.Settings
             try
             {
                 var target = ParseSettings(targetRequest);
+                UseStoredPassword(target, targetRequest);
                 var result = await _migrationService.MigrateAsync(target);
 
                 if (result.Success)
@@ -131,7 +122,10 @@ namespace RetroArr.Api.V3.Settings
                     return Ok(new
                     {
                         success = true,
-                        message = "Migration complete. Restart required.",
+                        message = "Migration complete."
+                            + (result.SkippedRows > 0 ? $" {result.SkippedRows} row(s) of deleted games, tags or collections were left out." : "")
+                            + (result.UnknownPlatformGames > 0 ? $" {result.UnknownPlatformGames} game(s) of a missing platform were moved to Unknown and flagged for review." : "")
+                            + " Restart required.",
                         backupPath = result.BackupPath,
                         rowCounts = result.RowCounts.ToDictionary(
                             kv => kv.Key,
@@ -495,11 +489,10 @@ namespace RetroArr.Api.V3.Settings
                 var gameFilesCount = await context.GameFiles.CountAsync();
                 var downloadHistoryCount = await context.DownloadHistory.CountAsync();
 
-                var settings = _configService.LoadDatabaseSettings();
-
                 return Ok(new
                 {
-                    databaseType = settings.Type.ToString(),
+                    // the provider in use; database.json may already name the next one
+                    databaseType = DatabaseServiceExtensions.RunningType(context).ToString(),
                     gamesCount,
                     gameFilesCount,
                     collectionsCount,
@@ -510,18 +503,36 @@ namespace RetroArr.Api.V3.Settings
             }
             catch (Exception ex)
             {
-                return BadRequest(new { error = ex.Message });
+                // the retry strategy wraps the real cause
+                return BadRequest(new { error = ex.GetBaseException().Message });
+            }
+        }
+
+        // Same write-only contract as PUT: empty == the stored one, while the form
+        // still points at the same server, database and user.
+        private void UseStoredPassword(DatabaseSettings settings, DatabaseSettingsRequest request)
+        {
+            if (!string.IsNullOrEmpty(request.Password)) return;
+            var existing = _configService.LoadDatabaseSettings();
+            if (existing.Host == settings.Host
+                && existing.Port == settings.Port
+                && existing.Database == settings.Database
+                && existing.Username == settings.Username)
+            {
+                settings.Password = existing.Password;
             }
         }
 
         private static DatabaseSettings ParseSettings(DatabaseSettingsRequest request)
         {
+            var type = Enum.Parse<DatabaseType>(request.Type, ignoreCase: true);
             return new DatabaseSettings
             {
-                Type = Enum.Parse<DatabaseType>(request.Type, ignoreCase: true),
+                Type = type,
                 SqlitePath = request.SqlitePath ?? "retroarr.db",
                 Host = request.Host ?? "localhost",
-                Port = request.Port ?? 5432,
+                // a cleared port field arrives as 0
+                Port = request.Port is > 0 and <= 65535 ? request.Port.Value : (type == DatabaseType.MariaDB ? 3306 : 5432),
                 Database = request.Database ?? "retroarr",
                 Username = request.Username ?? string.Empty,
                 Password = request.Password ?? string.Empty,
@@ -557,6 +568,8 @@ namespace RetroArr.Api.V3.Settings
         public bool UseSsl { get; set; }
         public int ConnectionTimeout { get; set; } = 30;
         public bool IsConfigured { get; set; }
+        // why the database could not be set up at startup, if it could not
+        public string? StartupError { get; set; }
     }
 
     public class DatabaseHealthReport

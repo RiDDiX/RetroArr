@@ -69,5 +69,7 @@ namespace RetroArr.Core.Notifications
     public interface IWebhookService
     {
         Task TriggerAsync(WebhookEvents eventType, object? data);
+        // One webhook, whatever its events; throws when it can't be reached
+        Task SendAsync(Webhook webhook, WebhookEvents eventType, object? data);
     }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using RetroArr.Core.Data;
@@ -214,24 +215,33 @@ namespace RetroArr.Api.V3.Tags
         }
     }
 
+    // Limits as the Tags columns, so a long value is a 400 and not a database error
     public class CreateTagRequest
     {
+        [MaxLength(50)]
         public string Name { get; set; } = string.Empty;
+        [MaxLength(7)]
         public string? Color { get; set; }
+        [MaxLength(50)]
         public string? Icon { get; set; }
     }
 
     public class UpdateTagRequest
     {
+        [MaxLength(50)]
         public string? Name { get; set; }
+        [MaxLength(7)]
         public string? Color { get; set; }
+        [MaxLength(50)]
         public string? Icon { get; set; }
     }
 
     public class AddTagRequest
     {
         public int? TagId { get; set; }
+        [MaxLength(50)]
         public string? TagName { get; set; }
+        [MaxLength(7)]
         public string? Color { get; set; }
     }
 }

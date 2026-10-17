@@ -124,7 +124,10 @@ export const isAxiosError = axios.isAxiosError;
 
 export function getErrorMessage(error: unknown, fallback = 'Request failed'): string {
   if (axios.isAxiosError(error)) {
-    return error.response?.data?.message || error.response?.data?.error || error.response?.data || error.message || fallback;
+    const data = error.response?.data;
+    // [ApiController] validation 400: { title, errors: { Name: ["..."] } }, an object React can't render
+    const validation = data?.errors && typeof data.errors === 'object' ? Object.values(data.errors).flat().join(' ') : '';
+    return data?.message || data?.error || validation || (typeof data === 'string' ? data : '') || error.message || fallback;
   }
   if (error instanceof Error) {
     return error.message;
@@ -456,6 +459,7 @@ export interface DatabaseConfig {
   useSsl?: boolean;
   connectionTimeout?: number;
   isConfigured?: boolean;
+  startupError?: string;
 }
 
 export interface DatabaseStats {

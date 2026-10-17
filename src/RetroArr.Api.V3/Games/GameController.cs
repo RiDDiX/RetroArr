@@ -331,12 +331,28 @@ namespace RetroArr.Api.V3.Games
 
                 var created = await _repository.AddAsync(game);
                 _logger.Info($"[GameController] [Create] Success. Game ID: {created.Id}");
-                return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
+                // The row as stored: the request has its dates as sent, the database in UTC
+                return CreatedAtAction(nameof(GetById), new { id = created.Id }, await _repository.GetByIdAsync(created.Id) ?? created);
+            }
+            catch (DuplicateGameException ex)
+            {
+                _logger.Warn($"[GameController] [Create] Blocked by unique constraint: {ex.Message}");
+                return Conflict(new
+                {
+                    code = "duplicate_title",
+                    message = ex.Message,
+                    conflictField = ex.ConflictField,
+                });
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.Warn($"[GameController] [Create] Rejected: {ex.Message}");
+                return BadRequest(new { message = ex.Message });
             }
             catch (Exception ex)
             {
                 _logger.Error($"[GameController] [Create] FAILURE: {ex}");
-                return StatusCode(500, $"Internal Server Error: {ex.Message}");
+                return StatusCode(500, $"Internal Server Error: {ex.GetBaseException().Message}");
             }
         }
 
@@ -476,11 +492,20 @@ namespace RetroArr.Api.V3.Games
             // What hangs off the source moves to the target and the source row goes; the target keeps a path whose
             // content may still be there or takes the source's. Files are kept in place - if the user wants the file
             // gone too, they can hit Remove on the row first.
-            var merged = await _mergeService!.MergeIntoAsync(_repository, source, targetId, await _repository.GetAllLightAsync(), t =>
+            Game? merged;
+            try
             {
-                if (string.IsNullOrEmpty(t.Languages) && !string.IsNullOrEmpty(source.Languages))
-                    t.Languages = source.Languages;
-            });
+                merged = await _mergeService!.MergeIntoAsync(_repository, source, targetId, await _repository.GetAllLightAsync(), t =>
+                {
+                    if (string.IsNullOrEmpty(t.Languages) && !string.IsNullOrEmpty(source.Languages))
+                        t.Languages = source.Languages;
+                });
+            }
+            catch (DuplicateGameException ex)
+            {
+                // Nothing was merged
+                return Conflict(new { code = "duplicate_title", message = ex.Message, conflictField = ex.ConflictField });
+            }
             if (merged == null) return NotFound();
 
             if (string.IsNullOrEmpty(merged.Region) && !string.IsNullOrEmpty(source.Region))
