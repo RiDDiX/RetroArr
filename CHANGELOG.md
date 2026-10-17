@@ -1,3 +1,8 @@
+## v1.0.228 (2026-10-17)
+
+### Changes
+- make postgres and mariadb work: schema, dates, migration and connection checks (5af6c81)
+
 ## v1.0.227 (2026-10-10)
 
 ### Changes
