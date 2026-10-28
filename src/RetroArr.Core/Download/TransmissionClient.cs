@@ -7,6 +7,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics.CodeAnalysis;
 using RetroArr.Core.Logging;
@@ -146,14 +147,18 @@ namespace RetroArr.Core.Download
                 {
                     var cleanUrl = url.Trim();
                     _logger.Info($"[Transmission] Manually downloading torrent from: {LogRedactor.DescribeDownloadUrl(cleanUrl)}");
-                    
-                    // Use a fresh client to avoid sending Transmission headers (Auth, SessionId) to Prowlarr
-                    using var downloadClient = new HttpClient();
-                    var torrentBytes = await downloadClient.GetByteArrayAsync(cleanUrl);
-                    _logger.Info($"[Transmission] Manual download successful. Bytes: {torrentBytes.Length}");
-                    
-                    var base64 = Convert.ToBase64String(torrentBytes);
-                    args["metainfo"] = base64;
+
+                    var (magnet, torrentBytes) = await FetchTorrentAsync(cleanUrl);
+                    if (magnet != null)
+                    {
+                        _logger.Info($"[Transmission] Download link redirected to {LogRedactor.DescribeDownloadUrl(magnet)}");
+                        args["filename"] = magnet;
+                    }
+                    else
+                    {
+                        _logger.Info($"[Transmission] Manual download successful. Bytes: {torrentBytes.Length}");
+                        args["metainfo"] = Convert.ToBase64String(torrentBytes);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -194,6 +199,31 @@ namespace RetroArr.Core.Download
             }
 
             return false;
+        }
+
+        // Prowlarr answers a magnet-only release with a 301 to the magnet. HttpClient would follow that too and
+        // fail on the missing host, so redirects are followed here and a magnet target is returned as is.
+        private static async Task<(string? Magnet, byte[] Torrent)> FetchTorrentAsync(string url)
+        {
+            // A fresh client keeps the Transmission headers (auth, session id) away from the indexer
+            using var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false });
+            // one budget for the whole chain, like the automatic redirects had
+            using var timeout = new CancellationTokenSource(client.Timeout);
+            var current = new Uri(url);
+            for (var hop = 0; hop <= 10; hop++)
+            {
+                using var response = await client.GetAsync(current, timeout.Token);
+                var location = response.Headers.Location;
+                if ((int)response.StatusCode is >= 300 and < 400 && location != null)
+                {
+                    if (location.IsAbsoluteUri && location.Scheme == "magnet") return (location.OriginalString, Array.Empty<byte>());
+                    current = new Uri(current, location);
+                    continue;
+                }
+                response.EnsureSuccessStatusCode();
+                return (null, await response.Content.ReadAsByteArrayAsync(timeout.Token));
+            }
+            throw new HttpRequestException("Too many redirects");
         }
 
         // 3.00 ignores labels on torrent-add, so add the label when it is missing. A duplicate is left

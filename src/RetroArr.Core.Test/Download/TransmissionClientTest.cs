@@ -48,6 +48,16 @@ namespace RetroArr.Core.Test.Download
                     try { ctx = await _listener.GetContextAsync(); }
                     catch { return; }
 
+                    // The indexer side of a grab: Prowlarr's 301 to a magnet, a relative redirect, a .torrent
+                    if (ctx.Request.HttpMethod == "GET")
+                    {
+                        if (ctx.Request.Url!.AbsolutePath == "/magnet") { ctx.Response.StatusCode = 301; ctx.Response.RedirectLocation = Magnet; }
+                        else if (ctx.Request.Url!.AbsolutePath == "/redirect") { ctx.Response.StatusCode = 302; ctx.Response.RedirectLocation = "/file.torrent"; }
+                        else { ctx.Response.ContentType = "application/x-bittorrent"; await ctx.Response.OutputStream.WriteAsync(Encoding.ASCII.GetBytes(TorrentFile)); }
+                        ctx.Response.Close();
+                        continue;
+                    }
+
                     using var doc = JsonDocument.Parse(await new StreamReader(ctx.Request.InputStream).ReadToEndAsync());
                     var method = doc.RootElement.GetProperty("method").GetString();
                     lock (Requests) Requests.Add($"{method} {doc.RootElement.GetProperty("arguments").GetRawText()}");
@@ -68,6 +78,27 @@ namespace RetroArr.Core.Test.Download
         }
 
         private const string Magnet = "magnet:?xt=urn:btih:abc123";
+        private const string TorrentFile = "d4:infod4:name1:xee";
+
+        // Issue #11: the 301 used to be followed into the magnet and failed with "Invalid URI", then the
+        // Prowlarr link itself went to Transmission, which can't follow a redirect to a magnet either
+        [Test]
+        public async Task Add_LinkThatRedirectsToAMagnet_AddsTheMagnet()
+        {
+            using var tr = new FakeTransmission();
+
+            Assert.That(await new TransmissionClient("127.0.0.1", tr.Port, "u", "p").AddTorrentAsync($"http://127.0.0.1:{tr.Port}/magnet?apikey=x&file=Some.Game-GRP", "RetroArr"), Is.True);
+            Assert.That(tr.Requests[0], Is.EqualTo($"torrent-add {{\"filename\":\"{Magnet}\",\"labels\":[\"RetroArr\"]}}"));
+        }
+
+        [Test]
+        public async Task Add_LinkThatRedirectsToATorrent_SendsTheFile()
+        {
+            using var tr = new FakeTransmission();
+
+            Assert.That(await new TransmissionClient("127.0.0.1", tr.Port, "u", "p").AddTorrentAsync($"http://127.0.0.1:{tr.Port}/redirect", "RetroArr"), Is.True);
+            Assert.That(tr.Requests[0], Is.EqualTo($"torrent-add {{\"metainfo\":\"{Convert.ToBase64String(Encoding.ASCII.GetBytes(TorrentFile))}\",\"labels\":[\"RetroArr\"]}}"));
+        }
 
         [TestCase("[]", "[\"RetroArr\"]")]
         [TestCase("[{\"labels\":[\"tv\"]}]", "[\"tv\",\"RetroArr\"]")]
