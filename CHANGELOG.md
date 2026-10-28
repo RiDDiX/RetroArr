@@ -1,3 +1,8 @@
+## v1.0.229 (2026-10-28)
+
+### Changes
+- follow magnet redirects in Transmission to fix Prowlarr 301s (b58761b)
+
 ## v1.0.228 (2026-10-17)
 
 ### Changes
