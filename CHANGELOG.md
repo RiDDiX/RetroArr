@@ -1,3 +1,8 @@
+## v1.0.233 (2026-11-01)
+
+### Changes
+- fix NZBGet state mapping and handle job id restarts (1de31ee)
+
 ## v1.0.232 (2026-11-01)
 
 ### Changes
