@@ -69,9 +69,14 @@ namespace RetroArr.Api.V3.DownloadClients
         }
 
         [HttpPost]
-        public ActionResult<DownloadClient> Create([FromBody] DownloadClient client)
+        public async Task<ActionResult<DownloadClient>> Create([FromBody] DownloadClient client)
         {
-            client.Id = _clients.Any() ? _clients.Max(c => c.Id) + 1 : 1;
+            // History and tracking keep a deleted client's downloads under its id. NZBGet job numbers only
+            // count per client, so a new client taking over the id would find its jobs already imported.
+            client.Id = _clients.Select(c => c.Id)
+                .Concat(_trackedDownloadService.GetTrackedDownloads().Select(t => t.DownloadClientId))
+                .Append(await _historyRepo.MaxClientIdAsync())
+                .Max() + 1;
             client.Password = KeepSecret(client.Password, null);
             client.ApiKey = KeepSecret(client.ApiKey, null);
             _clients.Add(client);
@@ -526,6 +531,7 @@ namespace RetroArr.Api.V3.DownloadClients
                         request.UrlBase
                     );
 
+                    isConnected = await nzbClient.TestConnectionAsync();
                     if (isConnected)
                     {
                         version = await nzbClient.GetVersionAsync();

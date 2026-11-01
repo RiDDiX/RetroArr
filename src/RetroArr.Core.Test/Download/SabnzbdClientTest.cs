@@ -37,6 +37,10 @@ namespace RetroArr.Core.Test.Download
             public List<string> Categories { get; } = new() { "*", "tv-sonarr" };
             public string? CreateCategoryError { get; set; }
             public List<string> Requests { get; } = new();
+            // Anything outside /api is the indexer handing out the NZB
+            public string NzbBody { get; set; } =
+                "<?xml version=\"1.0\"?><nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\"><file subject=\"game.7z\"><segments><segment number=\"1\">a@b</segment></segments></file></nzb>";
+            public List<string> Uploaded { get; } = new();
 
             public FakeSabnzbd()
             {
@@ -58,12 +62,17 @@ namespace RetroArr.Core.Test.Download
                     try { ctx = await _listener.GetContextAsync(); }
                     catch { return; }
 
-                    lock (Requests) Requests.Add(ctx.Request.RawUrl!);
+                    var api = ctx.Request.Url!.AbsolutePath.StartsWith("/api", StringComparison.Ordinal);
+                    if (api) lock (Requests) Requests.Add(ctx.Request.RawUrl!);
                     var query = ctx.Request.QueryString;
                     var wanted = query["category"]?.Split(',').Select(c => c.Trim()).ToArray();
 
                     string body;
-                    if (query["mode"] == "get_cats")
+                    if (!api)
+                    {
+                        body = NzbBody;
+                    }
+                    else if (query["mode"] == "get_cats")
                     {
                         body = $"{{\"categories\":[{string.Join(",", Categories.Select(c => $"\"{c}\""))}]}}";
                     }
@@ -75,8 +84,11 @@ namespace RetroArr.Core.Test.Download
                             ? $"{{\"config\":{{\"categories\":[{{\"name\":\"{created}\",\"pp\":\"\",\"dir\":\"\"}}]}}}}"
                             : $"{{\"status\":false,\"error\":\"{CreateCategoryError}\"}}";
                     }
-                    else if (query["mode"] == "addurl")
+                    else if (query["mode"] == "addfile")
                     {
+                        using var reader = new System.IO.StreamReader(ctx.Request.InputStream);
+                        var upload = await reader.ReadToEndAsync();
+                        lock (Uploaded) Uploaded.Add(System.Text.RegularExpressions.Regex.Match(upload, "name=name; filename=\"?([^\";\\r\\n]+)").Groups[1].Value);
                         // An unknown category silently becomes Default
                         var cat = (query["cat"] ?? "").ToLowerInvariant();
                         Queue = Queue.Append(("added", Categories.Contains(cat) ? cat : "*")).ToArray();
@@ -100,6 +112,8 @@ namespace RetroArr.Core.Test.Download
                     ctx.Response.Close();
                 }
             }
+
+            public string Url(string pathAndQuery) => $"http://127.0.0.1:{Port}{pathAndQuery}";
 
             public void Dispose() => _listener.Close();
         }
@@ -169,12 +183,12 @@ namespace RetroArr.Core.Test.Download
             using var sab = new FakeSabnzbd { Queue = Array.Empty<(string, string)>() };
             var client = new SabnzbdClient("127.0.0.1", sab.Port, "key", category: "RetroArr");
 
-            var logs = await Logs(async () => Assert.That(await client.AddNzbAsync("http://indexer/get/1", "RetroArr"), Is.True));
+            var logs = await Logs(async () => Assert.That(await client.AddNzbAsync(sab.Url("/get/1"), "RetroArr"), Is.True));
 
             Assert.That(logs, Has.Some.EqualTo("Info|[Sabnzbd] Created missing category 'retroarr'"));
             Assert.That(sab.Categories, Does.Contain("retroarr"));
             Assert.That(sab.Requests.Select(r => r.Split('&')[0]).ToArray(),
-                Is.EqualTo(new[] { "/api?mode=get_cats", "/api?mode=set_config", "/api?mode=addurl" }));
+                Is.EqualTo(new[] { "/api?mode=get_cats", "/api?mode=set_config", "/api?mode=addfile" }));
             Assert.That(sab.Requests[1], Does.Contain("section=categories&name=retroarr&"));
             Assert.That(await Ids(client), Is.EqualTo(new[] { "added", "h1" }));
         }
@@ -185,7 +199,7 @@ namespace RetroArr.Core.Test.Download
             using var sab = new FakeSabnzbd();
             sab.Categories.Add("retroarr");
 
-            Assert.That(await new SabnzbdClient("127.0.0.1", sab.Port, "key").AddNzbAsync("http://indexer/get/1", "RetroArr"), Is.True);
+            Assert.That(await new SabnzbdClient("127.0.0.1", sab.Port, "key").AddNzbAsync(sab.Url("/get/1"), "RetroArr"), Is.True);
 
             Assert.That(sab.Requests, Has.None.Contains("mode=set_config"));
             Assert.That(sab.Queue.Last(), Is.EqualTo(("added", "retroarr")));
@@ -197,7 +211,7 @@ namespace RetroArr.Core.Test.Download
             using var sab = new FakeSabnzbd();
             sab.Categories.Add("RetroArr");
 
-            Assert.That(await new SabnzbdClient("127.0.0.1", sab.Port, "key").AddNzbAsync("http://indexer/get/1", "RetroArr"), Is.True);
+            Assert.That(await new SabnzbdClient("127.0.0.1", sab.Port, "key").AddNzbAsync(sab.Url("/get/1"), "RetroArr"), Is.True);
 
             Assert.That(sab.Queue.Last(), Is.EqualTo(("added", "retroarr")));
         }
@@ -209,7 +223,7 @@ namespace RetroArr.Core.Test.Download
             using var sab = new FakeSabnzbd { CreateCategoryError = "API Key Incorrect" };
 
             var logs = await Logs(async () =>
-                Assert.That(await new SabnzbdClient("127.0.0.1", sab.Port, "key").AddNzbAsync("http://indexer/get/1", "RetroArr"), Is.True));
+                Assert.That(await new SabnzbdClient("127.0.0.1", sab.Port, "key").AddNzbAsync(sab.Url("/get/1"), "RetroArr"), Is.True));
 
             Assert.That(logs, Has.One.StartsWith("Warn|[Sabnzbd] Category 'retroarr' does not exist and could not be created (API Key Incorrect)"));
             Assert.That(logs, Has.None.Contains("Created missing category"));
@@ -225,9 +239,33 @@ namespace RetroArr.Core.Test.Download
         {
             using var sab = new FakeSabnzbd();
 
-            Assert.That(await new SabnzbdClient("127.0.0.1", sab.Port, "key").AddNzbAsync("http://indexer/get/1", category), Is.True);
+            Assert.That(await new SabnzbdClient("127.0.0.1", sab.Port, "key").AddNzbAsync(sab.Url("/get/1"), category), Is.True);
 
-            Assert.That(sab.Requests.Select(r => r.Split('&')[0]), Is.EqualTo(new[] { "/api?mode=addurl" }));
+            Assert.That(sab.Requests.Select(r => r.Split('&')[0]), Is.EqualTo(new[] { "/api?mode=addfile" }));
+        }
+
+        [Test]
+        public async Task AddNzb_UploadsTheFileUnderItsReleaseName()
+        {
+            using var sab = new FakeSabnzbd();
+
+            Assert.That(await new SabnzbdClient("127.0.0.1", sab.Port, "key").AddNzbAsync(sab.Url("/1/download?apikey=x&link=abc&file=Zelda%20Link%27s%20Awakening%20GB"), ""), Is.True);
+
+            Assert.That(sab.Uploaded, Is.EqualTo(new[] { "Zelda Link's Awakening GB.nzb" }));
+            Assert.That(sab.Requests, Has.None.Contains("link=abc"), "the indexer URL never reaches SAB");
+        }
+
+        // SABnzbd 5.1.3 answers addurl with status true for all of these and fails the job later ("Empty NZB file")
+        [TestCase("<?xml version=\"1.0\" encoding=\"UTF-8\"?><error code=\"100\" description=\"Incorrect user credentials\"/>")]
+        [TestCase("")]
+        [TestCase("<html><body>Login</body></html>")]
+        public async Task AddNzb_WhenTheIndexerSendsNoNzb_ReturnsFalseAndSendsNothing(string body)
+        {
+            using var sab = new FakeSabnzbd { NzbBody = body };
+
+            Assert.That(await new SabnzbdClient("127.0.0.1", sab.Port, "key").AddNzbAsync(sab.Url("/get/1"), "RetroArr"), Is.False);
+
+            Assert.That(sab.Requests, Is.Empty);
         }
 
         [TestCase(false, "del_files=0")]

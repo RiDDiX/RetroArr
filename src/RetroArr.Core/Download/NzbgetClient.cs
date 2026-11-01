@@ -9,7 +9,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Net.Http.Headers;
 using System.Diagnostics.CodeAnalysis;
-using System.Web;
 
 namespace RetroArr.Core.Download
 {
@@ -122,20 +121,15 @@ namespace RetroArr.Core.Download
         {
             try
             {
-                // Downloading NZB content first to be safe and compatible
-                using var nzbDownloader = new HttpClient();
-                using var nzbResponse = await nzbDownloader.GetAsync(nzbUrl);
-                nzbResponse.EnsureSuccessStatusCode();
-                var nzbBytes = await nzbResponse.Content.ReadAsByteArrayAsync();
-                var nzbBase64 = Convert.ToBase64String(nzbBytes);
-                
+                var nzb = await NzbFile.FetchAsync(nzbUrl);
+
                 var appendRequest = new
                 {
                     method = "append",
                     @params = new object[] 
                     { 
-                        BuildNzbFilename(nzbUrl, nzbResponse.Content.Headers.ContentDisposition), // Filename, becomes NZBName
-                        nzbBase64,              // Content (Base64)
+                        nzb.Filename,           // Filename, becomes NZBName
+                        Convert.ToBase64String(nzb.Content), // Content (Base64)
                         category ?? "",         // Category
                         0,                      // Priority
                         false,                  // AddToTop
@@ -158,17 +152,36 @@ namespace RetroArr.Core.Download
                 // Check if result > 0 (ID of added file)
                 using var doc = JsonDocument.Parse(responseContent);
                 var root = doc.RootElement;
-                if (root.TryGetProperty("result", out var resultElement))
+                if (!root.TryGetProperty("result", out var resultElement) || resultElement.GetInt32() <= 0)
                 {
-                   return resultElement.GetInt32() > 0;
+                    return false;
                 }
-                return false;
+
+                // A duplicate gets an id too, its job goes straight to history (DELETED/COPY, DELETED/DUPE)
+                var dropped = await HistoryStatusAsync(resultElement.GetInt32());
+                if (dropped != null)
+                {
+                    _logger.Warn($"[NZBGet] {nzb.Filename} was not queued: {dropped}");
+                    return false;
+                }
+                return true;
             }
             catch (Exception ex)
             {
                 _logger.Error($"[NZBGet] Error adding NZB: {ex.Message}");
                 return false;
             }
+        }
+
+        private async Task<string?> HistoryStatusAsync(int nzbId)
+        {
+            var history = await SendRpcRequestAsync(new { method = "history", @params = new object[] { false }, id = 5 });
+            if (!history.HasValue) return null;
+            foreach (var item in history.Value.EnumerateArray())
+            {
+                if (item.GetProperty("NZBID").GetInt32() == nzbId) return item.GetProperty("Status").GetString();
+            }
+            return null;
         }
 
         public async Task<bool> RemoveDownloadAsync(string id, bool deleteFiles)
@@ -255,7 +268,10 @@ namespace RetroArr.Core.Download
                             Progress = 100,
                             State = MapHistoryStatus(item.GetProperty("Status").GetString()),
                             Category = item.GetProperty("Category").GetString(),
-                            DownloadPath = item.GetProperty("DestDir").GetString()
+                            // A post-processing script that moves the files reports their new place as FinalDir
+                            DownloadPath = item.TryGetProperty("FinalDir", out var finalDir) && !string.IsNullOrEmpty(finalDir.GetString())
+                                ? finalDir.GetString()
+                                : item.GetProperty("DestDir").GetString()
                         });
                     }
                 }
@@ -325,30 +341,6 @@ namespace RetroArr.Core.Download
                 "DELETED" => DownloadState.Deleted,
                 _ => DownloadState.Unknown
             };
-        }
-
-        // NZBGet names the job after the file name and runs its duplicate check on that name, so every job
-        // needs its release name: the NZB response's file name (Prowlarr and most indexers send one), else
-        // Prowlarr's file= parameter, else a *.nzb URL path segment, else something unique.
-        internal static string BuildNzbFilename(string nzbUrl, ContentDispositionHeaderValue? disposition)
-        {
-            var name = disposition?.FileNameStar ?? disposition?.FileName;
-            if (string.IsNullOrWhiteSpace(name) && Uri.TryCreate(nzbUrl, UriKind.Absolute, out var uri))
-            {
-                name = HttpUtility.ParseQueryString(uri.Query)["file"];
-                var segment = Uri.UnescapeDataString(uri.Segments[^1]);
-                if (string.IsNullOrWhiteSpace(name) && segment.EndsWith(".nzb", StringComparison.OrdinalIgnoreCase))
-                    name = segment;
-            }
-
-            name = Path.GetFileName((name ?? string.Empty).Trim().Trim('"').Replace('\\', '/'));
-            name = new string(name.Where(c => !char.IsControl(c)).ToArray()).Trim();
-            if (name.EndsWith(".nzb", StringComparison.OrdinalIgnoreCase)) name = name[..^4].TrimEnd();
-            // NZBGet stores the file and later a folder under this name, keep it well below the 255 byte limit
-            while (Encoding.UTF8.GetByteCount(name) > 200) name = name[..^1];
-            name = name.TrimEnd();
-            if (name.Length == 0) name = "RetroArr_" + Guid.NewGuid().ToString("N");
-            return name + ".nzb";
         }
     }
 }

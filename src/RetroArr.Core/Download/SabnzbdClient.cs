@@ -93,15 +93,22 @@ namespace RetroArr.Core.Download
         {
             try
             {
+                // Upload the file: given the URL, SAB answers status true even for an error page and names
+                // the failed job after the URL, indexer apikey included
+                var nzb = await NzbFile.FetchAsync(nzbUrl);
+
                 var wanted = HistoryCategoryFilter(category);
                 if (wanted != null)
                 {
                     await EnsureCategoryAsync(wanted);
                 }
 
-                // Add NZB by URL
-                var url = $"{_baseUrl}?mode=addurl&name={Uri.EscapeDataString(nzbUrl)}&cat={Uri.EscapeDataString(category ?? "default")}&apikey={_apiKey}&output=json";
-                var response = await _httpClient.GetAsync(url);
+                using var form = new MultipartFormDataContent();
+                var file = new ByteArrayContent(nzb.Content);
+                file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/x-nzb");
+                form.Add(file, "name", nzb.Filename);
+                var url = $"{_baseUrl}?mode=addfile&cat={Uri.EscapeDataString(category ?? "default")}&apikey={_apiKey}&output=json";
+                var response = await _httpClient.PostAsync(url, form);
                 response.EnsureSuccessStatusCode();
                 
                 var content = await response.Content.ReadAsStringAsync();

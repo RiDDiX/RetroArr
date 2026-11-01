@@ -36,6 +36,8 @@ namespace RetroArr.Core.Test.Download
             public List<string> Appended { get; } = new();
             public List<string> Calls { get; } = new();
             public List<string> RawBodies { get; } = new();
+            public string NzbBody { get; set; } =
+                "<?xml version=\"1.0\"?><nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\"><file subject=\"game.7z\"><segments><segment number=\"1\">a@b</segment></segments></file></nzb>";
 
             public FakeNzbget()
             {
@@ -65,7 +67,7 @@ namespace RetroArr.Core.Test.Download
                         var cd = ctx.Request.QueryString["cd"];
                         if (cd != null) ctx.Response.AddHeader("Content-Disposition", cd);
                         if (int.TryParse(ctx.Request.QueryString["status"], out var status)) ctx.Response.StatusCode = status;
-                        body = "<?xml version=\"1.0\"?><nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\"></nzb>";
+                        body = NzbBody;
                     }
                     else
                     {
@@ -94,6 +96,8 @@ namespace RetroArr.Core.Test.Download
             {
                 switch (method)
                 {
+                    case "version":
+                        return "{\"version\":\"1.1\",\"id\":1,\"result\":\"26.3\"}";
                     case "append":
                         lock (Appended) Appended.Add(args[0].GetString()!);
                         return "{\"result\":" + (100 + Appended.Count) + "}";
@@ -261,6 +265,90 @@ namespace RetroArr.Core.Test.Download
             Assert.That(nzbget.Calls, Has.None.StartsWith("append"));
         }
 
+        // NZBGet 26.3 answers append with a job id for all of these and fails the job in history (FAILURE/SCAN)
+        [TestCase("<?xml version=\"1.0\" encoding=\"UTF-8\"?><error code=\"100\" description=\"Incorrect user credentials\"/>")]
+        [TestCase("")]
+        [TestCase("<html><body>Login</body></html>")]
+        [TestCase("<?xml version=\"1.0\"?><nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\"></nzb>")]
+        public async Task Add_WhenTheIndexerSendsNoNzb_ReturnsFalseAndAppendsNothing(string body)
+        {
+            using var nzbget = new FakeNzbget { NzbBody = body };
+
+            Assert.That(await Client(nzbget).AddNzbAsync(nzbget.Url("/1/download?file=Some.Game"), "retroarr"), Is.False);
+            Assert.That(nzbget.Calls, Has.None.StartsWith("append"));
+        }
+
+        // NZBGet 26.3 gives a duplicate a job id and puts it straight into history
+        [TestCase("DELETED/COPY", false)]
+        [TestCase("DELETED/DUPE", false)]
+        [TestCase(null, true)]
+        public async Task Add_WhenNzbgetDropsTheJob_ReturnsFalse(string? status, bool added)
+        {
+            using var nzbget = new FakeNzbget();
+            // the first append gets id 101
+            if (status != null)
+                nzbget.HistoryJson = $"[{{\"NZBID\":101,\"NZBName\":\"Some.Game\",\"FileSizeLo\":1,\"FileSizeHi\":0,\"Status\":\"{status}\",\"Category\":\"retroarr\",\"DestDir\":\"/d\"}}]";
+
+            Assert.That(await Client(nzbget).AddNzbAsync(nzbget.Url("/1/download?file=Some.Game"), "retroarr"), Is.EqualTo(added));
+            Assert.That(nzbget.Appended, Has.Count.EqualTo(1));
+        }
+
+        [Test]
+        public async Task Add_NzbWithDoctype_IsSent()
+        {
+            using var nzbget = new FakeNzbget
+            {
+                NzbBody = "<?xml version=\"1.0\" encoding=\"iso-8859-1\" ?>\n" +
+                          "<!DOCTYPE nzb PUBLIC \"-//newzBin//DTD NZB 1.1//EN\" \"http://www.newzbin.com/DTD/nzb/nzb-1.1.dtd\">\n" +
+                          "<nzb xmlns=\"http://www.newzbin.com/DTD/2003/nzb\"><file subject=\"game.7z\"><segments><segment number=\"1\">a@b</segment></segments></file></nzb>"
+            };
+
+            Assert.That(await Client(nzbget).AddNzbAsync(nzbget.Url("/1/download?file=Some.Game"), "retroarr"), Is.True);
+            Assert.That(nzbget.Appended, Is.EqualTo(new[] { "Some.Game.nzb" }));
+        }
+
+        // FinalDir is "" unless a post-processing script moved the files (checked against NZBGet 26.3)
+        [Test]
+        public async Task History_FilesMovedByAScript_AreFoundInFinalDir()
+        {
+            using var nzbget = new FakeNzbget();
+            nzbget.Queue.Clear();
+            nzbget.HistoryJson =
+                "[{\"NZBID\":1,\"NZBName\":\"moved\",\"FileSizeLo\":1,\"FileSizeHi\":0,\"Status\":\"SUCCESS/ALL\",\"Category\":\"retroarr\",\"DestDir\":\"/downloads/completed/moved\",\"FinalDir\":\"/downloads/final/moved\"}," +
+                "{\"NZBID\":2,\"NZBName\":\"kept\",\"FileSizeLo\":1,\"FileSizeHi\":0,\"Status\":\"SUCCESS/ALL\",\"Category\":\"retroarr\",\"DestDir\":\"/downloads/completed/kept\",\"FinalDir\":\"\"}]";
+
+            var paths = (await Client(nzbget).GetDownloadsAsync()).ToDictionary(d => d.Name, d => d.DownloadPath);
+
+            Assert.That(paths["moved"], Is.EqualTo("/downloads/final/moved"));
+            Assert.That(paths["kept"], Is.EqualTo("/downloads/completed/kept"));
+        }
+
+        [Test]
+        public async Task TestConnection_ReportsTheServer()
+        {
+            using var nzbget = new FakeNzbget();
+            var root = System.IO.Directory.CreateDirectory(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "retroarr_nzbget_" + Guid.NewGuid().ToString("N"))).FullName;
+            try
+            {
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(root, "config"));
+                var controller = new RetroArr.Api.V3.DownloadClients.DownloadClientController(new RetroArr.Core.Configuration.ConfigurationService(root),
+                    null!, null!, null!, null!, null!, null!, null!);
+
+                var result = await controller.TestConnection(new RetroArr.Api.V3.DownloadClients.TestDownloadClientRequest
+                {
+                    Implementation = "NZBGet", Host = "127.0.0.1", Port = nzbget.Port, Username = "nzbget", Password = "tegbzn6789"
+                });
+
+                var body = JsonSerializer.SerializeToElement(((Microsoft.AspNetCore.Mvc.OkObjectResult)result).Value);
+                Assert.That(body.GetProperty("connected").GetBoolean(), Is.True);
+                Assert.That(body.GetProperty("version").GetString(), Is.EqualTo("26.3"));
+            }
+            finally
+            {
+                System.IO.Directory.Delete(root, true);
+            }
+        }
+
         // Upgrade: NZBGet history still holds jobs from before release names, all called RetroArr_download
         [Test]
         public async Task History_LegacyJobName_IsLeftUnmapped_ReleaseNamesStillMap()
@@ -338,7 +426,7 @@ namespace RetroArr.Core.Test.Download
         [TestCase("attachment; filename*=UTF-8''Evil%0A%0DGame%07%1B%00.nzb", "EvilGame.nzb")]
         public void Filename_IsSanitised(string header, string expected)
         {
-            var name = NzbgetClient.BuildNzbFilename("http://x/api?t=get", ContentDispositionHeaderValue.Parse(header));
+            var name = NzbFile.BuildFilename("http://x/api?t=get", ContentDispositionHeaderValue.Parse(header));
 
             if (expected == "RetroArr_") Assert.That(name, Does.Match("^RetroArr_[0-9a-f]{32}\\.nzb$"));
             else Assert.That(name, Is.EqualTo(expected));
@@ -348,7 +436,7 @@ namespace RetroArr.Core.Test.Download
         [TestCase('ゲ', 100, 66)]
         public void Filename_LongNamesAreCutToBytes(char c, int length, int kept)
         {
-            var name = NzbgetClient.BuildNzbFilename("http://x/1/download?file=" + Uri.EscapeDataString(new string(c, length)), null);
+            var name = NzbFile.BuildFilename("http://x/1/download?file=" + Uri.EscapeDataString(new string(c, length)), null);
 
             Assert.That(name, Is.EqualTo(new string(c, kept) + ".nzb"));
         }

@@ -3,10 +3,15 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using NUnit.Framework;
 using RetroArr.Api.V3.DownloadClients;
 using RetroArr.Core.Configuration;
+using RetroArr.Core.Data;
 using RetroArr.Core.Download;
+using RetroArr.Core.Download.History;
+using RetroArr.Core.Download.TrackedDownloads;
 
 namespace RetroArr.Core.Test.Security
 {
@@ -86,9 +91,14 @@ namespace RetroArr.Core.Test.Security
         }
 
         [Test]
-        public void Create_ReturnsTheClientWithoutItsSecret()
+        public async Task Create_ReturnsTheClientWithoutItsSecret()
         {
-            var created = (CreatedAtActionResult)Controller().Create(new DownloadClient { Name = "deluge", Implementation = "Deluge", Host = "d", Port = 8112, Password = "deluge-pass" }).Result!;
+            // Creating looks at tracked downloads and history for the ids in use
+            var history = new DownloadHistoryRepository(new PooledDbContextFactory<RetroArrDbContext>(
+                new DbContextOptionsBuilder<RetroArrDbContext>().UseInMemoryDatabase(Path.GetRandomFileName()).Options));
+            var controller = new DownloadClientController(_config, null!, null!, new TrackedDownloadService(Path.Combine(_root, "config")), null!, history, null!, null!);
+
+            var created = (CreatedAtActionResult)(await controller.Create(new DownloadClient { Name = "deluge", Implementation = "Deluge", Host = "d", Port = 8112, Password = "deluge-pass" })).Result!;
             Assert.That(((DownloadClient)created.Value!).Password, Is.EqualTo(Placeholder));
             Assert.That(_config.LoadDownloadClients().Single(c => c.Name == "deluge").Password, Is.EqualTo("deluge-pass"));
         }

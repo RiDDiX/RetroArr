@@ -326,6 +326,36 @@ namespace RetroArr.Core.Test.Download
             Assert.That(tracker.HasPendingGrab(1), Is.False);
         }
 
+        // NZBGet job numbers only count per client: a new NZBGet on a deleted client's id would find its
+        // job 1 already imported. The id stays taken while history or tracking still holds it.
+        [TestCase(true)]
+        [TestCase(false)]
+        public async Task Create_AfterDeletingTheNewestClient_TakesAFreshId(bool inHistory)
+        {
+            var dbOptions = new DbContextOptionsBuilder<RetroArrDbContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .Options;
+            var history = new DownloadHistoryRepository(new DbFactory(dbOptions));
+            var trackedDownloads = new TrackedDownloadService(Path.Combine(_root, "config"));
+            if (inHistory)
+                await history.UpsertAsync(new DownloadHistoryEntry { DownloadId = "1", ClientId = 2, Title = "Zelda (USA)" });
+            else
+                trackedDownloads.TrackDownload(new DownloadStatus { Id = "1", Name = "Zelda (USA)", State = DownloadState.Completed }, 2, "nzbget");
+            var config = new ConfigurationService(_root);
+            config.SaveDownloadClients(new List<DownloadClient>
+            {
+                new() { Id = 1, Name = "qbit", Implementation = "qBittorrent" },
+                new() { Id = 2, Name = "nzbget", Implementation = "NZBGet" },
+            });
+            var controller = new DownloadClientController(config, null!, null!, trackedDownloads, null!, history, null!, null!);
+
+            controller.Delete(2);
+            var created = (CreatedAtActionResult)(await controller.Create(new DownloadClient { Name = "nzbget2", Implementation = "NZBGet" })).Result!;
+
+            Assert.That(((DownloadClient)created.Value!).Id, Is.EqualTo(3));
+            Assert.That(await history.FindByDownloadIdAsync("1", 3, "Mario (USA)", 1), Is.Null);
+        }
+
         private sealed class DbFactory : IDbContextFactory<RetroArrDbContext>
         {
             private readonly DbContextOptions<RetroArrDbContext> _options;

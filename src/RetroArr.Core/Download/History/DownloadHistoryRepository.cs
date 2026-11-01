@@ -72,6 +72,12 @@ namespace RetroArr.Core.Download.History
             await context.SaveChangesAsync();
         }
 
+        public async Task<int> MaxClientIdAsync()
+        {
+            using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.DownloadHistory.MaxAsync(h => (int?)h.ClientId) ?? 0;
+        }
+
         public async Task<(List<DownloadHistoryEntry> Items, int TotalCount)> SearchAsync(
             string? query = null,
             string? platform = null,
