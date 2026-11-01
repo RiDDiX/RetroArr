@@ -264,9 +264,8 @@ const Library: React.FC = () => {
   useEffect(() => { loadPagedGamesRef.current = loadPagedGames; }, [loadPagedGames]);
   useEffect(() => { loadPlatformCountsRef.current = loadPlatformCounts; }, [loadPlatformCounts]);
 
-  // Initial load + event listeners
+  // Initial load + event listeners; the games come from the pagination effect below
   useEffect(() => {
-    loadPagedGames();
     loadPlatformCounts();
     loadPlatformMonitorCounts();
     loadPlatforms();

@@ -45,6 +45,9 @@ namespace RetroArr.Core.Games
         // When the scanner first noticed the files were gone. Null = present.
         // Two-stage cleanup: flag now, purge after retention window expires.
         public DateTime? MissingSince { get; set; }
+
+        // When the user marked the game's problem as resolved. Cleared when its files go missing again.
+        public DateTime? ProblemResolvedAt { get; set; }
         
         [SuppressMessage("Microsoft.Usage", "CA2227:CollectionPropertiesShouldBeReadOnly")]
         [SuppressMessage("Microsoft.Design", "CA1002:DoNotExposeGenericLists")]
@@ -130,6 +133,7 @@ namespace RetroArr.Core.Games
             if (Status == status && MissingSince == since) return false;
             Status = status;
             MissingSince = since;
+            if (since != null) ProblemResolvedAt = null;
             return true;
         }
     }

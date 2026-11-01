@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -251,6 +252,93 @@ namespace RetroArr.Core.Test.Games
             var body = ((OkObjectResult)result).Value!;
             var row = Row((int)Value(body, "gameId")!);
             Assert.That((Value(body, "created"), row.Path, row.ExecutablePath, row.Status), Is.EqualTo((!existing, file, file, GameStatus.Downloaded)));
+        }
+
+        private async Task<string[]> Problems(GameController controller)
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(((OkObjectResult)(await controller.GetProblems()).Result!).Value);
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            return doc.RootElement.EnumerateArray().Select(p => $"{p.GetProperty("id").GetInt32()}:{p.GetProperty("problemType").GetString()}").ToArray();
+        }
+
+        // A problem marked as resolved stays gone after a reload, and files that go missing after that show again
+        [Test]
+        public async Task ResolveProblem_StaysResolvedUntilTheFilesGoMissingAgain()
+        {
+            var snes = Path.Combine(_lib, "snes");
+            Add(new Game { Id = 1, Title = "Movie", PlatformId = Snes, Path = Put(snes, "Movie.mkv"), IgdbId = 1 },
+                new Game { Id = 2, Title = "Bare", PlatformId = Snes, Path = Put(snes, "Bare.sfc") },
+                new Game { Id = 3, Title = "Gone", PlatformId = Snes, Path = Path.Combine(snes, "Gone.sfc"), IgdbId = 3, Status = GameStatus.Missing, MissingSince = DateTime.UtcNow.AddDays(-1) },
+                new Game { Id = 4, Title = "Other", PlatformId = Snes, Path = Put(snes, "Other.sfc") });
+            var controller = Controller();
+            Assert.That(await Problems(controller), Is.EquivalentTo(new[] { "1:invalid_format", "2:no_metadata", "3:missing_file", "4:no_metadata" }));
+
+            var repo = new SqliteGameRepository(new DbFactory(_db));
+            var loadedBefore = await repo.GetAllAsync();
+            foreach (var id in new[] { 1, 2, 3 }) Assert.That(await controller.ResolveProblem(id), Is.InstanceOf<OkObjectResult>());
+
+            Assert.That(await Problems(controller), Is.EqualTo(new[] { "4:no_metadata" }));
+            Assert.That(await controller.ResolveProblem(99), Is.InstanceOf<NotFoundResult>());
+
+            // A job saving a copy it loaded before the click keeps it resolved
+            foreach (var game in loadedBefore) await repo.UpdateAsync(game.Id, game);
+            Assert.That(await Problems(controller), Is.EqualTo(new[] { "4:no_metadata" }));
+
+            // Found again, then gone again
+            await repo.ApplyContentStateAsync(3, GameContent.Present, DateTime.UtcNow, null);
+            await repo.ApplyContentStateAsync(3, GameContent.Gone, DateTime.UtcNow, Path.Combine(snes, "Gone.sfc"));
+            // Lost now, by a scan that started before the click
+            await repo.ApplyContentStateAsync(2, GameContent.Gone, DateTime.UtcNow.AddHours(-1), Path.Combine(snes, "Bare.sfc"));
+            Assert.That(await Problems(controller), Is.EquivalentTo(new[] { "2:missing_file", "3:missing_file", "4:no_metadata" }));
+        }
+
+        // One request for the whole selection: the rows go with what hangs on them, the files stay on disk
+        [Test]
+        public async Task DeleteMany_RemovesTheGamesButNotTheirFiles()
+        {
+            var snes = Path.Combine(_lib, "snes");
+            var kept = Put(snes, "Kept.sfc");
+            Add(new Game { Id = 1, Title = "One", PlatformId = Snes, Path = Put(snes, "One.sfc") },
+                new Game { Id = 2, Title = "Two", PlatformId = Snes, Path = Put(snes, "Two.sfc") },
+                new Game { Id = 3, Title = "Kept", PlatformId = Snes, Path = kept });
+            using (var ctx = new RetroArrDbContext(_db))
+            {
+                ctx.GameFiles.AddRange(new GameFile { GameId = 1, RelativePath = "One.sfc" }, new GameFile { GameId = 3, RelativePath = "Kept.sfc" });
+                ctx.Tags.Add(new Tag { Name = "Favs", GameTags = { new GameTag { GameId = 1 }, new GameTag { GameId = 3 } } });
+                ctx.SaveChanges();
+            }
+
+            var result = await Controller().DeleteMany(new List<int> { 1, 2, 2, 99 });
+
+            Assert.That((IEnumerable<int>)Value(((OkObjectResult)result).Value!, "deleted")!, Is.EquivalentTo(new[] { 1, 2 }));
+            using var check = new RetroArrDbContext(_db);
+            Assert.That(check.Games.Select(g => g.Id), Is.EqualTo(new[] { 3 }));
+            Assert.That(check.GameFiles.Select(f => f.GameId), Is.EqualTo(new[] { 3 }));
+            Assert.That(check.GameTags.Select(t => t.GameId), Is.EqualTo(new[] { 3 }));
+            Assert.That(File.Exists(Path.Combine(snes, "One.sfc")) && File.Exists(Path.Combine(snes, "Two.sfc")), Is.True);
+            Assert.That(await Controller().DeleteMany(new List<int>()), Is.InstanceOf<BadRequestObjectResult>());
+        }
+
+        // Untracked, still with every file linked to its game
+        [Test]
+        public async Task GetAll_ReturnsTheGamesWithTheirFiles()
+        {
+            Add(new Game { Id = 1, Title = "One", PlatformId = Snes, GameFiles = { new GameFile { RelativePath = "a.sfc" }, new GameFile { RelativePath = "b.sfc" } } },
+                new Game { Id = 2, Title = "Two", PlatformId = Snes });
+            var repo = new SqliteGameRepository(new DbFactory(_db));
+
+            var all = await repo.GetAllAsync();
+
+            var one = all.Single(g => g.Id == 1);
+            Assert.That(one.GameFiles.Select(f => f.RelativePath), Is.EquivalentTo(new[] { "a.sfc", "b.sfc" }));
+            Assert.That(one.GameFiles.All(f => f.GameId == 1 && ReferenceEquals(f.Game, one)), Is.True);
+            Assert.That(all.Single(g => g.Id == 2).GameFiles, Is.Empty);
+            Assert.That((await repo.GetAllLightAsync()).Select(g => g.Title), Is.EquivalentTo(new[] { "One", "Two" }));
+
+            // What a caller changes on the list is saved through the repository, as before
+            one.Title = "One Renamed";
+            await repo.UpdateAsync(1, one);
+            Assert.That(Row(1).Title, Is.EqualTo("One Renamed"));
         }
     }
 }

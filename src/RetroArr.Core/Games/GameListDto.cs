@@ -35,6 +35,7 @@ namespace RetroArr.Core.Games
         public string? Path { get; set; }
         public int PlatformId { get; set; }
         public DateTime? MissingSince { get; set; }
+        public DateTime? ProblemResolvedAt { get; set; }
         // No IGDB id and no description
         public bool NoMetadata { get; set; }
     }

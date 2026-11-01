@@ -83,6 +83,16 @@ namespace RetroArr.Core.Test.Data
             other.Title = "Contra";
             var ex = Assert.ThrowsAsync<DuplicateGameException>(() => repository.UpdateAsync(other.Id, other));
             Assert.That(ex!.ConflictField, Is.EqualTo("Title+PlatformId"));
+
+            await repository.UpdateFieldsAsync(gameId, g => g.ProblemResolvedAt = DateTime.UtcNow);
+            Assert.That((await repository.GetProblemRowsAsync()).Single(r => r.Id == gameId).ProblemResolvedAt, Is.Not.Null);
+            // The tag and collection rows go with the game
+            Assert.That(await repository.DeleteManyAsync(new[] { gameId, other.Id, -1 }), Is.EquivalentTo(new[] { gameId, other.Id }));
+            using (var ctx = new RetroArrDbContext(options))
+            {
+                Assert.That(ctx.Games.Select(g => g.Title), Is.EqualTo(new[] { "CONTRA" }));
+                Assert.That(ctx.GameTags.Count() + ctx.CollectionGames.Count(), Is.Zero);
+            }
         }
     }
 }

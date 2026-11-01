@@ -168,6 +168,7 @@ namespace RetroArr.Core.Games
             survivor.IsExternal = other.IsExternal;
             survivor.Status = other.Status;
             survivor.MissingSince = other.MissingSince;
+            survivor.ProblemResolvedAt = other.ProblemResolvedAt;
             return true;
         }
 

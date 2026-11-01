@@ -88,6 +88,13 @@ namespace RetroArr.Core.Cache
             return result;
         }
 
+        public async Task<List<int>> DeleteManyAsync(IReadOnlyCollection<int> gameIds)
+        {
+            var deleted = await _inner.DeleteManyAsync(gameIds);
+            if (deleted.Count > 0) await InvalidateAllGameCaches();
+            return deleted;
+        }
+
         public async Task<int> DeleteSteamGamesAsync()
         {
             var count = await _inner.DeleteSteamGamesAsync();

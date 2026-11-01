@@ -3,7 +3,7 @@
   "version": "1.0.231",
   "description": "RetroArr - A PVR for Video Games",
   "scripts": {
-    "build": "webpack --config ./frontend/build/webpack.config.js",
+    "build": "webpack --node-env production --config ./frontend/build/webpack.config.js",
     "prebuild": "npm run clean",
     "clean": "rimraf ./_output/UI && rimraf --glob \"**/*.js.map\"",
     "start": "webpack --watch --config ./frontend/build/webpack.config.js",

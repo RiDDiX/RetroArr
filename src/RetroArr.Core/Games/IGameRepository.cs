@@ -18,6 +18,8 @@ namespace RetroArr.Core.Games
         // when the row no longer exists.
         Task<Game?> UpdateFieldsAsync(int id, System.Action<Game> change);
         Task<bool> DeleteAsync(int id);
+        // The ids that were there and are gone now
+        Task<List<int>> DeleteManyAsync(IReadOnlyCollection<int> gameIds);
         Task<int> DeleteSteamGamesAsync();
         Task<int> DeleteGogGamesAsync();
         Task DeleteAllAsync();

@@ -135,6 +135,8 @@ namespace RetroArr.Api.V3.Games
 
             foreach (var game in games)
             {
+                if (game.ProblemResolvedAt != null) continue;
+
                 string? problemType = null;
                 string? problemDescription = null;
                 string? fileExtension = null;
@@ -190,12 +192,18 @@ namespace RetroArr.Api.V3.Games
         [HttpPost("{id}/resolve-problem")]
         public async Task<ActionResult> ResolveProblem(int id)
         {
-            // This endpoint marks a problem as resolved by the user
-            // For now, it just returns OK - could be extended to track resolved issues
-            var game = await _repository.GetByIdAsync(id);
+            var game = await _repository.UpdateFieldsAsync(id, g => g.ProblemResolvedAt = DateTime.UtcNow);
             if (game == null) return NotFound();
-            
+
             return Ok(new { message = "Problem marked as resolved" });
+        }
+
+        // Removes the games from the library in one go, their files stay where they are
+        [HttpPost("delete")]
+        public async Task<ActionResult> DeleteMany([FromBody] List<int>? ids)
+        {
+            if (ids == null || ids.Count == 0) return BadRequest(new { message = "No games given." });
+            return Ok(new { deleted = await _repository.DeleteManyAsync(ids) });
         }
 
         // setup.exe, GOG's setup_game_1.0_(123).exe, install*.exe, GameSetup.exe
