@@ -203,6 +203,31 @@ namespace RetroArr.Core.Test.Download
             }));
         }
 
+        // Queue states while NZBGet checks, repairs and unpacks a finished download
+        [TestCase("DOWNLOADING", DownloadState.Downloading)]
+        [TestCase("FETCHING", DownloadState.Queued)]
+        [TestCase("PP_QUEUED", DownloadState.Checking)]
+        [TestCase("LOADING_PARS", DownloadState.Checking)]
+        [TestCase("VERIFYING_SOURCES", DownloadState.Checking)]
+        [TestCase("REPAIRING", DownloadState.Checking)]
+        [TestCase("VERIFYING_REPAIRED", DownloadState.Checking)]
+        [TestCase("RENAMING", DownloadState.Checking)]
+        [TestCase("UNPACKING", DownloadState.Checking)]
+        [TestCase("MOVING", DownloadState.Checking)]
+        [TestCase("EXECUTING_SCRIPT", DownloadState.Checking)]
+        [TestCase("PP_FINISHED", DownloadState.Checking)]
+        public async Task Queue_PostProcessingStates_AreMapped(string status, DownloadState expected)
+        {
+            using var nzbget = new FakeNzbget();
+            nzbget.Queue.Clear();
+            nzbget.Queue[1] = status;
+            nzbget.History.Clear();
+
+            var downloads = await Client(nzbget).GetDownloadsAsync();
+
+            Assert.That(downloads.Single().State, Is.EqualTo(expected));
+        }
+
         [Test]
         public async Task Sizes_CombineHiAndLo()
         {

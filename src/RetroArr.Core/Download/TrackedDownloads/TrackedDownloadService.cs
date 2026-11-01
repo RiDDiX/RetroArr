@@ -36,6 +36,10 @@ namespace RetroArr.Core.Download.TrackedDownloads
 
         public TrackedDownload TrackDownload(DownloadStatus downloadItem, int clientId, string clientName)
         {
+            // An NZBGet that lost its queue and history counts from 1 again: the number under another name is a new job
+            if (IsNumericId(downloadItem.Id) && _cache.TryGetValue((clientId, downloadItem.Id), out var earlier) && earlier.Title != downloadItem.Name)
+                _cache.TryRemove((clientId, downloadItem.Id), out _);
+
             if (_cache.TryGetValue((clientId, downloadItem.Id), out var existing) || TryTakeOverNumericEntry(downloadItem, clientId, out existing))
             {
                 // Update mutable fields but preserve state

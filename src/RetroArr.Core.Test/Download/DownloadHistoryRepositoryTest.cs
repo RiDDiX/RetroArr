@@ -58,6 +58,26 @@ namespace RetroArr.Core.Test.Download
             Assert.That((await _repo.FindByDownloadIdAsync("5", 1, "Game A", 0))?.Title, Is.EqualTo("Game A"));
         }
 
+        // An NZBGet that lost its queue and history gives job number 1 to another release
+        [Test]
+        public async Task Upsert_NumberOfAnEarlierJobUnderAnotherName_KeepsBothRows()
+        {
+            await _repo.UpsertAsync(Row("1", 1, "Game A", DownloadHistoryState.Imported));
+
+            Assert.That(await _repo.FindByDownloadIdAsync("1", 1, "Game B", 0), Is.Null);
+            await _repo.UpsertAsync(Row("1", 1, "Game B", DownloadHistoryState.ImportFailed));
+            await _repo.UpsertAsync(Row("1", 1, "Game B", DownloadHistoryState.Imported));
+
+            using var ctx = new RetroArrDbContext(_db);
+            var rows = ctx.DownloadHistory.OrderBy(h => h.Id).ToList();
+            Assert.That(rows.Select(h => (h.DownloadId, h.Title, h.State)), Is.EqualTo(new[]
+            {
+                ($"1#{rows[0].Id}", "Game A", DownloadHistoryState.Imported),
+                ("1", "Game B", DownloadHistoryState.Imported),
+            }));
+            Assert.That((await _repo.FindByDownloadIdAsync("1", 1, "Game B", 0))?.State, Is.EqualTo(DownloadHistoryState.Imported));
+        }
+
         private const string Hash = "0123456789abcdef0123456789abcdef01234567";
 
         // Transmission imports from before its ids became the hash are recorded under its per-session number

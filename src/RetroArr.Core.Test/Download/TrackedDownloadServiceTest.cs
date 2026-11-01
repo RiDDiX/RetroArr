@@ -49,6 +49,23 @@ namespace RetroArr.Core.Test.Download
             Assert.That((torrent.DownloadClientId, torrent.Title, torrent.PlatformFolder, torrent.GameId), Is.EqualTo((2, "Game B", (string?)null, (int?)null)));
         }
 
+        // An NZBGet that lost its queue and history gives job number 1 to another release
+        [Test]
+        public void SameNumberUnderAnotherName_IsANewDownload()
+        {
+            var service = new TrackedDownloadService(_root);
+            var earlier = service.TrackDownload(Status("1", "Game A"), 1, "NZBGet");
+            earlier.GameId = 7;
+            earlier.MarkImported();
+            Assert.That(service.TrackDownload(Status("1", "Game A"), 1, "NZBGet"), Is.SameAs(earlier));
+
+            var next = service.TrackDownload(Status("1", "Game B"), 1, "NZBGet");
+
+            Assert.That(next, Is.Not.SameAs(earlier));
+            Assert.That((next.Title, next.State, next.GameId), Is.EqualTo(("Game B", TrackedDownloadState.ImportPending, (int?)null)));
+            Assert.That(service.GetTrackedDownloads(), Is.EqualTo(new[] { next }));
+        }
+
         [Test]
         public void Reconcile_OnlyDropsWhatItsOwnClientStoppedReporting()
         {

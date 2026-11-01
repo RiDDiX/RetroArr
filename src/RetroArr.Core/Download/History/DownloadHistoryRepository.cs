@@ -20,18 +20,20 @@ namespace RetroArr.Core.Download.History
         }
 
         // NZBGet ids are small numbers every client counts on its own, so a numeric id only matches its
-        // own client. Hashes and SABnzbd ids are unique by themselves and still match after a client
+        // own client, and only the job of that name: an NZBGet that lost its queue and history counts from
+        // 1 again. Hashes and SABnzbd ids are unique by themselves and still match after a client
         // was removed and added again.
-        private static IQueryable<DownloadHistoryEntry> ForDownload(IQueryable<DownloadHistoryEntry> history, string downloadId, int clientId)
+        private static IQueryable<DownloadHistoryEntry> ForDownload(IQueryable<DownloadHistoryEntry> history, string downloadId, int clientId, string title)
         {
-            var perClient = TrackedDownloadService.IsNumericId(downloadId);
-            return history.Where(h => h.DownloadId == downloadId && (!perClient || h.ClientId == clientId));
+            if (!TrackedDownloadService.IsNumericId(downloadId))
+                return history.Where(h => h.DownloadId == downloadId);
+            return history.Where(h => h.DownloadId == downloadId && h.ClientId == clientId && h.Title == title);
         }
 
         public async Task<DownloadHistoryEntry?> FindByDownloadIdAsync(string downloadId, int clientId, string title, long size)
         {
             using var context = await _contextFactory.CreateDbContextAsync();
-            var entry = await ForDownload(context.DownloadHistory, downloadId, clientId).FirstOrDefaultAsync();
+            var entry = await ForDownload(context.DownloadHistory, downloadId, clientId, title).FirstOrDefaultAsync();
             if (entry != null || !TrackedDownloadService.IsHashId(downloadId))
                 return entry;
 
@@ -52,7 +54,18 @@ namespace RetroArr.Core.Download.History
         public async Task UpsertAsync(DownloadHistoryEntry entry)
         {
             using var context = await _contextFactory.CreateDbContextAsync();
-            var existing = await ForDownload(context.DownloadHistory, entry.DownloadId, entry.ClientId).FirstOrDefaultAsync();
+            var existing = await ForDownload(context.DownloadHistory, entry.DownloadId, entry.ClientId, entry.Title).FirstOrDefaultAsync();
+            if (existing == null && TrackedDownloadService.IsNumericId(entry.DownloadId))
+            {
+                // The number is taken by a job from before NZBGet lost its history: that row stays in the
+                // history under an id no job gets, so the new job has its own row
+                var earlier = await context.DownloadHistory.FirstOrDefaultAsync(h => h.DownloadId == entry.DownloadId && h.ClientId == entry.ClientId);
+                if (earlier != null)
+                {
+                    earlier.DownloadId = $"{earlier.DownloadId}#{earlier.Id}";
+                    await context.SaveChangesAsync();
+                }
+            }
 
             if (existing != null)
             {

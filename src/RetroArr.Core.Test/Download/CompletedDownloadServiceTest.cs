@@ -164,11 +164,23 @@ namespace RetroArr.Core.Test.Download
         public async Task Check_NumericIdImportedBefore_OnlySkipsForTheSameClient(int clientId, TrackedDownloadState expected)
         {
             await AddRow("15", 1, "Game A", DownloadHistoryState.Imported);
-            var tracked = Ready("15", clientId, "Game B");
+            var tracked = Ready("15", clientId, "Game A");
 
             await _service.CheckAsync(tracked, new DownloadClient());
 
             Assert.That(tracked.State, Is.EqualTo(expected));
+        }
+
+        // An NZBGet that lost its queue and history gives job number 15 to another release
+        [Test]
+        public async Task Check_NumberOfAnEarlierImportUnderAnotherName_IsImported()
+        {
+            await AddRow("15", 1, "Game A", DownloadHistoryState.Imported);
+            var tracked = Ready("15", 1, "Game B");
+
+            await _service.CheckAsync(tracked, new DownloadClient());
+
+            Assert.That(tracked.State, Is.EqualTo(TrackedDownloadState.ImportPending));
         }
 
         // A hash names the torrent itself, so it still counts after the client was removed and added again

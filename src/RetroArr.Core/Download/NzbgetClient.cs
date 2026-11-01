@@ -315,6 +315,10 @@ namespace RetroArr.Core.Download
                 "DOWNLOADING" => DownloadState.Downloading,
                 "PAUSED" => DownloadState.Paused,
                 "QUEUED" => DownloadState.Queued,
+                "FETCHING" => DownloadState.Queued,
+                // Downloaded, now in post-processing: par check, repair, unpack, scripts
+                "PP_QUEUED" or "LOADING_PARS" or "VERIFYING_SOURCES" or "REPAIRING" or "VERIFYING_REPAIRED"
+                    or "RENAMING" or "UNPACKING" or "MOVING" or "EXECUTING_SCRIPT" or "PP_FINISHED" => DownloadState.Checking,
                 _ => DownloadState.Unknown
             };
         }
