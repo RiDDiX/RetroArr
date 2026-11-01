@@ -1,3 +1,9 @@
+## v1.0.232 (2026-11-01)
+
+### Changes
+- chore: update dependencies for security fixes (f42aeb6)
+- fix problems page: resolve state, selection filter, bulk delete (8427f39)
+
 ## v1.0.231 (2026-11-01)
 
 ### Changes
