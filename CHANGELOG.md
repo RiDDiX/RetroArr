@@ -1,3 +1,8 @@
+## v1.0.231 (2026-11-01)
+
+### Changes
+- fix problems page timeouts with fewer columns and no disk checks (7b1a528)
+
 ## v1.0.230 (2026-11-01)
 
 ### Changes
