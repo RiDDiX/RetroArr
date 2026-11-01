@@ -1,3 +1,8 @@
+## v1.0.230 (2026-11-01)
+
+### Changes
+- handle nzb files directly in nzbget and sabnzbd (88db9c2)
+
 ## v1.0.229 (2026-10-28)
 
 ### Changes
