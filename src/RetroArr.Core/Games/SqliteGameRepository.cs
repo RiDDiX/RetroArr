@@ -31,6 +31,22 @@ namespace RetroArr.Core.Games
             return await context.Games.ToListAsync();
         }
 
+        public async Task<List<GameProblemRow>> GetProblemRowsAsync()
+        {
+            using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.Games.AsNoTracking()
+                .Select(g => new GameProblemRow
+                {
+                    Id = g.Id,
+                    Title = g.Title,
+                    Path = g.Path,
+                    PlatformId = g.PlatformId,
+                    MissingSince = g.MissingSince,
+                    NoMetadata = g.IgdbId == null && (g.Overview == null || g.Overview.Length == 0)
+                })
+                .ToListAsync();
+        }
+
         public async Task<PagedResult<GameListDto>> GetAllPagedAsync(int page, int pageSize, int? platformId = null, string? search = null, string sortOrder = "asc", bool? missingOnly = null, string? protonDbTier = null)
         {
             using var context = await _contextFactory.CreateDbContextAsync();

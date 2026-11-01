@@ -950,6 +950,31 @@ namespace RetroArr.Core.Test.Games
             Assert.That(problem.GetProperty("problemDescription").GetString(), Is.EqualTo("The game's files are missing from its folder."));
         }
 
+        // Issue #12: the list reads what the last scan stored instead of checking every path on disk
+        [Test]
+        public async Task GetProblems_ListsAGoneGameOnceTheScanFlaggedIt()
+        {
+            var gba = Folder("gba");
+            await Seed(
+                new Game { Id = 1, Title = "Gone", PlatformId = Gba, Path = Path.Combine(gba, "Gone.gba"), IgdbId = 1, Status = GameStatus.Downloaded },
+                new Game { Id = 2, Title = "Kept", PlatformId = Gba, Path = Put(gba, "Kept.gba"), IgdbId = 2, Status = GameStatus.Downloaded },
+                new Game { Id = 3, Title = "Bare", PlatformId = Gba, Path = Put(gba, "Bare.gba"), Overview = "", Status = GameStatus.Downloaded },
+                new Game { Id = 4, Title = "Described", PlatformId = Gba, Path = Put(gba, "Described.gba"), Overview = "A game", Status = GameStatus.Downloaded });
+            var controller = new GameController(new SqliteGameRepository(new DbFactory(_db)), null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!);
+            async Task<string[]> Problems()
+            {
+                var json = JsonSerializer.Serialize(((OkObjectResult)(await controller.GetProblems()).Result!).Value);
+                using var doc = JsonDocument.Parse(json);
+                return doc.RootElement.EnumerateArray().Select(p => $"{p.GetProperty("id").GetInt32()}:{p.GetProperty("problemType").GetString()}").ToArray();
+            }
+
+            Assert.That(await Problems(), Is.EquivalentTo(new[] { "3:no_metadata" }));
+
+            await Scanner().ScanAsync();
+
+            Assert.That(await Problems(), Is.EquivalentTo(new[] { "1:missing_file", "3:no_metadata" }));
+        }
+
         internal static async Task<IList<string>> Logs(Func<Task> action)
         {
             var target = new NLog.Targets.MemoryTarget { Layout = "${level}|${message}" };

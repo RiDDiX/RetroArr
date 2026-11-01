@@ -51,10 +51,10 @@ namespace RetroArr.Core.Test.Data
             int gameId;
             using (var ctx = new RetroArrDbContext(options))
             {
-                var game = new Game { Title = "Contra", PlatformId = 40, Region = "", Added = local, ReleaseDate = unspecified, Genres = { "Shooter" } };
+                var game = new Game { Title = "Contra", PlatformId = 40, Region = "", Added = local, ReleaseDate = unspecified, Genres = { "Shooter" }, Overview = " " };
                 ctx.Games.Add(game);
                 // byte-wise like SQLite, not a case-insensitive collision
-                ctx.Games.Add(new Game { Title = "CONTRA", PlatformId = 40, Region = "", Added = local });
+                ctx.Games.Add(new Game { Title = "CONTRA", PlatformId = 40, Region = "", Added = local, Overview = "Run and gun" });
                 ctx.Tags.Add(new Tag { Name = "Favs", GameTags = { new GameTag { Game = game } } });
                 ctx.Collections.Add(new Collection { Name = "Run and gun", Color = "var(--ctp-sapphire)", CollectionGames = { new CollectionGame { Game = game } } });
                 await ctx.SaveChangesAsync();
@@ -76,6 +76,9 @@ namespace RetroArr.Core.Test.Data
             }
 
             var repository = new SqliteGameRepository(new PooledDbContextFactory<RetroArrDbContext>(options));
+            var rows = await repository.GetProblemRowsAsync();
+            // MariaDB pads on compare (" " = ''), so a blank description must still count as one
+            Assert.That(rows.Where(r => !r.NoMetadata).Select(r => r.Title), Is.EquivalentTo(new[] { "Contra", "CONTRA" }));
             var other = await repository.AddAsync(new Game { Title = "Contra Force", PlatformId = 40 });
             other.Title = "Contra";
             var ex = Assert.ThrowsAsync<DuplicateGameException>(() => repository.UpdateAsync(other.Id, other));

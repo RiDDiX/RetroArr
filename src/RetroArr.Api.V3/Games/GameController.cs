@@ -121,7 +121,7 @@ namespace RetroArr.Api.V3.Games
         [HttpGet("problems")]
         public async Task<ActionResult<IEnumerable<object>>> GetProblems()
         {
-            var games = await _repository.GetAllAsync();
+            var games = await _repository.GetProblemRowsAsync();
             var problems = new List<object>();
             
             // Define invalid file extensions (media files that shouldn't be games)
@@ -149,11 +149,8 @@ namespace RetroArr.Api.V3.Games
                         problemDescription = $"File has invalid extension '{ext}' - this is not a valid game file.";
                         fileExtension = ext;
                     }
-                    else if (!System.IO.File.Exists(game.Path) && !System.IO.Directory.Exists(game.Path))
-                    {
-                        problemType = "missing_file";
-                        problemDescription = "The game file or folder no longer exists at the specified path.";
-                    }
+                    // What the last library scan found: checking every path here is too slow for a big
+                    // library on spinning disks, and reports a whole unmounted share as missing
                     else if (game.MissingSince != null)
                     {
                         problemType = "missing_file";
@@ -162,7 +159,7 @@ namespace RetroArr.Api.V3.Games
                 }
 
                 // Check for missing metadata
-                if (problemType == null && !game.IgdbId.HasValue && string.IsNullOrEmpty(game.Overview))
+                if (problemType == null && game.NoMetadata)
                 {
                     problemType = "no_metadata";
                     problemDescription = "Game has no IGDB ID and no description. Consider running metadata correction.";

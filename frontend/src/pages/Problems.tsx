@@ -19,6 +19,9 @@ interface ProblemGame {
   detectedAt: string;
 }
 
+// Thousands of rows at once freeze the page for many seconds
+const PAGE_SIZE = 200;
+
 const Problems: React.FC = () => {
   const [problems, setProblems] = useState<ProblemGame[]>([]);
   const [loading, setLoading] = useState(true);
@@ -26,6 +29,7 @@ const Problems: React.FC = () => {
   const [filter, setFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedProblems, setSelectedProblems] = useState<Set<number>>(new Set());
+  const [shown, setShown] = useState(PAGE_SIZE);
 
   useEffect(() => {
     loadProblems();
@@ -95,11 +99,12 @@ const Problems: React.FC = () => {
     });
   };
 
+  // Only the rows on screen, so a bulk remove never takes games the user has not seen
   const selectAll = () => {
-    if (selectedProblems.size === filteredProblems.length) {
+    if (selectedProblems.size === visibleProblems.length) {
       setSelectedProblems(new Set());
     } else {
-      setSelectedProblems(new Set(filteredProblems.map(p => p.id)));
+      setSelectedProblems(new Set(visibleProblems.map(p => p.id)));
     }
   };
 
@@ -134,6 +139,7 @@ const Problems: React.FC = () => {
       (p.fileExtension?.toLowerCase().includes(search) ?? false)
     );
   });
+  const visibleProblems = filteredProblems.slice(0, shown);
 
   const problemCounts = {
     all: problems.length,
@@ -241,13 +247,13 @@ const Problems: React.FC = () => {
             <label className="select-all">
               <input 
                 type="checkbox" 
-                checked={selectedProblems.size === filteredProblems.length && filteredProblems.length > 0}
+                checked={selectedProblems.size === visibleProblems.length && visibleProblems.length > 0}
                 onChange={selectAll}
               />
               Select All
             </label>
           </div>
-          {filteredProblems.map(problem => (
+          {visibleProblems.map(problem => (
             <div 
               key={problem.id} 
               className={`problem-item ${selectedProblems.has(problem.id) ? 'selected' : ''}`}
@@ -310,6 +316,11 @@ const Problems: React.FC = () => {
               </div>
             </div>
           ))}
+          {filteredProblems.length > shown && (
+            <button className="btn-show-more" onClick={() => setShown(n => n + PAGE_SIZE)}>
+              Show more ({filteredProblems.length - shown} left)
+            </button>
+          )}
         </div>
       )}
     </div>

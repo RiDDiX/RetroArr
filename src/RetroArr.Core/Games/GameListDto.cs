@@ -28,6 +28,17 @@ namespace RetroArr.Core.Games
         public bool Monitored { get; set; }
     }
 
+    public class GameProblemRow
+    {
+        public int Id { get; set; }
+        public string Title { get; set; } = string.Empty;
+        public string? Path { get; set; }
+        public int PlatformId { get; set; }
+        public DateTime? MissingSince { get; set; }
+        // No IGDB id and no description
+        public bool NoMetadata { get; set; }
+    }
+
     public class PagedResult<T>
     {
         public List<T> Items { get; set; } = new();

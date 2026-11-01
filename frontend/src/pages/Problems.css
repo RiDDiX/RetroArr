@@ -55,7 +55,8 @@
 }
 
 .btn-refresh,
-.btn-remove-selected {
+.btn-remove-selected,
+.btn-show-more {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -68,12 +69,18 @@
   transition: all 0.2s ease;
 }
 
-.btn-refresh {
+.btn-refresh,
+.btn-show-more {
   background-color: var(--ctp-surface0);
   color: var(--ctp-text);
 }
 
-.btn-refresh:hover {
+.btn-show-more {
+  align-self: center;
+}
+
+.btn-refresh:hover,
+.btn-show-more:hover {
   background-color: var(--ctp-surface1);
 }
 

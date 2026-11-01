@@ -37,6 +37,8 @@ namespace RetroArr.Core.Cache
                 TimeSpan.FromSeconds(_settings.LibraryListTtlSeconds));
         }
 
+        public Task<List<GameProblemRow>> GetProblemRowsAsync() => _inner.GetProblemRowsAsync();
+
         public Task<PagedResult<GameListDto>> GetAllPagedAsync(int page, int pageSize, int? platformId = null, string? search = null, string sortOrder = "asc", bool? missingOnly = null, string? protonDbTier = null)
             => _inner.GetAllPagedAsync(page, pageSize, platformId, search, sortOrder, missingOnly, protonDbTier);
 
