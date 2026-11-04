@@ -5,8 +5,6 @@ on:
     branches:
       - main
       - master
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 env:
@@ -62,6 +60,9 @@ jobs:
 
       - name: Lint (hard gate)
         run: npm run lint
+
+      - name: Frontend tests
+        run: npm run test:frontend
 
       - name: Build frontend
         run: npm run build
@@ -156,22 +157,6 @@ jobs:
           echo "Updated CHANGELOG.md"
           cat /tmp/new_changelog.md
 
-      - name: Commit version bump
-        run: |
-          git config --local user.email "actions@github.com"
-          git config --local user.name "GitHub Actions"
-          git add package.json CHANGELOG.md
-          NEW_VERSION="${{ steps.version.outputs.new_version }}"
-          git commit -m "chore: bump version to v${NEW_VERSION} [skip ci]" || echo "No changes to commit"
-          git push origin HEAD:${{ github.ref_name }} || echo "Push failed, continuing..."
-
-      - name: Create Git tag
-        run: |
-          NEW_VERSION="${{ steps.version.outputs.new_version }}"
-          git tag -a "v${NEW_VERSION}" -m "Release v${NEW_VERSION}" || echo "Tag exists"
-          git push origin "v${NEW_VERSION}" || echo "Tag push failed"
-        continue-on-error: true
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -208,6 +193,22 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.new_version }}
           cache-from: type=gha,scope=retroarr-${{ runner.os }}-${{ steps.cache_scope.outputs.week }}
           cache-to: type=gha,mode=min,scope=retroarr-${{ runner.os }}-${{ steps.cache_scope.outputs.week }}
+
+      - name: Commit version bump
+        run: |
+          git config --local user.email "actions@github.com"
+          git config --local user.name "GitHub Actions"
+          git add package.json CHANGELOG.md
+          NEW_VERSION="${{ steps.version.outputs.new_version }}"
+          git commit -m "chore: bump version to v${NEW_VERSION} [skip ci]" || echo "No changes to commit"
+          git push origin HEAD:${{ github.ref_name }}
+
+      - name: Create Git tag
+        run: |
+          NEW_VERSION="${{ steps.version.outputs.new_version }}"
+          git tag -a "v${NEW_VERSION}" -m "Release v${NEW_VERSION}" || echo "Tag exists"
+          git push origin "v${NEW_VERSION}" || echo "Tag push failed"
+        continue-on-error: true
 
       - name: Build Summary
         run: |

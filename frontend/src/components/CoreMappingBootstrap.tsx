@@ -1,16 +1,13 @@
 import { useEffect } from 'react';
-import { useCoreMapping } from '../api/hooks';
+import { emulatorApi } from '../api/client';
 import { setCoreMappingFromApi } from './EmulatorPlayer';
 
 // Pulls the core mapping once and feeds it into EmulatorPlayer so the
 // static fallback map doesn't go stale.
 const CoreMappingBootstrap = () => {
-  const { data } = useCoreMapping();
-
   useEffect(() => {
-    if (!data) return;
-    setCoreMappingFromApi(data);
-  }, [data]);
+    emulatorApi.getCoreMapping().then(r => setCoreMappingFromApi(r.data)).catch(() => {});
+  }, []);
 
   return null;
 };

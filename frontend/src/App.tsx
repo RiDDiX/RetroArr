@@ -1,6 +1,5 @@
 import React, { Suspense } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { BrowserRouter as Router, Routes, Route, useParams } from 'react-router-dom';
 
 const Library = React.lazy(() => import('./pages/Library'));
 const Settings = React.lazy(() => import('./pages/Settings'));
@@ -33,19 +32,15 @@ import CoreMappingBootstrap from './components/CoreMappingBootstrap';
 import ApiKeyGate from './components/ApiKeyGate';
 import ChunkErrorBoundary from './components/ChunkErrorBoundary';
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 1,
-      refetchOnWindowFocus: false,
-      staleTime: 30_000,
-    },
-  },
-});
+// Keyed by id so a reply for the previous game cannot land on the next one
+function GameDetailsRoute() {
+  const { id } = useParams();
+  return <GameDetails key={id} />;
+}
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
+    <>
     <ProgressHubBridge />
     <CoreMappingBootstrap />
     <ThemeProvider>
@@ -71,7 +66,7 @@ function App() {
               <Route path="/metadata-review" element={<MetadataReview />} />
               <Route path="/review-import" element={<ReviewImport />} />
               <Route path="/user" element={<User />} />
-              <Route path="/game/:id" element={<GameDetails />} />
+              <Route path="/game/:id" element={<GameDetailsRoute />} />
               <Route path="/game/:id/saves" element={<SaveStates />} />
               <Route path="/collections" element={<Collections />} />
               <Route path="/settings" element={<Settings />} />
@@ -87,7 +82,7 @@ function App() {
       </Router>
     </UIProvider>
     </ThemeProvider>
-    </QueryClientProvider>
+    </>
   );
 }
 

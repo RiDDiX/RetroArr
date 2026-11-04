@@ -1162,3 +1162,11 @@
   background: var(--ctp-surface1, #45475a);
   color: var(--ctp-yellow, #f9e2af);
 }
+
+/* Platform chips in the search results */
+.platform-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--platform-accent) 45%, transparent);
+  line-height: 1;
+}

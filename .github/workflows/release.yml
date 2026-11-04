@@ -65,6 +65,9 @@ jobs:
       - name: Lint (hard gate)
         run: npm run lint
 
+      - name: Frontend tests
+        run: npm run test:frontend
+
       - name: Build frontend
         run: npm run build
 

@@ -68,16 +68,14 @@ const getErrorMessage = e => (e && e.response && e.response.data && e.response.d
 
   // ---- ProgressHubBridge: scanFinished is followed by libraryUpdated, so only that one reloads the pages ----
   {
-    const effect = pick(read('components', 'ProgressHubBridge.tsx'), /useEffect\((\(\) => \{[\s\S]*?\n {2}\}), \[queryClient\]\);/, 'bridge effect');
+    const effect = pick(read('components', 'ProgressHubBridge.tsx'), /useEffect\((\(\) => \{[\s\S]*?\n {2}\}), \[\]\);/, 'bridge effect');
     const handlers = {};
     let fired = 0;
-    const any = new Proxy({}, { get: () => any });
     vm.runInNewContext(callable(effect), {
       progressHub: { on: (event, fn) => { handlers[event] = fn; return () => {}; } },
-      queryClient: { invalidateQueries: () => {} }, queryKeys: any,
       window: { dispatchEvent: () => { fired++; } }, Event: function (type) { this.type = type; },
     });
-    handlers.scanFinished({ gamesAdded: 3 });
+    assert(!handlers.scanFinished, 'scanFinished must not reload the pages');
     handlers.libraryUpdated();
     assert(fired === 1, `the end of a scan must reload the pages once, fired ${fired}`);
   }

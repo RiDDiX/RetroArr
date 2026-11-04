@@ -184,7 +184,9 @@ const Library: React.FC = () => {
   };
 
   // Server-side paginated game loader
+  const loadSeq = useRef(0);
   const loadPagedGames = useCallback(async (page?: number, size?: number, platform?: string, sort?: string) => {
+    const seq = ++loadSeq.current;
     try {
       const p = page ?? currentPage;
       const s = size ?? itemsPerPage;
@@ -198,10 +200,12 @@ const Library: React.FC = () => {
         missingOnly: missingOnly || undefined,
         protonDbTier: protonFilter || undefined,
       });
+      if (seq !== loadSeq.current) return;
       const data = response.data;
       setPagedGames(data.items);
       setTotalItems(data.totalItems);
       setTotalPages(data.totalPages);
+      if (data.totalPages > 0 && p > data.totalPages) setCurrentPage(data.totalPages);
 
       // Bulk-load reviews for visible games
       if (data.items.length > 0) {

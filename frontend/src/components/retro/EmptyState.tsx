@@ -1,5 +1,6 @@
 import React from 'react';
 import './EmptyState.css';
+import './Button.css';
 
 export type EmptySprite = 'cartridge' | 'unplugged' | 'gameover' | 'disc' | 'memcard';
 

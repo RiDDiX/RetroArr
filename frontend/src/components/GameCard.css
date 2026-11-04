@@ -3,12 +3,16 @@
   --tilt-y: 0deg;
   --tilt-lift: 0;
 
+  display: grid;
+  grid-template-rows: auto min-content;
   background: var(--surface-1);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
   overflow: hidden;
   cursor: pointer;
   position: relative;
   border: 1px solid var(--border);
+  text-align: left;
   transform-style: preserve-3d;
   transform:
     perspective(900px)
