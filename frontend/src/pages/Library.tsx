@@ -113,9 +113,9 @@ const Library: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(() => {
     const saved = localStorage.getItem('libraryItemsPerPage');
-    return saved ? parseInt(saved, 10) : 50;
+    return saved ? Math.min(parseInt(saved, 10) || 50, 250) : 50;
   });
-  const itemsPerPageOptions = [10, 25, 50, 100, 250, 500, 1000];
+  const itemsPerPageOptions = [10, 25, 50, 100, 250];
   const rescanPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const scanPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 

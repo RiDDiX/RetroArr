@@ -10,7 +10,8 @@
     "watch": "webpack --watch --config ./frontend/build/webpack.config.js",
     "lint": "eslint frontend/",
     "lint-fix": "npm run lint -- --fix",
-    "test:frontend": "node tests/translation-hook-stability.test.cjs && node tests/download-search-age-display.test.cjs && node tests/download-search-name-wrap.test.cjs && node tests/download-search-queue-buttons.test.cjs && node tests/epic-account-contract.test.cjs && node tests/monitor-platform-toggle.test.cjs && node tests/map-import-and-chunk-boundary.test.cjs && node tests/lancache-phase1.test.cjs && node tests/lancache-phase2.test.cjs && node tests/lancache-steam-select.test.cjs && node tests/lancache-history.test.cjs && node tests/lancache-schedule-stop.test.cjs && node tests/lancache-prefill-update.test.cjs && node tests/lancache-prefill-retry.test.cjs && node tests/support-links.test.cjs && node tests/add-game-platform-picker.test.cjs && node tests/queue-remove-delete-files.test.cjs && node tests/search-pickers.test.cjs && node tests/security-links.test.cjs && node tests/search-results-platform.test.cjs && node tests/monitor-search-results.test.cjs && node tests/rename-settings.test.cjs && node tests/uninstall-delete-plan.test.cjs && node tests/translation-coverage.test.cjs && node tests/library-status.test.cjs && node tests/media-tab-scan-save.test.cjs && node tests/scan-running.test.cjs && node tests/database-repair-result.test.cjs && node tests/scanner-status-relay.test.cjs && node tests/page-reloads-and-errors.test.cjs"
+    "test:frontend": "node tests/translation-hook-stability.test.cjs && node tests/download-search-age-display.test.cjs && node tests/download-search-name-wrap.test.cjs && node tests/download-search-queue-buttons.test.cjs && node tests/epic-account-contract.test.cjs && node tests/monitor-platform-toggle.test.cjs && node tests/map-import-and-chunk-boundary.test.cjs && node tests/lancache-phase1.test.cjs && node tests/lancache-phase2.test.cjs && node tests/lancache-steam-select.test.cjs && node tests/lancache-history.test.cjs && node tests/lancache-schedule-stop.test.cjs && node tests/lancache-prefill-update.test.cjs && node tests/lancache-prefill-retry.test.cjs && node tests/support-links.test.cjs && node tests/add-game-platform-picker.test.cjs && node tests/queue-remove-delete-files.test.cjs && node tests/search-pickers.test.cjs && node tests/security-links.test.cjs && node tests/search-results-platform.test.cjs && node tests/monitor-search-results.test.cjs && node tests/rename-settings.test.cjs && node tests/uninstall-delete-plan.test.cjs && node tests/translation-coverage.test.cjs && node tests/library-status.test.cjs && node tests/media-tab-scan-save.test.cjs && node tests/scan-running.test.cjs && node tests/database-repair-result.test.cjs && node tests/scanner-status-relay.test.cjs && node tests/page-reloads-and-errors.test.cjs",
+    "test:unit": "vitest run"
   },
   "author": "Team RetroArr",
   "license": "MIT",
@@ -39,12 +40,14 @@
     "eslint-plugin-react": "^7.37.5",
     "globals": "^16.1.0",
     "html-webpack-plugin": "^5.6.3",
+    "jsdom": "^26.1.0",
     "playwright": "^1.58.2",
     "rimraf": "^6.0.1",
     "style-loader": "^3.3.4",
     "ts-loader": "^9.5.1",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.32.1",
+    "vitest": "^3.2.7",
     "webpack": "^5.97.1",
     "webpack-cli": "^5.1.4",
     "webpack-dev-server": "^6.0.0"

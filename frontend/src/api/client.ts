@@ -58,32 +58,6 @@ async function bootstrapApiKey(): Promise<string | null> {
 // Eagerly try to bootstrap so the first real request has the header ready.
 bootstrapApiKey();
 
-// Monkey-patch window.fetch so any raw fetch('/api/...') calls in the app
-// (Status.tsx, SignalR negotiate, older components) also carry the X-Api-Key
-// header and survive on LAN. Same-origin + path starts with /api/ or /hubs/.
-if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
-  const nativeFetch = window.fetch.bind(window);
-  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url =
-      typeof input === 'string'
-        ? input
-        : input instanceof URL
-          ? input.toString()
-          : input.url;
-
-    const needsKey = url.startsWith('/api/') || url.startsWith('/hubs/');
-    if (!needsKey) return nativeFetch(input, init);
-
-    let key = _apiKey;
-    if (!key) key = await bootstrapApiKey();
-    if (!key) return nativeFetch(input, init);
-
-    const headers = new Headers(init?.headers || (typeof input !== 'string' && !(input instanceof URL) ? input.headers : undefined));
-    if (!headers.has('X-Api-Key')) headers.set('X-Api-Key', key);
-    return nativeFetch(input, { ...init, headers });
-  };
-}
-
 // Attach a unique X-Request-Id header + API key to every request.
 apiClient.interceptors.request.use(async (config) => {
   const id = Math.random().toString(36).substring(2, 14);
@@ -617,7 +591,6 @@ export interface BulkReviewData {
 
 // -- Games --
 export const gamesApi = {
-  getAll: () => apiClient.get<Game[]>('/game'),
   getCounts: () => apiClient.get<Record<string, number>>('/game/counts'),
   getPaged: (params: { page?: number; pageSize?: number; platformId?: number; search?: string; sortOrder?: string; missingOnly?: boolean; protonDbTier?: string }) =>
     apiClient.get<PagedResult<GameListDto>>('/game/paged', { params }),

@@ -36,7 +36,7 @@ assert(
   'Map & Import must send the download\'s clientId and downloadId to map-platform'
 );
 assert(
-  status.includes('body: JSON.stringify({ downloadName: d.name, clientId: d.clientId, downloadId: d.id, platformFolder })'),
+  status.includes('/queue/map-platform`, { downloadName: d.name, clientId: d.clientId, downloadId: d.id, platformFolder })'),
   'The queue platform editor must send the download\'s clientId and downloadId to map-platform'
 );
 assert(
@@ -65,7 +65,7 @@ assert(
 // ---- Map & Import: the file type comes from the import's own rules, "Main" takes back a Patches/DLC subfolder ----
 assert(!status.includes('detectFileType'), 'The map dialog must not guess the file type with keyword rules of its own');
 assert(
-  status.includes('fetch(`${API_BASE}/queue/import-subfolder?${params}`)') && status.includes('}, [mapModal, mapGameId, mapPlatform, mapFileTouched]);'),
+  status.includes('apiClient.get(`${API_BASE}/queue/import-subfolder?${params}`)') && status.includes('}, [mapModal, mapGameId, mapPlatform, mapFileTouched]);'),
   'The map dialog must ask the backend for the file type, again when the game or platform changes'
 );
 assert(/onChange=\{e => \{ setMapFileType\([^}]*\); setMapFileTouched\(true\); \}\}/.test(status),
@@ -80,7 +80,7 @@ const suggest = async ({ touched, answer }) => {
   const run = vm.runInNewContext(`${js}\neffect`, {
     mapModal: { title: 'Patch Quest v1.0.3' }, mapGameId: 7, mapPlatform: 'windows', mapFileTouched: touched, API_BASE: '/api/v3/downloadclient',
     URLSearchParams, String,
-    fetch: async () => { seen.fetched++; if (answer instanceof Error) throw answer; return { json: async () => answer }; },
+    apiClient: { get: async () => { seen.fetched++; if (answer instanceof Error) throw answer; return { data: answer }; } },
     setMapFileType: v => seen.set.push(v),
   });
   run();

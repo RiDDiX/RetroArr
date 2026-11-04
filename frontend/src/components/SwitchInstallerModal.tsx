@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import apiClient, { getErrorMessage } from '../api/client';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faDownload, faCheckCircle, faSpinner, faExclamationTriangle, faInfoCircle } from '@fortawesome/free-solid-svg-icons';
@@ -19,6 +19,14 @@ const SwitchInstallerModal: React.FC<SwitchInstallerModalProps> = ({ isOpen, onC
     const [selectedDevice, setSelectedDevice] = useState<string>('');
     const [progress, setProgress] = useState(0);
     const [log, setLog] = useState<string>('');
+    const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    const stopPolling = () => {
+        if (pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+        }
+    };
 
     useEffect(() => {
         if (isOpen) {
@@ -28,9 +36,11 @@ const SwitchInstallerModal: React.FC<SwitchInstallerModalProps> = ({ isOpen, onC
             setIsInstalling(false);
             scanDevices();
         }
+        return stopPolling;
     }, [isOpen]);
 
     const handleClose = async () => {
+        stopPolling();
         onClose();
     };
 
@@ -67,20 +77,23 @@ const SwitchInstallerModal: React.FC<SwitchInstallerModalProps> = ({ isOpen, onC
             });
 
             // Poll real progress from backend
-            const interval = setInterval(async () => {
+            stopPolling();
+            let pollErrors = 0;
+            pollRef.current = setInterval(async () => {
                 try {
                     const statusRes = await apiClient.get('/nsw/progress');
+                    pollErrors = 0;
                     const { progress: currentP, status: currentS } = statusRes.data;
 
                     setProgress(Math.round(currentP));
                     setLog(currentS);
 
                     if (currentS === 'Installation Complete' || currentP >= 100) {
-                        clearInterval(interval);
+                        stopPolling();
                         setStep('finished');
                         setIsInstalling(false);
                     } else if (currentS === 'Installation Aborted by Console') {
-                        clearInterval(interval);
+                        stopPolling();
                         setStep('aborted');
                         setLog('Installation was cancelled from the Switch.');
                         setIsInstalling(false);
@@ -89,13 +102,19 @@ const SwitchInstallerModal: React.FC<SwitchInstallerModalProps> = ({ isOpen, onC
                             onClose();
                         }, 2000);
                     } else if (currentS.startsWith('Error')) {
-                        clearInterval(interval);
+                        stopPolling();
                         setStep('error');
                         setLog(currentS);
                         setIsInstalling(false);
                     }
                 } catch (pollErr: unknown) {
                     console.error('Progress polling error:', pollErr);
+                    if (++pollErrors >= 5) {
+                        stopPolling();
+                        setStep('error');
+                        setLog('Lost connection to progress: ' + getErrorMessage(pollErr));
+                        setIsInstalling(false);
+                    }
                 }
             }, 1000);
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { wishlistApi, getErrorMessage, type WishlistEntry, type WishlistRefreshResult } from '../api/client';
 import { useTranslation } from '../i18n/translations';
+import { formatDate } from '../utils/date';
 import './Wishlist.css';
 
 const COUNTRY_CODES = ['US', 'DE', 'GB', 'FR', 'ES', 'IT', 'NL', 'PL', 'BR', 'JP', 'AU', 'CA'];
@@ -17,15 +18,6 @@ const formatPrice = (price: number | null | undefined, currency: string | null |
     }).format(price);
   } catch {
     return `${price.toFixed(2)} ${currency || ''}`.trim();
-  }
-};
-
-const formatDate = (iso: string | null | undefined) => {
-  if (!iso) return '-';
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
   }
 };
 
@@ -243,7 +235,7 @@ export default function Wishlist() {
                       </div>
                       <div className="wishlist-footer">
                         <span className="wishlist-last">
-                          {t('wishlistLastChecked')}: {formatDate(entry.watch.lastCheckedAt)}
+                          {t('wishlistLastChecked')}: {formatDate(entry.watch.lastCheckedAt) || '-'}
                         </span>
                         <button
                           type="button"

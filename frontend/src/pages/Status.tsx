@@ -2,9 +2,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useTranslation } from '../i18n/translations';
 import apiClient, { getErrorMessage } from '../api/client';
+import { formatDate } from '../utils/date';
 import './Status.css';
 
-const API_BASE = '/api/v3/downloadclient';
+const API_BASE = '/downloadclient';
 
 interface DownloadStatus {
   id: string;
@@ -137,8 +138,8 @@ function useGameSearch(enabled: boolean, search: string, platformId?: number) {
     if (platformId) params.set('platformId', String(platformId));
     // One request once typing pauses, not one per key
     const timer = setTimeout(() => {
-      fetch(`/api/v3/game/paged?${params}`)
-        .then(r => r.json())
+      apiClient.get(`/game/paged?${params}`)
+        .then(r => r.data)
         .then(data => {
           if (!current || !Array.isArray(data?.items)) return;
           const items = data.items.map((g: GameOption) => ({ id: g.id, title: g.title }));
@@ -168,12 +169,6 @@ function formatBytes(bytes: number): string {
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-}
-
-function formatDate(dateStr: string): string {
-  if (!dateStr) return '';
-  const d = new Date(dateStr);
-  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 function getStateBadgeClass(state: string | number): string {
@@ -269,8 +264,8 @@ const Status: React.FC = () => {
 
   // Fetch platforms once
   useEffect(() => {
-    fetch('/api/v3/platform')
-      .then(r => r.json())
+    apiClient.get('/platform')
+      .then(r => r.data)
       .then(data => {
         if (Array.isArray(data)) setPlatforms(data.filter((p: PlatformOption) => p.enabled));
       })
@@ -279,8 +274,8 @@ const Status: React.FC = () => {
 
   // Fetch counts on interval
   const fetchCounts = useCallback(() => {
-    fetch(`${API_BASE}/counts`)
-      .then(r => r.json())
+    apiClient.get(`${API_BASE}/counts`)
+      .then(r => r.data)
       .then(data => setCounts(data))
       .catch(() => {});
   }, []);
@@ -315,8 +310,8 @@ const Status: React.FC = () => {
     const fetchQueue = () => {
       if (busy) return;
       busy = true;
-      fetch(`${API_BASE}/queue`)
-        .then(r => r.json())
+      apiClient.get(`${API_BASE}/queue`)
+        .then(r => r.data)
         .then(data => { if (Array.isArray(data)) setDownloads(data); })
         .catch(() => {})
         .finally(() => { busy = false; });
@@ -343,8 +338,8 @@ const Status: React.FC = () => {
   useEffect(() => {
     if (activeTab !== 'activity') return;
     const fetchGog = () => {
-      fetch('/api/v3/settings/gog/download-status')
-        .then(r => r.json())
+      apiClient.get('/settings/gog/download-status')
+        .then(r => r.data)
         .then(data => { if (Array.isArray(data)) setGogDownloads(data); })
         .catch(() => {});
     };
@@ -377,8 +372,8 @@ const Status: React.FC = () => {
     params.set('page', String(historyPage));
     params.set('pageSize', '25');
 
-    fetch(`${API_BASE}/history?${params}`)
-      .then(r => r.json())
+    apiClient.get(`${API_BASE}/history?${params}`)
+      .then(r => r.data)
       .then(data => {
         setHistory(data.items || []);
         setHistoryTotalPages(data.totalPages || 1);
@@ -392,8 +387,8 @@ const Status: React.FC = () => {
 
   // Failed fetch
   const fetchFailed = useCallback(() => {
-    fetch(`${API_BASE}/history/failed`)
-      .then(r => r.json())
+    apiClient.get(`${API_BASE}/history/failed`)
+      .then(r => r.data)
       .then(data => { if (Array.isArray(data)) setFailed(data); })
       .catch(() => {});
   }, []);
@@ -404,8 +399,8 @@ const Status: React.FC = () => {
 
   // Unmapped fetch
   const fetchUnmapped = useCallback(() => {
-    fetch(`${API_BASE}/unmapped`)
-      .then(r => r.json())
+    apiClient.get(`${API_BASE}/unmapped`)
+      .then(r => r.data)
       .then(data => { if (Array.isArray(data)) setUnmapped(data); })
       .catch(() => {});
   }, []);
@@ -419,8 +414,8 @@ const Status: React.FC = () => {
   const fetchBlacklist = useCallback(() => {
     const request = ++blacklistRequest.current;
     const params = blacklistQuery ? `?query=${encodeURIComponent(blacklistQuery)}` : '';
-    fetch(`${API_BASE}/blacklist${params}`)
-      .then(r => r.json())
+    apiClient.get(`${API_BASE}/blacklist${params}`)
+      .then(r => r.data)
       .then(data => { if (request === blacklistRequest.current && Array.isArray(data)) setBlacklist(data); })
       .catch(() => {});
   }, [blacklistQuery]);
@@ -435,8 +430,8 @@ const Status: React.FC = () => {
   // Unmapped local files fetch
   const fetchUnmappedFiles = useCallback(() => {
     setUnmappedFilesLoading(true);
-    fetch('/api/v3/game/unmapped-files')
-      .then(r => r.json())
+    apiClient.get('/game/unmapped-files')
+      .then(r => r.data)
       .then(data => { if (Array.isArray(data)) setUnmappedFiles(data); })
       .catch(() => {})
       .finally(() => setUnmappedFilesLoading(false));
@@ -450,11 +445,21 @@ const Status: React.FC = () => {
 
   // Actions
   const handlePause = async (clientId: number, downloadId: string) => {
-    await fetch(`${API_BASE}/queue/${clientId}/${encodeURIComponent(downloadId)}/pause`, { method: 'POST' });
+    setImportError(null);
+    try {
+      await apiClient.post(`${API_BASE}/queue/${clientId}/${encodeURIComponent(downloadId)}/pause`);
+    } catch (error) {
+      setImportError(getErrorMessage(error));
+    }
   };
 
   const handleResume = async (clientId: number, downloadId: string) => {
-    await fetch(`${API_BASE}/queue/${clientId}/${encodeURIComponent(downloadId)}/resume`, { method: 'POST' });
+    setImportError(null);
+    try {
+      await apiClient.post(`${API_BASE}/queue/${clientId}/${encodeURIComponent(downloadId)}/resume`);
+    } catch (error) {
+      setImportError(getErrorMessage(error));
+    }
   };
 
   const handleDelete = async () => {
@@ -462,7 +467,7 @@ const Status: React.FC = () => {
     if (!target || removing) return;
     setRemoving(true);
     try {
-      await fetch(`${API_BASE}/queue/${target.clientId}/${encodeURIComponent(target.id)}?deleteFiles=${removeFiles}`, { method: 'DELETE' });
+      await apiClient.delete(`${API_BASE}/queue/${target.clientId}/${encodeURIComponent(target.id)}?deleteFiles=${removeFiles}`);
     } catch {
       // the next queue poll shows whether it went through
     } finally {
@@ -485,41 +490,59 @@ const Status: React.FC = () => {
   };
 
   const handleGogCancel = async (trackId: string) => {
-    await fetch(`/api/v3/settings/gog/download-status/${trackId}`, { method: 'DELETE' });
+    setImportError(null);
+    try {
+      await apiClient.delete(`/settings/gog/download-status/${trackId}`);
+    } catch (error) {
+      setImportError(getErrorMessage(error));
+    }
   };
 
   const handleMapPlatform = async (d: DownloadStatus, platformFolder: string) => {
-    await fetch(`${API_BASE}/queue/map-platform`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ downloadName: d.name, clientId: d.clientId, downloadId: d.id, platformFolder })
-    });
-    setEditingPlatform(null);
+    setImportError(null);
+    try {
+      await apiClient.post(`${API_BASE}/queue/map-platform`, { downloadName: d.name, clientId: d.clientId, downloadId: d.id, platformFolder });
+      setEditingPlatform(null);
+    } catch (error) {
+      setImportError(getErrorMessage(error));
+    }
   };
 
+  // History, Failed and Blacklist have no error banner; the refreshed lists show what went through
   const handleHistoryDismiss = async (id: number) => {
-    await fetch(`${API_BASE}/history/${id}/dismiss`, { method: 'POST' });
-    fetchFailed();
-    fetchHistory();
-    fetchCounts();
+    try {
+      await apiClient.post(`${API_BASE}/history/${id}/dismiss`);
+    } catch (error) {
+      console.error('Dismiss failed:', getErrorMessage(error));
+    } finally {
+      fetchFailed();
+      fetchHistory();
+      fetchCounts();
+    }
   };
 
   const handleHistoryBlacklist = async (id: number) => {
-    await fetch(`${API_BASE}/history/${id}/blacklist`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reason: 'Blacklisted by user' })
-    });
-    fetchFailed();
-    fetchHistory();
-    fetchBlacklist();
-    fetchCounts();
+    try {
+      await apiClient.post(`${API_BASE}/history/${id}/blacklist`, { reason: 'Blacklisted by user' });
+    } catch (error) {
+      console.error('Blacklist failed:', getErrorMessage(error));
+    } finally {
+      fetchFailed();
+      fetchHistory();
+      fetchBlacklist();
+      fetchCounts();
+    }
   };
 
   const handleBlacklistRemove = async (id: number) => {
-    await fetch(`${API_BASE}/blacklist/${id}`, { method: 'DELETE' });
-    fetchBlacklist();
-    fetchCounts();
+    try {
+      await apiClient.delete(`${API_BASE}/blacklist/${id}`);
+    } catch (error) {
+      console.error('Blacklist remove failed:', getErrorMessage(error));
+    } finally {
+      fetchBlacklist();
+      fetchCounts();
+    }
   };
 
   // The import's own rules pick the file type for the game and platform chosen in the dialog, until the user picks one
@@ -529,8 +552,8 @@ const Status: React.FC = () => {
     const params = new URLSearchParams({ title: mapModal.title });
     if (mapGameId) params.set('gameId', String(mapGameId));
     if (mapPlatform) params.set('platform', mapPlatform);
-    fetch(`${API_BASE}/queue/import-subfolder?${params}`)
-      .then(r => r.json())
+    apiClient.get(`${API_BASE}/queue/import-subfolder?${params}`)
+      .then(r => r.data)
       .then(data => { if (current && data?.importSubfolder) setMapFileType(data.importSubfolder); })
       .catch(() => {});
     return () => { current = false; };
