@@ -17,7 +17,7 @@ namespace RetroArr.Core.MetadataSource.Gog
     {
         private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(Logging.AppLoggerService.GogDownloads);
         private readonly HttpClient _httpClient;
-        private readonly string? _refreshToken;
+        private string? _refreshToken;
         private string? _accessToken;
         private DateTime _tokenExpiration;
 
@@ -31,6 +31,9 @@ namespace RetroArr.Core.MetadataSource.Gog
             _httpClient = new HttpClient();
             _httpClient.DefaultRequestHeaders.Add("User-Agent", "RetroArr/1.0");
         }
+
+        // The one to store after RefreshTokenAsync: GOG hands out a new one with each refresh
+        public string? RefreshToken => _refreshToken;
 
         public static string GetLoginUrl(string clientId, string redirectUri)
         {
@@ -73,6 +76,7 @@ namespace RetroArr.Core.MetadataSource.Gog
             {
                 _accessToken = tokenResponse.AccessToken;
                 _tokenExpiration = DateTime.UtcNow.AddSeconds(tokenResponse.ExpiresIn - 60);
+                if (!string.IsNullOrEmpty(tokenResponse.RefreshToken)) _refreshToken = tokenResponse.RefreshToken;
                 return true;
             }
 

@@ -666,6 +666,7 @@ namespace RetroArr.Core.Test.Search
             // Hydra sources carry no seeder count, so the kept row is a Reject.
             var hydraRow = result.Scored.Single();
             Assert.That(hydraRow.Release.Title, Is.EqualTo("Halo 3 (USA)"));
+            Assert.That(hydraRow.Release.DownloadUrl, Is.EqualTo("magnet:?xt=urn:btih:fedcba9876543210fedcba9876543210fedcba98"));
             Assert.That(hydraRow.Decision, Is.EqualTo(ReleaseDecision.Reject));
             Assert.That(hydraRow.Reason, Does.StartWith("insufficient seeders"));
         }

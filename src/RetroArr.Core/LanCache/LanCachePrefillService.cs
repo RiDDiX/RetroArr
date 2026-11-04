@@ -289,7 +289,16 @@ namespace RetroArr.Core.LanCache
             lock (_sync) { st.Process = proc; }
             proc.BeginOutputReadLine();
             proc.BeginErrorReadLine();
-            await proc.WaitForExitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                await proc.WaitForExitAsync(ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // The tool keeps running when only the wait is cancelled
+                try { proc.Kill(entireProcessTree: true); } catch { }
+                throw;
+            }
 
             lock (_sync)
             {

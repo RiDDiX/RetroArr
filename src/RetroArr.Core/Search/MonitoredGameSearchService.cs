@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using RetroArr.Core.Cache;
 using RetroArr.Core.Configuration;
 using RetroArr.Core.Data;
 using RetroArr.Core.Download;
@@ -50,26 +51,31 @@ namespace RetroArr.Core.Search
         private readonly ReleaseScorer _scorer;
         private readonly DownloadPlatformTracker _platformTracker;
         private readonly DownloadBlacklistRepository? _blacklist;
+        private readonly IGameRepository? _games;
 
         public MonitoredGameSearchService(
             RetroArrDbContext db,
             ConfigurationService config,
             ReleaseScorer scorer,
             DownloadPlatformTracker platformTracker,
-            DownloadBlacklistRepository? blacklist = null)
+            DownloadBlacklistRepository? blacklist = null,
+            IGameRepository? games = null)
         {
             _db = db;
             _config = config;
             _scorer = scorer;
             _platformTracker = platformTracker;
             _blacklist = blacklist;
+            _games = games;
         }
 
         public Task<MonitorSearchResult> SearchAndMaybeDispatchAsync(
             int gameId, bool allowAutoDispatch, CancellationToken ct = default) =>
             SearchAsync(gameId, allowAutoDispatch, sweep: false, ct);
 
-        private async Task<MonitorSearchResult> SearchAsync(int gameId, bool allowAutoDispatch, bool sweep, CancellationToken ct)
+        // A sweep loads the blacklist once and passes it in as sweepBlacklist
+        private async Task<MonitorSearchResult> SearchAsync(int gameId, bool allowAutoDispatch, bool sweep, CancellationToken ct,
+            Func<SearchResult, string?>? sweepBlacklist = null)
         {
             // Untracked: in a sweep the context already holds the rows ApplyContentAsync flagged, as they were at its start
             var game = await _db.Games.AsNoTracking()
@@ -119,7 +125,7 @@ namespace RetroArr.Core.Search
                 .ToList();
 
             // Score. Rejects stay in the list (last) so the UI can show why.
-            var blockedReason = await LoadBlacklistAsync().ConfigureAwait(false);
+            var blockedReason = sweep ? sweepBlacklist : await LoadBlacklistAsync().ConfigureAwait(false);
             var scored = unique
                 .Select(r => _scorer.Score(r, game, settings, blockedReason))
                 .ToList();
@@ -199,6 +205,7 @@ namespace RetroArr.Core.Search
                 .ConfigureAwait(false);
 
             _logger.Info($"[Monitor] sweep starting: {monitored.Count} monitored game(s).");
+            var blacklist = await LoadBlacklistAsync().ConfigureAwait(false);
 
             foreach (var g in monitored)
             {
@@ -210,7 +217,7 @@ namespace RetroArr.Core.Search
                 }
                 try
                 {
-                    await SearchAsync(g.Id, allowAutoDispatch: true, sweep: true, ct).ConfigureAwait(false);
+                    await SearchAsync(g.Id, allowAutoDispatch: true, sweep: true, ct, blacklist).ConfigureAwait(false);
                     // Polite stagger between games to be kind to indexers.
                     await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
                 }
@@ -265,6 +272,8 @@ namespace RetroArr.Core.Search
                 var current = content == GameContent.Present ? content : MediaScannerService.CheckContent(row, roots);
                 if (current == GameContent.Unknown || !row.ApplyContent(current, now)) continue;
                 await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+                // Written past the repository: the cached game list and detail would still show the old status
+                if (_games is CachedGameRepository cached) await cached.InvalidateAsync(row.Id).ConfigureAwait(false);
                 if (row.Status == GameStatus.Missing) flagged.Add(row.Id);
             }
             return flagged;
@@ -473,7 +482,7 @@ namespace RetroArr.Core.Search
                             .AddTorrentAsync(url, client.Category ?? string.Empty).ConfigureAwait(false);
                         break;
                     case "deluge":
-                        sent = await new DelugeClient(client.Host, client.Port, client.Password ?? string.Empty, client.UseSsl)
+                        sent = await new DelugeClient(client.Host, client.Port, client.Password ?? string.Empty, client.UseSsl, allowSelfSignedCert: client.AllowSelfSignedCert)
                             .AddTorrentAsync(url, client.Category ?? string.Empty).ConfigureAwait(false);
                         break;
                     case "sabnzbd":

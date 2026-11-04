@@ -17,15 +17,6 @@ namespace RetroArr.Core.Games
             _contextFactory = contextFactory;
         }
 
-        public async Task<List<Game>> GetAllAsync()
-        {
-            using var context = await _contextFactory.CreateDbContextAsync();
-            return await context.Games
-                .AsNoTracking()
-                .Include(g => g.GameFiles)
-                .ToListAsync();
-        }
-
         // Untracked: the context is gone on return, and tracking a big library costs seconds
         public async Task<List<Game>> GetAllLightAsync()
         {
@@ -123,6 +114,20 @@ namespace RetroArr.Core.Games
                     MetadataConfirmedByUser = g.MetadataConfirmedByUser
                 })
                 .ToListAsync();
+        }
+
+        public async Task<List<GameListDto>> FindByTitleAsync(int platformId, string title)
+        {
+            using var context = await _contextFactory.CreateDbContextAsync();
+            // SQLite's lower() folds ASCII letters only (Ōkami, Élite): the database narrows by length, the title is compared here.
+            // length() counts code points, as case folding keeps them.
+            var length = title.EnumerateRunes().Count();
+            var rows = await context.Games.AsNoTracking()
+                .Where(g => g.PlatformId == platformId && g.Title.Length == length)
+                .OrderBy(g => g.Title).ThenBy(g => g.Id)
+                .Select(g => new GameListDto { Id = g.Id, Title = g.Title, PlatformId = g.PlatformId, Region = g.Region, Path = g.Path })
+                .ToListAsync();
+            return rows.Where(g => g.Title.Equals(title, StringComparison.OrdinalIgnoreCase)).ToList();
         }
 
         public async Task<PagedResult<GameListDto>> GetAllPagedAsync(int page, int pageSize, int? platformId = null, string? search = null, string sortOrder = "asc", bool? missingOnly = null, string? protonDbTier = null)

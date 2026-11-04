@@ -19,15 +19,6 @@ namespace RetroArr.Core.Cache
             _settings = settings;
         }
 
-        public async Task<List<Game>> GetAllAsync()
-        {
-            if (!_cache.IsEnabled) return await _inner.GetAllAsync();
-            return await _cache.GetOrSetAsync(
-                CacheKeys.GamesAll,
-                () => _inner.GetAllAsync(),
-                TimeSpan.FromSeconds(_settings.LibraryListTtlSeconds));
-        }
-
         public async Task<List<Game>> GetAllLightAsync()
         {
             if (!_cache.IsEnabled) return await _inner.GetAllLightAsync();
@@ -47,6 +38,8 @@ namespace RetroArr.Core.Cache
 
         public Task<List<GameReviewRow>> GetReviewRowsAsync() => _inner.GetReviewRowsAsync();
         public Task<List<GameMetadataRow>> GetMetadataRowsAsync(int? platformId) => _inner.GetMetadataRowsAsync(platformId);
+
+        public Task<List<GameListDto>> FindByTitleAsync(int platformId, string title) => _inner.FindByTitleAsync(platformId, title);
 
         public Task<PagedResult<GameListDto>> GetAllPagedAsync(int page, int pageSize, int? platformId = null, string? search = null, string sortOrder = "asc", bool? missingOnly = null, string? protonDbTier = null)
             => _inner.GetAllPagedAsync(page, pageSize, platformId, search, sortOrder, missingOnly, protonDbTier);

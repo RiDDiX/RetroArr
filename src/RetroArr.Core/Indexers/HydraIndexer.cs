@@ -107,7 +107,7 @@ namespace RetroArr.Core.Indexers
                     Protocol = !string.IsNullOrEmpty(magnet) ? "torrent" : "http",
                     PublishDate = DateTime.TryParse(uploadDate, out var date) ? date : DateTime.UtcNow,
                     MagnetUrl = magnet,
-                    DownloadUrl = downloadUrl ?? magnet,
+                    DownloadUrl = !string.IsNullOrEmpty(downloadUrl) ? downloadUrl : magnet,
                     InfoUrl = _url,
                     Provider = "Hydra"
                 });

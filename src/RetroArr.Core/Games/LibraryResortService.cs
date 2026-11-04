@@ -1324,7 +1324,8 @@ namespace RetroArr.Core.Games
                     NewFileName = expectedFileName,
                     NewPath = newFullPath,
                     NewRelativePath = GameFilePaths.StoredPathIn(folder, newFullPath),
-                    Conflict = File.Exists(newFullPath) && !currentFullPath.Equals(newFullPath, PathComparison)
+                    // One that differs only in case is the file itself where the file system ignores case
+                    Conflict = File.Exists(newFullPath) && !currentFullPath.Equals(newFullPath, StringComparison.OrdinalIgnoreCase)
                 });
             }
 
@@ -1379,7 +1380,7 @@ namespace RetroArr.Core.Games
                     {
                         var targetDir = Path.GetDirectoryName(op.NewPath);
                         if (targetDir != null) Directory.CreateDirectory(targetDir);
-                        File.Move(op.CurrentPath, op.NewPath);
+                        MoveFile(op.CurrentPath, op.NewPath);
                     }
                     else
                     {
@@ -1397,7 +1398,7 @@ namespace RetroArr.Core.Games
                     }
                     catch
                     {
-                        File.Move(op.NewPath, op.CurrentPath);
+                        MoveFile(op.NewPath, op.CurrentPath);
                         throw;
                     }
                     op.Status = "Applied";
@@ -1413,6 +1414,29 @@ namespace RetroArr.Core.Games
 
             result.Operations = ops;
             return result;
+        }
+
+        // As MoveDirectory: only the case changes and the target is found, so through a temporary name, and when the
+        // target is still there with the source gone it is another file, so the source goes back
+        private static void MoveFile(string source, string target)
+        {
+            if (!string.Equals(source, target, StringComparison.OrdinalIgnoreCase) || !File.Exists(target))
+            {
+                File.Move(source, target);
+                return;
+            }
+            var temp = target + ".tmp-case";
+            File.Move(source, temp);
+            try
+            {
+                if (File.Exists(target)) throw new IOException($"Target already exists: {target}");
+                File.Move(temp, target);
+            }
+            catch
+            {
+                File.Move(temp, source);
+                throw;
+            }
         }
 
         // ── Platform comparison ─────────────────────────────────────────

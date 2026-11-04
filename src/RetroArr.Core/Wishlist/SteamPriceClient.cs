@@ -18,7 +18,6 @@ namespace RetroArr.Core.Wishlist
         public decimal Final { get; set; }
         public decimal Initial { get; set; }
         public int DiscountPercent { get; set; }
-        public bool IsFree { get; set; }
     }
 
     [SuppressMessage("Microsoft.Design", "CA1031:DoNotCatchGeneralExceptionTypes")]
@@ -63,8 +62,9 @@ namespace RetroArr.Core.Wishlist
             var url = $"api/appdetails?appids={Uri.EscapeDataString(ids)}&cc={Uri.EscapeDataString(countryCode)}&filters=price_overview";
 
             var quotes = new Dictionary<string, SteamPriceQuote?>(StringComparer.OrdinalIgnoreCase);
-            // Pre-fill so callers always see every requested id, even if Steam
-            // omits some (free games, region locks, dead app ids).
+            // Pre-fill so callers see every requested id, null when Steam omits
+            // it (region locks, dead app ids) or the batch fails. An app without
+            // a price is left out: there is nothing to track, and nothing failed.
             foreach (var id in batch) quotes[id] = null;
 
             try
@@ -86,10 +86,10 @@ namespace RetroArr.Core.Wishlist
 
                     if (!node.TryGetProperty("data", out var data)) continue;
 
-                    // Free games: data is present but price_overview is absent.
-                    if (!data.TryGetProperty("price_overview", out var po))
+                    // Free, unreleased or delisted: Steam sends "data": [] or no price_overview
+                    if (data.ValueKind != JsonValueKind.Object || !data.TryGetProperty("price_overview", out var po))
                     {
-                        quotes[appId] = new SteamPriceQuote { AppId = appId, IsFree = true };
+                        quotes.Remove(appId);
                         continue;
                     }
 
@@ -120,8 +120,7 @@ namespace RetroArr.Core.Wishlist
                     Currency = currency,
                     Final = final / 100m,
                     Initial = initial / 100m,
-                    DiscountPercent = discount,
-                    IsFree = false
+                    DiscountPercent = discount
                 };
             }
             catch (Exception ex)

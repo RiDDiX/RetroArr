@@ -911,6 +911,7 @@ namespace RetroArr.Api.V3.Settings
                 
                 _logger.Info("[GOG] Refreshing access token...");
                 var refreshed = await client.RefreshTokenAsync(GogClientId, GogClientSecret);
+                _configService.SaveGogRefreshToken(client.RefreshToken);
                 if (!refreshed)
                 {
                     _logger.Error("[GOG] Failed to refresh access token");
@@ -988,6 +989,7 @@ namespace RetroArr.Api.V3.Settings
                 const string GogClientSecret = "9d85c43b1482497dbbce61f6e4aa173a433796eeae2ca8c5f6129f2dc4de46d9";
                 var client = new GogClient(gogSettings.RefreshToken);
                 var refreshed = await client.RefreshTokenAsync(GogClientId, GogClientSecret);
+                _configService.SaveGogRefreshToken(client.RefreshToken);
                 if (!refreshed)
                     return BadRequest(new { success = false, message = "Failed to authenticate with GOG. Please re-authenticate in Settings." });
 

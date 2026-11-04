@@ -875,7 +875,7 @@ namespace RetroArr.Core.Test.Download
             hook.Before = (method, _) =>
             {
                 calls?.Add(method.Name);
-                if (method.Name is nameof(IGameRepository.GetAllAsync) or nameof(IGameRepository.GetAllLightAsync))
+                if (method.Name == nameof(IGameRepository.GetAllLightAsync))
                     throw new InvalidOperationException($"{method.Name} loads the whole library");
             };
             return repo;

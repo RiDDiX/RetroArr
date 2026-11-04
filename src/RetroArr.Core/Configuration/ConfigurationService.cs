@@ -580,6 +580,15 @@ namespace RetroArr.Core.Configuration
             catch (Exception ex) { _logger.Error($"Error saving GOG settings: {ex.Message}"); }
         }
 
+        // The refresh token a GogClient holds after a refresh, when it is a new one
+        public void SaveGogRefreshToken(string? refreshToken)
+        {
+            var settings = LoadGogSettings();
+            if (string.IsNullOrEmpty(refreshToken) || refreshToken == settings.RefreshToken) return;
+            settings.RefreshToken = refreshToken;
+            SaveGogSettings(settings);
+        }
+
         public EpicSettings LoadEpicSettings()
         {
             if (File.Exists(_epicConfigFile))

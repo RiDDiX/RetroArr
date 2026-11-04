@@ -83,7 +83,8 @@ namespace RetroArr.Core.Download
                         }
                     }
 
-                    await Task.Delay(TimeSpan.FromSeconds(settings.MonitorIntervalSeconds), stoppingToken);
+                    // 0 or less would poll the clients without a pause
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Max(5, settings.MonitorIntervalSeconds)), stoppingToken);
                 }
                 catch (OperationCanceledException) { }
                 catch (Exception ex)
@@ -198,7 +199,7 @@ namespace RetroArr.Core.Download
             if (config.Implementation.Equals("NZBGet", StringComparison.OrdinalIgnoreCase))
                 return new NzbgetClient(config.Host, config.Port, config.Username ?? "", config.Password ?? "", config.UrlBase);
             if (config.Implementation.Equals("Deluge", StringComparison.OrdinalIgnoreCase))
-                return new DelugeClient(config.Host, config.Port, config.Password ?? "", config.UseSsl, config.Category);
+                return new DelugeClient(config.Host, config.Port, config.Password ?? "", config.UseSsl, config.Category, config.AllowSelfSignedCert);
             return null;
         }
     }

@@ -460,8 +460,7 @@ namespace RetroArr.Core.Download
             if (downloadPlatformDef != null && downloadPlatformDef.Id != game.PlatformId)
             {
                 // Try to find an existing game entry with the same title on the download's platform
-                var match = (await _gameRepository.GetAllPagedAsync(1, int.MaxValue, downloadPlatformDef.Id)).Items
-                    .Where(g => g.PlatformId == downloadPlatformDef.Id && string.Equals(g.Title, game.Title, StringComparison.OrdinalIgnoreCase)).MinBy(g => g.Id);
+                var match = (await _gameRepository.FindByTitleAsync(downloadPlatformDef.Id, game.Title)).MinBy(g => g.Id);
                 var platformGame = match == null ? null : await _gameRepository.GetByIdAsync(match.Id);
 
                 if (platformGame != null)
@@ -800,8 +799,7 @@ namespace RetroArr.Core.Download
 
                 // Check for existing game with same title+platform to avoid unique constraint violation
                 // The lowest id, as the library's row order gave it
-                var existingByTitlePlatform = (await _gameRepository.GetAllPagedAsync(1, int.MaxValue, platformId)).Items.Where(g =>
-                    g.Title.Equals(title, StringComparison.OrdinalIgnoreCase) && g.PlatformId == platformId).MinBy(g => g.Id);
+                var existingByTitlePlatform = (await _gameRepository.FindByTitleAsync(platformId, title)).MinBy(g => g.Id);
                 if (existingByTitlePlatform != null)
                 {
                     var landedThere = false;
@@ -1548,7 +1546,7 @@ namespace RetroArr.Core.Download
                 _logger.Info($"[PostDownload] Leaving source in place, the torrent client still seeds from it: {path}");
                 return;
             }
-            if (IsCriticalPath(path))
+            if (PathGuard.IsCriticalPath(path))
             {
                 _logger.Info($"[PostDownload] BLOCKED: Refusing to delete critical path: {path}");
                 return;
@@ -1563,29 +1561,6 @@ namespace RetroArr.Core.Download
             {
                 _logger.Warn($"[PostDownload] Warning: Could not delete source {path}: {ex.Message}");
             }
-        }
-
-        private static bool IsCriticalPath(string? path)
-        {
-            if (string.IsNullOrEmpty(path)) return true;
-            var full = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar);
-            var root = Path.GetPathRoot(full);
-
-            if (full.Equals(root, StringComparison.OrdinalIgnoreCase)) return true;
-
-            var sensitive = new[]
-            {
-                "/", "/bin", "/boot", "/dev", "/etc", "/home", "/lib", "/proc", "/root",
-                "/run", "/sbin", "/sys", "/tmp", "/usr", "/var", "/Users",
-                "C:\\", "C:\\Windows", "C:\\Program Files", "C:\\Users"
-            };
-
-            foreach (var s in sensitive)
-            {
-                if (full.Equals(s, StringComparison.OrdinalIgnoreCase)) return true;
-            }
-
-            return false;
         }
     }
 }

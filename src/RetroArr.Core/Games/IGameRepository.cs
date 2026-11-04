@@ -5,7 +5,6 @@ namespace RetroArr.Core.Games
 {
     public interface IGameRepository
     {
-        Task<List<Game>> GetAllAsync();
         Task<List<Game>> GetAllLightAsync();
         // Only the columns the problems list checks, for every game
         Task<List<GameProblemRow>> GetProblemRowsAsync();
@@ -19,6 +18,8 @@ namespace RetroArr.Core.Games
         Task<List<GameReviewRow>> GetReviewRowsAsync();
         // The columns a metadata rescan picks its games by, of every game or of one platform, by id
         Task<List<GameMetadataRow>> GetMetadataRowsAsync(int? platformId);
+        // Id, Title, PlatformId, Region and Path of the games of the platform with this title in any case, by title and id
+        Task<List<GameListDto>> FindByTitleAsync(int platformId, string title);
         Task<PagedResult<GameListDto>> GetAllPagedAsync(int page, int pageSize, int? platformId = null, string? search = null, string sortOrder = "asc", bool? missingOnly = null, string? protonDbTier = null);
         Task<Game?> GetByIdAsync(int id);
         Task<Game> AddAsync(Game game);

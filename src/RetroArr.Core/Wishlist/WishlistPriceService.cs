@@ -129,25 +129,11 @@ namespace RetroArr.Core.Wishlist
                 {
                     watch.LastCheckedAt = now;
 
-                    if (!quotes.TryGetValue(watch.ExternalId, out var quote) || quote == null)
+                    // Left out: Steam has no price for the app, the stored one stays
+                    if (!quotes.TryGetValue(watch.ExternalId, out var quote)) continue;
+                    if (quote == null)
                     {
                         summary.Failed++;
-                        continue;
-                    }
-
-                    if (quote.IsFree)
-                    {
-                        // No price to track; mark currency empty and price 0.
-                        if (watch.CurrentPrice != 0m)
-                        {
-                            watch.PreviousPrice = watch.CurrentPrice;
-                            watch.CurrentPrice = 0m;
-                            watch.Currency = quote.Currency;
-                            watch.IsOnSale = false;
-                            watch.DiscountPercent = 0;
-                            watch.LastChangedAt = now;
-                            summary.Updated++;
-                        }
                         continue;
                     }
 

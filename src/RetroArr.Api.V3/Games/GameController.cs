@@ -56,25 +56,15 @@ namespace RetroArr.Api.V3.Games
             _mergeService = mergeService;
         }
 
+        // The list columns only, by title; the UI pages through /game/paged, a whole game comes from /game/{id}
         [HttpGet]
-        public async Task<IEnumerable<Game>> GetAll([FromQuery] string lang = "es")
+        public async Task<IEnumerable<GameListDto>> GetAll([FromQuery] int? limit = null)
         {
             _logger.Info("[API] GetAll Games Request Received");
             try 
             {
-                var games = await _repository.GetAllLightAsync();
-                
-                var platformLookup = PlatformDefinitions.PlatformDictionary;
-                foreach (var game in games)
-                {
-                    if (game.PlatformId > 0 && game.Platform == null)
-                    {
-                        if (platformLookup.TryGetValue(game.PlatformId, out var plat))
-                            game.Platform = plat;
-                    }
-                }
-                
-                _logger.Info($"[API] Retrieved {games.Count()} games from DB");
+                var games = (await _repository.GetAllPagedAsync(1, limit is > 0 ? limit.Value : int.MaxValue)).Items;
+                _logger.Info($"[API] Retrieved {games.Count} games from DB");
                 return games;
             }
             catch (Exception ex)
@@ -436,12 +426,9 @@ namespace RetroArr.Api.V3.Games
             // is (Title, PlatformId, Region), so only an exact 3-way match fires.
             try
             {
-                // Only the platform's entries: the title is compared here, the database folds the case of ASCII letters only
-                var others = (await _repository.GetAllPagedAsync(1, int.MaxValue, existingGame.PlatformId)).Items;
+                var others = await _repository.FindByTitleAsync(existingGame.PlatformId, existingGame.Title);
                 var collision = others.FirstOrDefault(g =>
                     g.Id != id &&
-                    g.PlatformId == existingGame.PlatformId &&
-                    string.Equals(g.Title, existingGame.Title, StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(g.Region ?? string.Empty, existingGame.Region ?? string.Empty, StringComparison.OrdinalIgnoreCase));
                 if (collision != null)
                 {
@@ -550,10 +537,7 @@ namespace RetroArr.Api.V3.Games
 
             // Look for an existing row on the target platform with the same
             // title - that's a collision we don't auto-merge. Let the user pick.
-            var all = (await _repository.GetAllPagedAsync(1, int.MaxValue, resolved.Id)).Items;
-            var collision = all.FirstOrDefault(g => g.Id != id
-                && g.PlatformId == resolved.Id
-                && string.Equals(g.Title, game.Title, StringComparison.OrdinalIgnoreCase));
+            var collision = (await _repository.FindByTitleAsync(resolved.Id, game.Title)).FirstOrDefault(g => g.Id != id);
             if (collision != null)
             {
                 return Conflict(new
@@ -981,34 +965,7 @@ namespace RetroArr.Api.V3.Games
                 .ToList();
         }
 
-        internal static bool IsCriticalPath(string path)
-        {
-            if (string.IsNullOrEmpty(path)) return true;
-            var full = System.IO.Path.GetFullPath(path).TrimEnd(System.IO.Path.DirectorySeparatorChar);
-            var root = System.IO.Path.GetPathRoot(full);
-            
-            // 1. Root
-            if (full.Equals(root, StringComparison.OrdinalIgnoreCase)) return true;
-            
-            // 2. Common System Folders (Linux/Mac/Win)
-            var sensitive = new[] { 
-                "/", "/bin", "/boot", "/dev", "/etc", "/home", "/lib", "/proc", "/root", "/run", "/sbin", "/sys", "/tmp", "/usr", "/var",
-                "/Users", "/Users/imaik", "/Users/imaik/Desktop", "/Users/imaik/Documents", "/Users/imaik/Downloads",
-                "C:\\", "C:\\Windows", "C:\\Program Files", "C:\\Users"
-            };
-
-            foreach (var s in sensitive)
-            {
-                 // Exact match blocking
-                 if (full.Equals(s, StringComparison.OrdinalIgnoreCase)) return true;
-                 
-                 // Also block if it's a DIRECT child of a very sensitive root? 
-                 // e.g. /Users/imaik/Desktop/Games is OK. 
-                 // /Users/imaik/Desktop is BLOCKED (Safe).
-            }
-
-            return false;
-        }
+        internal static bool IsCriticalPath(string path) => RetroArr.Core.IO.PathGuard.IsCriticalPath(path);
 
 
         [HttpPost("{id}/uninstall")]
@@ -1904,8 +1861,8 @@ namespace RetroArr.Api.V3.Games
             var mediaDir = Path.Combine(platformDir, folder);
             var fullPath = Path.GetFullPath(Path.Combine(mediaDir, path));
 
-            // Security: ensure path stays within the media directory
-            if (!fullPath.StartsWith(Path.GetFullPath(mediaDir), StringComparison.OrdinalIgnoreCase))
+            // Security: ensure path stays within the media directory, also out of a sibling like images_old and links that lead out
+            if (!IsSubPath(fullPath, mediaDir, PathCase) || LeadsOut(fullPath, mediaDir))
                 return BadRequest("Invalid file path");
 
             if (!System.IO.File.Exists(fullPath))
@@ -1975,6 +1932,7 @@ namespace RetroArr.Api.V3.Games
 
                 var client = new GogClient(gogSettings.RefreshToken);
                 var refreshed = await client.RefreshTokenAsync(GogClientId, GogClientSecret);
+                _configService.SaveGogRefreshToken(client.RefreshToken);
                 if (!refreshed)
                 {
                     _logger.Error("[GOG] token refresh failed");
@@ -2259,10 +2217,7 @@ namespace RetroArr.Api.V3.Games
         // one without a region (a wanted game), which is no other release of it, as the scanner has it
         internal static async Task<GameListDto?> EntryOfAsync(IGameRepository repository, int platformId, string title, string? region)
         {
-            // The title is compared here: the database folds the case of ASCII letters only (Ōkami, Élite)
-            var ofTitle = (await repository.GetAllPagedAsync(1, int.MaxValue, platformId)).Items
-                .Where(g => g.Title.Equals(title, StringComparison.OrdinalIgnoreCase))
-                .ToList();
+            var ofTitle = await repository.FindByTitleAsync(platformId, title);
             return ofTitle.FirstOrDefault(g => string.Equals(g.Region ?? string.Empty, region ?? string.Empty, StringComparison.OrdinalIgnoreCase))
                 ?? ofTitle.FirstOrDefault(g => string.IsNullOrEmpty(g.Region));
         }

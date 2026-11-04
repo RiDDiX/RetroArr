@@ -67,6 +67,7 @@ namespace RetroArr.Api.V3.Gog
             {
                 var client = new GogClient(settings.RefreshToken);
                 await client.RefreshTokenAsync(GogClientId, GogClientSecret);
+                _configService.SaveGogRefreshToken(client.RefreshToken);
                 
                 var games = await client.GetOwnedGamesAsync();
                 var gameCount = games.Count(g => g.IsGame);
@@ -211,6 +212,7 @@ namespace RetroArr.Api.V3.Gog
                 
                 // Refresh token using built-in credentials
                 await client.RefreshTokenAsync(GogClientId, GogClientSecret);
+                _configService.SaveGogRefreshToken(client.RefreshToken);
 
                 var games = await client.GetOwnedGamesAsync();
 
@@ -246,6 +248,7 @@ namespace RetroArr.Api.V3.Gog
                 
                 // Refresh token using built-in credentials
                 await client.RefreshTokenAsync(GogClientId, GogClientSecret);
+                _configService.SaveGogRefreshToken(client.RefreshToken);
 
                 var gogGames = await client.GetOwnedGamesAsync();
                 var addedCount = 0;
