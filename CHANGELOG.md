@@ -1,3 +1,8 @@
+## v1.0.237 (2026-11-04)
+
+### Changes
+- chore: bump vitest to 4.1.12, override minimatch 11, audit fix glob (56ed752)
+
 ## v1.0.236 (2026-11-04)
 
 ### Changes
