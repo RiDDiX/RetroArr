@@ -20,6 +20,8 @@ namespace RetroArr.Core.Games
         Task<List<GameMetadataRow>> GetMetadataRowsAsync(int? platformId);
         // Id, Title, PlatformId, Region and Path of the games of the platform with this title in any case, by title and id
         Task<List<GameListDto>> FindByTitleAsync(int platformId, string title);
+        // Id, Title, PlatformId, Region, Path and IgdbId of the games of the platform with this IGDB id, by id
+        Task<List<GameListDto>> FindByIgdbIdAsync(int platformId, int igdbId);
         Task<PagedResult<GameListDto>> GetAllPagedAsync(int page, int pageSize, int? platformId = null, string? search = null, string sortOrder = "asc", bool? missingOnly = null, string? protonDbTier = null);
         Task<Game?> GetByIdAsync(int id);
         Task<Game> AddAsync(Game game);

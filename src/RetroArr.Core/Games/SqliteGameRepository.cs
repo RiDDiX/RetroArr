@@ -130,6 +130,16 @@ namespace RetroArr.Core.Games
             return rows.Where(g => g.Title.Equals(title, StringComparison.OrdinalIgnoreCase)).ToList();
         }
 
+        public async Task<List<GameListDto>> FindByIgdbIdAsync(int platformId, int igdbId)
+        {
+            using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.Games.AsNoTracking()
+                .Where(g => g.PlatformId == platformId && g.IgdbId == igdbId)
+                .OrderBy(g => g.Id)
+                .Select(g => new GameListDto { Id = g.Id, Title = g.Title, PlatformId = g.PlatformId, Region = g.Region, Path = g.Path, IgdbId = g.IgdbId })
+                .ToListAsync();
+        }
+
         public async Task<PagedResult<GameListDto>> GetAllPagedAsync(int page, int pageSize, int? platformId = null, string? search = null, string sortOrder = "asc", bool? missingOnly = null, string? protonDbTier = null)
         {
             using var context = await _contextFactory.CreateDbContextAsync();

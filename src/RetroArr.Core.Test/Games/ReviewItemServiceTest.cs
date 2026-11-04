@@ -45,6 +45,22 @@ namespace RetroArr.Core.Test.Games
             Assert.That(reviews.Add(File("/roms/Chrono Trigger.sfc")).Id, Is.Not.EqualTo(item.Id));
         }
 
+        // An ignored file stays ignored: the next scan gets the Ignored item back, adds no row and the open list stays empty
+        [Test]
+        public void IgnoredItem_IsNotAddedAgain_AndNotListedAsOpen()
+        {
+            var reviews = new ReviewItemService(_config);
+            var item = reviews.Add(File("/roms/Skip Me.sfc"));
+            reviews.SetStatus(item.Id, ReviewStatus.Ignored);
+
+            var again = reviews.Add(File("/roms/Skip Me.sfc"));
+
+            Assert.That(again, Is.SameAs(item));
+            Assert.That(again.Status, Is.EqualTo(ReviewStatus.Ignored));
+            Assert.That(reviews.GetAll(), Has.Count.EqualTo(1));
+            Assert.That(reviews.GetPending(), Is.Empty);
+        }
+
         // A scan adds them faster than one write a second; none is lost by shutdown, and each file stays one item
         [Test]
         public void ItemsAddedInABurst_AreAllStoredOnShutdown()

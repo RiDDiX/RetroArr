@@ -40,6 +40,7 @@ namespace RetroArr.Core.Cache
         public Task<List<GameMetadataRow>> GetMetadataRowsAsync(int? platformId) => _inner.GetMetadataRowsAsync(platformId);
 
         public Task<List<GameListDto>> FindByTitleAsync(int platformId, string title) => _inner.FindByTitleAsync(platformId, title);
+        public Task<List<GameListDto>> FindByIgdbIdAsync(int platformId, int igdbId) => _inner.FindByIgdbIdAsync(platformId, igdbId);
 
         public Task<PagedResult<GameListDto>> GetAllPagedAsync(int page, int pageSize, int? platformId = null, string? search = null, string sortOrder = "asc", bool? missingOnly = null, string? protonDbTier = null)
             => _inner.GetAllPagedAsync(page, pageSize, platformId, search, sortOrder, missingOnly, protonDbTier);

@@ -15,7 +15,7 @@ namespace RetroArr.Core.Games
         private readonly string _storePath;
         private readonly object _lock = new();
         private List<ReviewItem> _items = new();
-        // File path -> first open item holding it, for Add; dropped by every other change
+        // File path -> first open or ignored item holding it, for Add; dropped by every other change
         private Dictionary<string, ReviewItem>? _openPaths;
         private DateTime _lastSave;
         private bool _unsaved;
@@ -42,6 +42,9 @@ namespace RetroArr.Core.Games
         // A mapped item waits on the list to be finalized
         private static bool IsOpen(ReviewItem i) => i.Status is ReviewStatus.Pending or ReviewStatus.Mapped;
 
+        // An ignored file stays ignored: the next scan finds its item instead of adding the file again
+        private static bool Holds(ReviewItem i) => IsOpen(i) || i.Status == ReviewStatus.Ignored;
+
         public ReviewItem? GetById(string id)
         {
             lock (_lock) { return _items.FirstOrDefault(i => i.Id == id); }
@@ -51,18 +54,18 @@ namespace RetroArr.Core.Games
         {
             lock (_lock)
             {
-                // Dedup: if same primary file path already open, skip
+                // Dedup: if same primary file path already open or ignored, skip
                 if (_openPaths == null)
                 {
                     _openPaths = new Dictionary<string, ReviewItem>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var open in _items.Where(IsOpen)) Index(open);
+                    foreach (var held in _items.Where(Holds)) Index(held);
                 }
                 var primaryPath = item.FilePaths.FirstOrDefault();
                 if (!string.IsNullOrEmpty(primaryPath) && _openPaths.TryGetValue(primaryPath, out var existing))
                     return existing;
 
                 _items.Add(item);
-                if (IsOpen(item)) Index(item);
+                if (Holds(item)) Index(item);
                 // A scan adds items by the thousand and each write is the whole store: at most one a second, the
                 // rest goes a second later or with the next write
                 if (DateTime.UtcNow - _lastSave >= TimeSpan.FromSeconds(1)) Save();

@@ -210,16 +210,13 @@ namespace RetroArr.Api.V3.Metadata
 
             // Guard: if the title changed, check for Title+PlatformId+Region collision. Another region of the
             // title is a release of its own. Both lie on the game's platform; the first by id, as the library is read.
-            var ofPlatform = (await _gameRepository.GetAllPagedAsync(1, int.MaxValue, game.PlatformId)).Items.OrderBy(g => g.Id).ToList();
-            var collision = ofPlatform.FirstOrDefault(g =>
+            var collision = (await _gameRepository.FindByTitleAsync(game.PlatformId, game.Title)).OrderBy(g => g.Id).FirstOrDefault(g =>
                 g.Id != gameId &&
-                g.Title.Equals(game.Title, StringComparison.OrdinalIgnoreCase) &&
-                g.PlatformId == game.PlatformId &&
                 string.Equals(g.Region ?? string.Empty, game.Region ?? string.Empty, StringComparison.OrdinalIgnoreCase));
 
             // The id is another entry's on this platform (the other region of a release): one per platform, so it stays there
             var holder = game.IgdbId > 0
-                ? ofPlatform.FirstOrDefault(g => g.Id != gameId && g.Id != collision?.Id && g.PlatformId == game.PlatformId && g.IgdbId == game.IgdbId)
+                ? (await _gameRepository.FindByIgdbIdAsync(game.PlatformId, game.IgdbId.Value)).FirstOrDefault(g => g.Id != gameId && g.Id != collision?.Id)
                 : null;
             string? reason = null;
             if (holder != null)
