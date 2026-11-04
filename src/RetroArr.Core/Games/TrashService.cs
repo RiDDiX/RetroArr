@@ -140,33 +140,35 @@ namespace RetroArr.Core.Games
         public List<TrashEntry> List()
         {
             var root = GetTrashRoot();
-            var entries = new List<TrashEntry>();
-            if (!Directory.Exists(root)) return entries;
+            if (!Directory.Exists(root)) return new List<TrashEntry>();
 
-            foreach (var dir in Directory.EnumerateDirectories(root).Where(IsEntry))
-            {
-                var sidecar = Path.Combine(dir, "meta.json");
-                if (!File.Exists(sidecar)) continue;
-                try
-                {
-                    var entry = JsonSerializer.Deserialize<TrashEntry>(File.ReadAllText(sidecar));
-                    var payload = Path.GetFileName(entry?.TrashPath);
-                    if (entry == null || string.IsNullOrEmpty(payload)) continue;
-                    // The payload lies next to its sidecar, so a restore or purge never reaches outside the entry
-                    entry.TrashPath = Path.Combine(dir, payload);
-                    entries.Add(entry);
-                }
-                catch (Exception ex)
-                {
-                    _logger.Warn($"[Trash] Could not read sidecar {sidecar}: {ex.Message}");
-                }
-            }
-
-            return entries.OrderByDescending(e => e.DeletedAt).ToList();
+            return Directory.EnumerateDirectories(root).Where(IsEntry).Select(Read).OfType<TrashEntry>()
+                .OrderByDescending(e => e.DeletedAt).ToList();
         }
 
+        private static TrashEntry? Read(string dir)
+        {
+            var sidecar = Path.Combine(dir, "meta.json");
+            if (!File.Exists(sidecar)) return null;
+            try
+            {
+                var entry = JsonSerializer.Deserialize<TrashEntry>(File.ReadAllText(sidecar));
+                var payload = Path.GetFileName(entry?.TrashPath);
+                if (entry == null || string.IsNullOrEmpty(payload)) return null;
+                // The payload lies next to its sidecar, so a restore or purge never reaches outside the entry
+                entry.TrashPath = Path.Combine(dir, payload);
+                return entry;
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn($"[Trash] Could not read sidecar {sidecar}: {ex.Message}");
+                return null;
+            }
+        }
+
+        // Only this entry's sidecar: a big trash on a slow disk takes long to read whole
         public TrashEntry? Get(string id) =>
-            List().FirstOrDefault(e => e.Id == id);
+            _entryName.IsMatch(id) && Read(Path.Combine(GetTrashRoot(), id)) is { } entry && entry.Id == id ? entry : null;
 
         public bool Restore(string id)
         {

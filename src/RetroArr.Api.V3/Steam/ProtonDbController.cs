@@ -18,6 +18,7 @@ namespace RetroArr.Api.V3.Steam
         private readonly IGameRepository _gameRepository;
 
         // Background refresh state
+        private static readonly object _refreshLock = new();
         private static volatile bool _isRefreshing;
         private static volatile bool _refreshCancellationRequested;
         private static int _refreshTotal;
@@ -48,11 +49,9 @@ namespace RetroArr.Api.V3.Steam
             var client = new ProtonDbClient();
             var tier = await client.GetTierAsync(game.SteamId.Value);
 
+            // Only the tier: a whole-row write of the copy read before the ProtonDB call would undo changes made since
             if (!string.IsNullOrEmpty(tier))
-            {
-                game.ProtonDbTier = tier;
-                await _gameRepository.UpdateAsync(game.Id, game);
-            }
+                await _gameRepository.UpdateFieldsAsync(game.Id, g => g.ProtonDbTier = tier);
 
             return Ok(new { tier, steamId = game.SteamId, cached = false });
         }
@@ -60,16 +59,31 @@ namespace RetroArr.Api.V3.Steam
         [HttpPost("refresh")]
         public async Task<IActionResult> RefreshAll()
         {
-            if (_isRefreshing)
-                return Conflict(new { success = false, message = "A ProtonDB refresh is already in progress." });
+            // Claimed before the first await, so a second click during the load can't start a second run
+            lock (_refreshLock)
+            {
+                if (_isRefreshing)
+                    return Conflict(new { success = false, message = "A ProtonDB refresh is already in progress." });
+                _isRefreshing = true;
+            }
 
-            var allGames = await _gameRepository.GetAllAsync();
-            var steamGames = allGames.Where(g => g.SteamId.HasValue && g.SteamId.Value > 0).ToList();
+            List<GameListDto> steamGames;
+            try
+            {
+                steamGames = (await _gameRepository.GetSteamRowsAsync()).Where(g => g.SteamId > 0).ToList();
+            }
+            catch
+            {
+                _isRefreshing = false;
+                throw;
+            }
 
             if (steamGames.Count == 0)
+            {
+                _isRefreshing = false;
                 return Ok(new { success = true, message = "No games with Steam IDs found.", count = 0 });
+            }
 
-            _isRefreshing = true;
             _refreshCancellationRequested = false;
             _refreshTotal = steamGames.Count;
             _refreshProgress = 0;
@@ -105,8 +119,8 @@ namespace RetroArr.Api.V3.Steam
                             {
                                 if (game.ProtonDbTier != tier)
                                 {
-                                    game.ProtonDbTier = tier;
-                                    await gameRepository.UpdateAsync(game.Id, game);
+                                    // only the tier: the row was read before this run started
+                                    await gameRepository.UpdateFieldsAsync(game.Id, g => g.ProtonDbTier = tier);
                                     _refreshUpdated++;
                                 }
                                 else

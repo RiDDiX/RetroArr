@@ -428,8 +428,7 @@ namespace RetroArr.Core.Download
         private async System.Threading.Tasks.Task<PostDownloadResult> ImportToGameFolder(DownloadStatus download, MediaSettings mediaSettings, string libraryRoot, HashSet<string>? keep,
             HashSet<string>? extracted)
         {
-            var allGames = await _gameRepository.GetAllLightAsync();
-            var game = allGames.FirstOrDefault(g => g.Id == download.GameId);
+            var game = download.GameId.HasValue ? await _gameRepository.GetByIdAsync(download.GameId.Value) : null;
             if (game == null)
             {
                 _logger.Info($"[PostDownload] GameId {download.GameId} not found in DB. Falling back to generic import.");
@@ -456,9 +455,9 @@ namespace RetroArr.Core.Download
                 if (downloadPlatformDef != null)
                 {
                     // Try to find an existing game entry with the same title on the download's platform
-                    var platformGame = allGames.FirstOrDefault(g =>
-                        g.PlatformId == downloadPlatformDef.Id &&
-                        string.Equals(g.Title, game.Title, StringComparison.OrdinalIgnoreCase));
+                    var match = (await _gameRepository.GetAllPagedAsync(1, int.MaxValue, downloadPlatformDef.Id)).Items
+                        .Where(g => g.PlatformId == downloadPlatformDef.Id && string.Equals(g.Title, game.Title, StringComparison.OrdinalIgnoreCase)).MinBy(g => g.Id);
+                    var platformGame = match == null ? null : await _gameRepository.GetByIdAsync(match.Id);
 
                     if (platformGame != null)
                     {
@@ -503,9 +502,9 @@ namespace RetroArr.Core.Download
             await gate.WaitAsync();
             try
             {
-                // An import of the same game may have finished while this one waited. The light list is
-                // cached for a shorter time than a game's detail.
-                game = (await _gameRepository.GetAllLightAsync()).FirstOrDefault(g => g.Id == game.Id) ?? game;
+                // An import of the same game may have finished while this one waited. Its writes drop the
+                // game's cached detail.
+                game = await _gameRepository.GetByIdAsync(game.Id) ?? game;
                 return await ImportIntoGameFolderAsync(download, mediaSettings, libraryRoot, keep, extracted, game, gamePlatform, downloadPlatformFolder ?? gamePlatformFolder ?? "windows");
             }
             finally
@@ -531,7 +530,7 @@ namespace RetroArr.Core.Download
             {
                 var year = game.Year > 0 ? game.Year : (int?)null;
                 targetFolder = mediaSettings.ResolveDestinationPath(libraryRoot, effectivePlatformFolder, game.Title, year);
-                var others = (await _gameRepository.GetAllLightAsync()).Where(g => g.Id != game.Id && !string.IsNullOrEmpty(g.Path)).ToList();
+                var others = (await _gameRepository.GetPathRowsAsync()).Where(g => g.Id != game.Id && !string.IsNullOrEmpty(g.Path)).ToList();
                 bool Owned(string folder) => others.Any(g => SamePath(g.Path!, folder));
                 // Another region of the title has that folder already, this one gets its own: "Advance Wars (Europe)"
                 if (!string.IsNullOrWhiteSpace(game.Region) && Owned(targetFolder))
@@ -789,16 +788,16 @@ namespace RetroArr.Core.Download
             try
             {
                 // Only add if not already present
-                var allGames = await _gameRepository.GetAllLightAsync();
-                if (allGames.Any(g => g.ExecutablePath == path)) return;
+                if ((await _gameRepository.GetPathRowsAsync()).Any(g => g.ExecutablePath == path)) return;
                 var gamePath = ownFolder ? Path.GetDirectoryName(path) : path;
 
                 // Resolve PlatformId from folder name
                 int platformId = ResolvePlatformId(platformFolder);
 
                 // Check for existing game with same title+platform to avoid unique constraint violation
-                var existingByTitlePlatform = allGames.FirstOrDefault(g =>
-                    g.Title.Equals(title, StringComparison.OrdinalIgnoreCase) && g.PlatformId == platformId);
+                // The lowest id, as the library's row order gave it
+                var existingByTitlePlatform = (await _gameRepository.GetAllPagedAsync(1, int.MaxValue, platformId)).Items.Where(g =>
+                    g.Title.Equals(title, StringComparison.OrdinalIgnoreCase) && g.PlatformId == platformId).MinBy(g => g.Id);
                 if (existingByTitlePlatform != null)
                 {
                     var landedThere = false;

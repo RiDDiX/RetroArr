@@ -386,7 +386,8 @@ const AccountsTab: React.FC<AccountsTabProps> = ({ language, t }) => {
     setGogSyncing(true);
     setGogSyncResult(null);
     try {
-      const response = await apiClient.post('/gog/sync');
+      // one details call per new title, so a first sync of a big library takes minutes
+      const response = await apiClient.post('/gog/sync', null, { timeout: 600000 });
       setGogSyncResult({ success: true, message: `Synced ${response.data.added} games (${response.data.skipped} skipped)` });
     } catch (error: unknown) {
       setGogSyncResult({ success: false, message: `✗ ${t('error')}: ${getErrorMessage(error)}` });

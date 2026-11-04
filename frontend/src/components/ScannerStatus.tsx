@@ -13,16 +13,21 @@ const ScannerStatus: React.FC = () => {
     });
     const [showFinished, setShowFinished] = useState(false);
     const prevIsScanning = useRef(false);
+    // A ref: fetchStatus is the first render's closure, its status stays the initial one
+    const prevAdded = useRef(0);
 
-    const fetchStatus = async () => {
+    // relay: false when ProgressHubBridge announced this batch already
+    const fetchStatus = async (relay = true) => {
         try {
             const response = await mediaApi.getScanStatus();
             const newStatus = response.data;
 
             // Trigger library refresh if a meaningful batch arrived since last poll
-            if (newStatus.isScanning && newStatus.gamesAddedCount > status.gamesAddedCount) {
+            if (relay && newStatus.isScanning && newStatus.gamesAddedCount > prevAdded.current) {
                 window.dispatchEvent(new Event('LIBRARY_UPDATED_EVENT'));
             }
+            // The count stays after a scan until the next one starts; the next scan counts from 0
+            prevAdded.current = newStatus.isScanning ? newStatus.gamesAddedCount : 0;
 
             // If it just finished scanning
             if (prevIsScanning.current && !newStatus.isScanning) {
@@ -48,7 +53,7 @@ const ScannerStatus: React.FC = () => {
     useEffect(() => {
         // Prefer push updates via SignalR; keep a slow poll (30s) as a safety net
         // for transient disconnects.
-        const interval = setInterval(fetchStatus, 30000);
+        const interval = setInterval(() => fetchStatus(), 30000);
         fetchStatus();
 
         const offStarted = progressHub.on('scanStarted', () => {
@@ -65,7 +70,7 @@ const ScannerStatus: React.FC = () => {
             // Don't relay every single event - the Library page debounces
             // on its end, but we still want to avoid flooding the event bus.
             // The poll interval already picks up new games every 3s.
-            fetchStatus();
+            fetchStatus(false);
         });
 
         return () => {

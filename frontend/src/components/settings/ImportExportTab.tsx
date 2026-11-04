@@ -9,7 +9,8 @@ interface ImportExportTabProps {
 const ImportExportTab: React.FC<ImportExportTabProps> = ({ t }) => {
   const handleExport = async () => {
     try {
-      const response = await apiClient.get('/dashboard/export', { responseType: 'blob' });
+      // Long timeout: a large library is several hundred MB of JSON
+      const response = await apiClient.get('/dashboard/export', { responseType: 'blob', timeout: 600000 });
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
@@ -27,9 +28,8 @@ const ImportExportTab: React.FC<ImportExportTabProps> = ({ t }) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const text = await file.text();
-      const data = JSON.parse(text);
-      const response = await apiClient.post('/dashboard/import', data);
+      // The file goes up as it is; parsing a large export here ran the tab out of memory
+      const response = await apiClient.post('/dashboard/import', file, { timeout: 600000 });
       alert(response.data.message);
     } catch (error: unknown) {
       console.error('Import failed:', error);

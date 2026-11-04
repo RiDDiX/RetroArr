@@ -528,6 +528,7 @@ export interface DatabaseRepairResult {
   platformsHealed: number;
   danglingGameFilesRemoved: number;
   duplicatesMerged: number;
+  containerOrphansRemoved: number;
 }
 
 export interface DatabaseResetChallenge {
@@ -712,22 +713,23 @@ export const settingsApi = {
   getDatabase: () => apiClient.get<DatabaseConfig>('/settings/database'),
   saveDatabase: (config: DatabaseConfig) => apiClient.put('/settings/database', config),
   testDatabase: (config: DatabaseConfig) => apiClient.post('/settings/database/test', config),
-  migrateDatabase: (config: DatabaseConfig) => apiClient.post<MigrationResult>('/settings/database/migrate', config),
-  backupDatabase: () => apiClient.post('/settings/database/backup'),
+  // migrate, backup, health, repair, reset and the log export run in the request and grow with the library
+  migrateDatabase: (config: DatabaseConfig) => apiClient.post<MigrationResult>('/settings/database/migrate', config, { timeout: 600000 }),
+  backupDatabase: () => apiClient.post('/settings/database/backup', null, { timeout: 120000 }),
   getDatabaseStats: () => apiClient.get<DatabaseStats>('/settings/database/stats'),
-  checkDatabaseHealth: () => apiClient.post<DatabaseHealthReport>('/settings/database/health'),
-  repairDatabase: (opts: { healPlatformFromPath: boolean; mergeDuplicates: boolean }) => apiClient.post<DatabaseRepairResult>('/settings/database/repair', opts),
+  checkDatabaseHealth: () => apiClient.post<DatabaseHealthReport>('/settings/database/health', null, { timeout: 120000 }),
+  repairDatabase: (opts: { healPlatformFromPath: boolean; mergeDuplicates: boolean }) => apiClient.post<DatabaseRepairResult>('/settings/database/repair', opts, { timeout: 600000 }),
   resetDatabaseChallenge: (kind: 'library' | 'download-history') =>
     apiClient.post<DatabaseResetChallenge>(`/settings/database/reset/challenge?kind=${encodeURIComponent(kind)}`),
   resetDatabaseLibrary: (token: string, confirmation: string) =>
-    apiClient.post('/settings/database/reset', { token, confirmation }),
+    apiClient.post('/settings/database/reset', { token, confirmation }, { timeout: 120000 }),
   resetDatabaseDownloadHistory: (token: string, confirmation: string) =>
-    apiClient.post('/settings/database/reset-download-history', { token, confirmation }),
+    apiClient.post('/settings/database/reset-download-history', { token, confirmation }, { timeout: 120000 }),
 
   getLogging: () => apiClient.get('/settings/logging'),
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   saveLogging: (settings: any) => apiClient.post('/settings/logging', settings),
-  exportLogs: (params: { timeRange: string }) => apiClient.post('/settings/logging/export', params, { responseType: 'arraybuffer' }),
+  exportLogs: (params: { timeRange: string }) => apiClient.post('/settings/logging/export', params, { responseType: 'arraybuffer', timeout: 600000 }),
 
   getCache: () => apiClient.get<CacheConfig>('/settings/cache'),
   saveCache: (config: CacheConfig) => apiClient.put('/settings/cache', config),
@@ -828,7 +830,7 @@ export const gogApi = {
   saveSettings: (settings: unknown) => apiClient.post('/gog/settings', settings),
   getAuthUrl: () => apiClient.get<{ url: string }>('/gog/auth/url'),
   submitAuthCode: (code: string) => apiClient.post('/gog/auth/code', { code }),
-  sync: () => apiClient.post('/gog/sync'),
+  sync: () => apiClient.post('/gog/sync', null, { timeout: 600000 }),
   getDownloads: (gogId: string) => apiClient.get(`/settings/gog/downloads/${gogId}`),
 };
 
@@ -902,7 +904,7 @@ export const metadataReviewApi = {
   getCandidates: (gameId: number, searchOverride?: string) =>
     apiClient.get<MatchCandidate[]>(`/metadata/review/${gameId}/candidates`, { params: { searchOverride } }),
   confirm: (gameId: number, igdbId: number, score?: number, source?: string, screenScraperData?: Record<string, unknown>) =>
-    apiClient.post(`/metadata/review/${gameId}/confirm`, { igdbId, score, source: source || 'IGDB', screenScraperData }),
+    apiClient.post(`/metadata/review/${gameId}/confirm`, { igdbId, score, source: source || 'IGDB', screenScraperData }, { timeout: 600000 }),
   skip: (gameId: number) =>
     apiClient.post(`/metadata/review/${gameId}/skip`),
   dismiss: (gameId: number) =>

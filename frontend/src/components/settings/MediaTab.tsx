@@ -228,7 +228,8 @@ const MediaTab: React.FC<MediaTabProps> = ({ language, t }) => {
     if (!window.confirm(t('healPlatformsConfirm') || 'Walk every game and fix rows whose platform disagrees with their path?')) return;
     setHealing(true);
     try {
-      const res = await apiClient.post('/media/heal-platforms');
+      // Walks the whole library and merges duplicates: minutes on a large one
+      const res = await apiClient.post('/media/heal-platforms', null, { timeout: 600000 });
       const { healed = 0, dupesDropped = 0 } = res.data || {};
       alert(`${t('healPlatformsDone') || 'Heal done.'} healed: ${healed}, dropped: ${dupesDropped}`);
       window.dispatchEvent(new Event('LIBRARY_UPDATED_EVENT'));

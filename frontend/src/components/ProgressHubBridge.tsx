@@ -21,12 +21,9 @@ const ProgressHubBridge = () => {
       window.dispatchEvent(new Event('LIBRARY_UPDATED_EVENT'));
     });
 
+    // The server sends libraryUpdated right after scanFinished, which does the reloads
     const offScanFinished = progressHub.on('scanFinished', () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.games.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.games.problems });
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.stats });
       queryClient.invalidateQueries({ queryKey: queryKeys.media.scanStatus });
-      window.dispatchEvent(new Event('LIBRARY_UPDATED_EVENT'));
     });
 
     const offDownloadSnapshot = progressHub.on('downloadSnapshot', () => {

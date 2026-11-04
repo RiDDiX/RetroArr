@@ -21,7 +21,7 @@ namespace RetroArr.Core.Games
         public async Task<List<DiscoveredGame>> GetAllAsync()
         {
             using var context = await _contextFactory.CreateDbContextAsync();
-            return await context.DiscoveredGames
+            return await context.DiscoveredGames.AsNoTracking()
                 .OrderBy(d => d.PlatformKey)
                 .ThenBy(d => d.Title)
                 .ToListAsync();
@@ -93,21 +93,13 @@ namespace RetroArr.Core.Games
             var idList = ids?.ToList();
             if (idList == null || idList.Count == 0) return 0;
             using var context = await _contextFactory.CreateDbContextAsync();
-            var entries = await context.DiscoveredGames.Where(d => idList.Contains(d.Id)).ToListAsync();
-            if (entries.Count == 0) return 0;
-            context.DiscoveredGames.RemoveRange(entries);
-            await context.SaveChangesAsync();
-            return entries.Count;
+            return await context.DiscoveredGames.Where(d => idList.Contains(d.Id)).ExecuteDeleteAsync();
         }
 
         public async Task<int> ClearAllAsync()
         {
             using var context = await _contextFactory.CreateDbContextAsync();
-            var all = await context.DiscoveredGames.ToListAsync();
-            if (all.Count == 0) return 0;
-            context.DiscoveredGames.RemoveRange(all);
-            await context.SaveChangesAsync();
-            return all.Count;
+            return await context.DiscoveredGames.ExecuteDeleteAsync();
         }
     }
 }

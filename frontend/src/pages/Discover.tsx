@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient, { getErrorMessage, isConflict, mediaApi } from '../api/client';
 import { t as translate, getLanguage } from '../i18n/translations';
@@ -27,6 +27,9 @@ const PROVIDERS = [
   { value: 'steamgriddb', label: 'SteamGridDB' },
 ];
 
+// Thousands of rows at once freeze the page for many seconds
+const PAGE_SIZE = 200;
+
 const Discover: React.FC = () => {
   const navigate = useNavigate();
   const lang = getLanguage();
@@ -41,6 +44,7 @@ const Discover: React.FC = () => {
   const [globalSource, setGlobalSource] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [shown, setShown] = useState(PAGE_SIZE);
 
   const loadList = useCallback(async () => {
     try {
@@ -62,12 +66,24 @@ const Discover: React.FC = () => {
 
   useEffect(() => { loadList(); }, [loadList]);
 
-  // when a discovery scan is running on the backend, refresh every 2s
+  // when a discovery scan is running on the backend, refresh every 2s, one load at a time; a big pool takes seconds
+  // per load, so the next one waits ten times as long and leaves the CPU to the scan
   useEffect(() => {
     if (!scanning) return;
-    const interval = setInterval(loadList, 2000);
-    return () => clearInterval(interval);
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      const started = Date.now();
+      await loadList();
+      if (!stopped) timer = setTimeout(refresh, Math.max(2000, (Date.now() - started) * 10));
+    };
+    timer = setTimeout(refresh, 2000);
+    return () => { stopped = true; clearTimeout(timer); };
   }, [scanning, loadList]);
+
+  // the follower of a running scan, stopped when the page goes
+  const follow = useRef<ReturnType<typeof setInterval>>();
+  useEffect(() => () => clearInterval(follow.current), []);
 
   const triggerScan = async () => {
     setScanning(true);
@@ -76,32 +92,24 @@ const Discover: React.FC = () => {
     try {
       await apiClient.post('/discovery/scan');
       setInfo('Discovery scan started, results will appear as they are found.');
-      // optimistic poll for ~3 minutes max
-      let elapsed = 0;
-      const stopPoll = setInterval(async () => {
-        elapsed += 3000;
-        await loadList();
-        if (elapsed > 180_000) { clearInterval(stopPoll); setScanning(false); }
-      }, 3000);
-      // stop spinner after 60s in case the backend doesn't expose progress; user sees the list grow regardless
-      setTimeout(() => setScanning(false), 60_000);
     } catch (err) {
-      if (isConflict(err)) {
-        // Another scan is running: say so and keep refreshing the list until it is done
-        setInfo(t('scanAlreadyRunning'));
-        const wait = setInterval(async () => {
-          try {
-            if ((await mediaApi.getScanStatus()).data.isScanning) return;
-          } catch { /* stop following it */ }
-          clearInterval(wait);
-          setScanning(false);
-          loadList();
-        }, 2000);
+      if (!isConflict(err)) {
+        setError(getErrorMessage(err));
+        setScanning(false);
         return;
       }
-      setError(getErrorMessage(err));
-      setScanning(false);
+      // Another scan is running: say so and keep refreshing the list until it is done
+      setInfo(t('scanAlreadyRunning'));
     }
+    // The list refreshes while scanning is set; this only follows the scan to its end
+    follow.current = setInterval(async () => {
+      try {
+        if ((await mediaApi.getScanStatus()).data.isScanning) return;
+      } catch { /* stop following it */ }
+      clearInterval(follow.current);
+      setScanning(false);
+      loadList();
+    }, 2000);
   };
 
   const toggleOne = (id: number) => {
@@ -138,7 +146,8 @@ const Discover: React.FC = () => {
         const payload = src === '__default__'
           ? { ids: bucket }
           : { ids: bucket, metadataSource: src };
-        const res = await apiClient.post('/discovery/import', payload);
+        // One metadata lookup per item, so a large selection takes minutes
+        const res = await apiClient.post('/discovery/import', payload, { timeout: 600000 });
         imported += res.data.imported || 0;
         failed += res.data.failed || 0;
       }
@@ -246,7 +255,7 @@ const Discover: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {items.map(d => (
+            {items.slice(0, shown).map(d => (
               <tr key={d.id}>
                 <td className="col-checkbox">
                   <input
@@ -278,6 +287,11 @@ const Discover: React.FC = () => {
             ))}
           </tbody>
         </table>
+      )}
+      {!loading && items.length > shown && (
+        <button className="btn-secondary" style={{ display: 'block', margin: '1rem auto' }} onClick={() => setShown(n => n + PAGE_SIZE)}>
+          Show more ({items.length - shown} left)
+        </button>
       )}
 
       {selected.size > 0 && (

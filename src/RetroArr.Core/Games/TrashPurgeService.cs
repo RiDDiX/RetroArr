@@ -21,6 +21,8 @@ namespace RetroArr.Core.Games
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+            // Off the startup path: the host waits for this method's first await before the server starts
+            await Task.Yield();
             // First run on boot, then on interval.
             try { _trash.PurgeExpired(); }
             catch (Exception ex) { _logger.Warn($"[Trash] Initial purge failed: {ex.Message}"); }

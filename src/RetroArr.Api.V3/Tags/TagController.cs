@@ -24,50 +24,53 @@ namespace RetroArr.Api.V3.Tags
         [HttpGet]
         public async Task<ActionResult<IEnumerable<object>>> GetAll()
         {
+            // Counted in SQL instead of loading every tag link
             var tags = await _context.Tags
-                .Include(t => t.GameTags)
+                .AsNoTracking()
                 .OrderBy(t => t.Name)
+                .Select(t => new
+                {
+                    t.Id,
+                    t.Name,
+                    t.Color,
+                    t.Icon,
+                    t.CreatedAt,
+                    GameCount = t.GameTags.Count
+                })
                 .ToListAsync();
 
-            return Ok(tags.Select(t => new
-            {
-                t.Id,
-                t.Name,
-                t.Color,
-                t.Icon,
-                t.CreatedAt,
-                GameCount = t.GameTags.Count
-            }));
+            return Ok(tags);
         }
 
         [HttpGet("{id}")]
         public async Task<ActionResult<object>> GetById(int id)
         {
             var tag = await _context.Tags
-                .Include(t => t.GameTags)
-                    .ThenInclude(gt => gt.Game)
-                .FirstOrDefaultAsync(t => t.Id == id);
+                .AsNoTracking()
+                .Where(t => t.Id == id)
+                .Select(t => new
+                {
+                    t.Id,
+                    t.Name,
+                    t.Color,
+                    t.Icon,
+                    t.CreatedAt,
+                    GameCount = t.GameTags.Count,
+                    Games = t.GameTags.Select(gt => new
+                    {
+                        gt.Game!.Id,
+                        gt.Game.Title,
+                        CoverUrl = gt.Game.Images.CoverUrl,
+                        gt.Game.Year,
+                        gt.AddedAt
+                    }).ToList()
+                })
+                .FirstOrDefaultAsync();
 
             if (tag == null)
                 return NotFound();
 
-            return Ok(new
-            {
-                tag.Id,
-                tag.Name,
-                tag.Color,
-                tag.Icon,
-                tag.CreatedAt,
-                GameCount = tag.GameTags.Count,
-                Games = tag.GameTags.Select(gt => new
-                {
-                    gt.Game!.Id,
-                    gt.Game.Title,
-                    CoverUrl = gt.Game.Images.CoverUrl,
-                    gt.Game.Year,
-                    gt.AddedAt
-                })
-            });
+            return Ok(tag);
         }
 
         [HttpPost]

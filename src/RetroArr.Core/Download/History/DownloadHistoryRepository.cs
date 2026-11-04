@@ -164,7 +164,7 @@ namespace RetroArr.Core.Download.History
         public async Task<List<DownloadHistoryEntry>> GetFailedAsync()
         {
             using var context = await _contextFactory.CreateDbContextAsync();
-            return await context.DownloadHistory
+            return await context.DownloadHistory.AsNoTracking()
                 .Where(h => h.State == DownloadHistoryState.ImportFailed)
                 .OrderByDescending(h => h.ImportedAt)
                 .ToListAsync();

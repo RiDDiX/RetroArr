@@ -71,7 +71,8 @@ namespace RetroArr.Core.Search
 
         private async Task<MonitorSearchResult> SearchAsync(int gameId, bool allowAutoDispatch, bool sweep, CancellationToken ct)
         {
-            var game = await _db.Games
+            // Untracked: in a sweep the context already holds the rows ApplyContentAsync flagged, as they were at its start
+            var game = await _db.Games.AsNoTracking()
                 .Include(g => g.Platform)
                 .FirstOrDefaultAsync(g => g.Id == gameId, ct)
                 .ConfigureAwait(false);
@@ -189,10 +190,11 @@ namespace RetroArr.Core.Search
                 _logger.Warn($"[Monitor] library content check failed, searching with the stored status: {ex.Message}");
             }
 
+            // Id and title only: SearchAsync reads each game again when its turn comes, hours later on a big monitored list
             var monitored = await _db.Games
                 .Where(g => g.Monitored && !g.IsExternal && g.Status != GameStatus.Downloaded && g.Status != GameStatus.InstallerDetected)
-                .Include(g => g.Platform)
                 .OrderBy(g => g.Id)
+                .Select(g => new { g.Id, g.Title })
                 .ToListAsync(ct)
                 .ConfigureAwait(false);
 
@@ -226,8 +228,10 @@ namespace RetroArr.Core.Search
         internal async Task<HashSet<int>> CheckLibraryContentAsync(CancellationToken ct)
         {
             var roots = MediaScannerService.LibraryRoots(_config.LoadMediaSettings());
+            // Only the columns CheckAll and ApplyContentAsync read: every game is loaded on each sweep
             var games = await _db.Games.AsNoTracking()
                 .Where(g => !g.IsExternal && g.Path != null && g.Path != "")
+                .Select(g => new Game { Id = g.Id, Path = g.Path, ExecutablePath = g.ExecutablePath, PlatformId = g.PlatformId, Status = g.Status, MissingSince = g.MissingSince })
                 .ToListAsync(ct)
                 .ConfigureAwait(false);
             var held = new List<string>();

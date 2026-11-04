@@ -39,9 +39,17 @@ const Problems: React.FC = () => {
 
   useEffect(() => {
     loadProblems();
-    const handleLibraryUpdate = () => { loadProblems(); };
+    // A scan fires this per batch; reload once it settles instead of stacking full reloads
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const handleLibraryUpdate = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(loadProblems, 2000);
+    };
     window.addEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
-    return () => window.removeEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
+    return () => {
+      window.removeEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
+      if (debounceTimer) clearTimeout(debounceTimer);
+    };
   }, []);
 
   const loadProblems = async () => {

@@ -93,8 +93,7 @@ namespace RetroArr.Core.Download.TrackedDownloads
                 // If GameId is set, resolve platform from the game entry
                 if (trackedDownload.GameId.HasValue)
                 {
-                    var games = await _gameRepository.GetAllAsync();
-                    var game = games.FirstOrDefault(g => g.Id == trackedDownload.GameId.Value);
+                    var game = await _gameRepository.GetByIdAsync(trackedDownload.GameId.Value);
                     if (game != null && game.PlatformId > 0)
                     {
                         var platform = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.Id == game.PlatformId);
@@ -218,7 +217,8 @@ namespace RetroArr.Core.Download.TrackedDownloads
                 .ToList();
             if (candidates.Count == 0) return;
 
-            var missing = (await _gameRepository.GetMissingAsync()).Where(IsWantedAgain).ToDictionary(g => g.Id, g => g.MissingSince);
+            var missing = (await _gameRepository.GetMissingAsync(candidates.Select(t => t.GameId!.Value).ToList()))
+                .Where(IsWantedAgain).ToDictionary(g => g.Id, g => g.MissingSince);
             var reopened = 0;
             foreach (var trackedDownload in candidates)
             {

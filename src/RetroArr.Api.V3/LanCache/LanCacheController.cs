@@ -195,32 +195,41 @@ namespace RetroArr.Api.V3.LanCache
             }
         }
 
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, string> _appNames = new();
+
         // Resolve appId -> name via the public store appdetails endpoint. Best-effort
         // and capped so we never hammer the rate-limited endpoint; unresolved ids fall
         // back to "App {id}". No auth, no Steam session — purely read-only.
+        // Names are kept for the process lifetime and the lookups stop after 20 s, so the
+        // list loads inside the UI's 30 s timeout; the rest resolves on a later load.
         private async Task<Dictionary<uint, string>> ResolveAppNamesAsync(List<uint> appIds, CancellationToken ct)
         {
             var names = new Dictionary<uint, string>();
+            foreach (var id in appIds)
+                if (_appNames.TryGetValue(id, out var known)) names[id] = known;
+
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            budget.CancelAfter(TimeSpan.FromSeconds(20));
             try
             {
                 var http = _httpClientFactory.CreateClient();
                 http.Timeout = TimeSpan.FromSeconds(8);
-                foreach (var id in appIds.Take(60))
+                foreach (var id in appIds.Where(id => !names.ContainsKey(id)).Take(60))
                 {
-                    if (ct.IsCancellationRequested) break;
+                    if (budget.IsCancellationRequested) break;
                     try
                     {
                         var url = $"https://store.steampowered.com/api/appdetails?appids={id}&filters=basic";
-                        using var resp = await http.GetAsync(url, ct).ConfigureAwait(false);
+                        using var resp = await http.GetAsync(url, budget.Token).ConfigureAwait(false);
                         if (!resp.IsSuccessStatusCode) continue;
-                        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+                        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(budget.Token).ConfigureAwait(false));
                         if (doc.RootElement.TryGetProperty(id.ToString(System.Globalization.CultureInfo.InvariantCulture), out var entry)
                             && entry.TryGetProperty("success", out var ok) && ok.ValueKind == JsonValueKind.True
                             && entry.TryGetProperty("data", out var data)
                             && data.TryGetProperty("name", out var n))
                         {
                             var nm = n.GetString();
-                            if (!string.IsNullOrEmpty(nm)) names[id] = nm!;
+                            if (!string.IsNullOrEmpty(nm)) names[id] = _appNames[id] = nm!;
                         }
                     }
                     catch { /* skip this id */ }

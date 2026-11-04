@@ -658,6 +658,75 @@ namespace RetroArr.Core.Test.Games
             Assert.That(File.Exists(crash), Is.True);
         }
 
+        // Another entry reaches the game's files through a link: a linked folder, a linked file or a link on the way.
+        // A folder holding many entries is read as a whole, a small one entry by entry; both see the link.
+        [TestCase("folder", true)]
+        [TestCase("folder", false)]
+        [TestCase("file", true)]
+        [TestCase("file", false)]
+        [TestCase("on the way", true)]
+        [TestCase("on the way", false)]
+        [Platform(Exclude = "Win")]
+        public async Task OtherEntryThroughALink_KeepsTheGamesFiles(string link, bool manyEntries)
+        {
+            var ff7 = Folder("psx", "Final Fantasy VII");
+            Put(ff7, "Final Fantasy VII.bin");
+            var cue = Put(ff7, "Final Fantasy VII.cue", "FILE \"Final Fantasy VII.bin\" BINARY");
+            var games = new List<Game> { new Game { Id = 1, Title = "Final Fantasy VII", PlatformId = Ps1, Path = ff7, ExecutablePath = cue } };
+            var linkFolder = link == "on the way" ? Folder("links") : Folder("psx");
+            for (var i = 0; manyEntries && i < 20; i++)
+            {
+                var other = Put(Folder("psx", $"Game {i}"), $"Game {i}.cue");
+                var listed = Put(linkFolder, $"Listed {i}.cue");
+                games.Add(new Game { Id = 10 + i, Title = $"Game {i}", PlatformId = Ps1, Path = Path.GetDirectoryName(other), ExecutablePath = other });
+                games.Add(new Game { Id = 50 + i, Title = $"Listed {i}", PlatformId = Ps1, Path = listed, ExecutablePath = listed });
+            }
+            var alias = Path.Combine(linkFolder, "FF7");
+            if (link == "file") File.CreateSymbolicLink(alias + ".cue", cue);
+            else Directory.CreateSymbolicLink(alias, ff7);
+            var aliasCue = link == "file" ? alias + ".cue" : Path.Combine(alias, "Final Fantasy VII.cue");
+            games.Add(new Game { Id = 2, Title = "FF7", PlatformId = Ps1, Path = link == "file" ? aliasCue : alias, ExecutablePath = aliasCue });
+            await Seed(games.ToArray());
+            var before = Files();
+
+            var plan = await Plan(Controller(), 1);
+            var result = await Controller().Delete(1, deleteFiles: true);
+
+            Assert.That(plan.GetProperty("paths").ValueKind, Is.EqualTo(JsonValueKind.Null));
+            Assert.That(result, Is.InstanceOf<ConflictObjectResult>());
+            Assert.That(Trashed(), Is.Empty);
+            Assert.That(Files(), Is.EqualTo(before));
+        }
+
+        // A track another entry links to stays when the game's file set goes, however many entries its folder holds
+        [TestCase(true)]
+        [TestCase(false)]
+        [Platform(Exclude = "Win")]
+        public async Task TrackAnotherEntryLinksTo_Stays(bool manyEntries)
+        {
+            var roms = Folder("roms");
+            var cue = Put(roms, "Spyro.cue", "FILE \"Spyro.bin\" BINARY");
+            var bin = Put(roms, "Spyro.bin");
+            var games = new List<Game> { new Game { Id = 1, Title = "Spyro", PlatformId = Ps1, Path = cue, ExecutablePath = cue } };
+            for (var i = 0; manyEntries && i < 20; i++)
+            {
+                var iso = Put(roms, $"Game {i}.iso");
+                games.Add(new Game { Id = 10 + i, Title = $"Game {i}", PlatformId = Ps1, Path = iso, ExecutablePath = iso });
+            }
+            var link = Path.Combine(roms, "Spyro Link.bin");
+            File.CreateSymbolicLink(link, bin);
+            games.Add(new Game { Id = 2, Title = "Spyro Link", PlatformId = Ps1, Path = link, ExecutablePath = link });
+            await Seed(games.ToArray());
+
+            var plan = await Plan(Controller(), 1);
+            var result = await Controller().Delete(1, deleteFiles: true);
+
+            Assert.That(Strings(plan.GetProperty("paths")), Is.EqualTo(new[] { cue }));
+            Assert.That(result, Is.InstanceOf<NoContentResult>());
+            Assert.That(Trashed(), Is.EqualTo(new[] { cue }));
+            Assert.That(File.Exists(bin), Is.True);
+        }
+
         // A platform folder is one right below a library root; a game named like a platform is a game
         [Test]
         public async Task GameFolderNamedLikeAPlatform_IsTheGamesFolder()
@@ -794,6 +863,23 @@ namespace RetroArr.Core.Test.Games
             Assert.That(files, Is.EqualTo(before));
             Assert.That(confirmed, Is.InstanceOf<NoContentResult>());
             Assert.That(Trashed(), Is.EqualTo(Sorted(bin, cue, sub)));
+        }
+
+        // A caller that gave up before anything moved has told the user the delete failed
+        [Test]
+        public async Task DeleteTheCallerGaveUpOn_MovesNothing()
+        {
+            var ff7 = Folder("psx", "Final Fantasy VII");
+            Put(ff7, "Final Fantasy VII.bin");
+            await Seed(new Game { Id = 1, Title = "Final Fantasy VII", PlatformId = Ps1, Path = ff7 });
+            var before = Files();
+
+            var result = await Controller().Delete(1, deleteFiles: true, cancellationToken: new CancellationToken(true));
+
+            Assert.That(((StatusCodeResult)result).StatusCode, Is.EqualTo(499));
+            Assert.That(Files(), Is.EqualTo(before));
+            Assert.That(Trashed(), Is.Empty);
+            Assert.That(Kept(1), Is.True);
         }
 
         // ---- Listing and download ----

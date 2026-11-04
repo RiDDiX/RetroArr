@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using NUnit.Framework;
@@ -360,6 +362,73 @@ namespace RetroArr.Core.Test.Games
             File.WriteAllText(m3uPath, "../Shared/GAME (DISC 1).CHD\n");
 
             Assert.That(FileSetResolver.Resolve(m3uPath).CompanionFiles, Is.Empty);
+        }
+
+        // Many files of one folder resolved with one read of it find what each finds reading the folder itself
+        [Test]
+        public void Resolve_WithTheFolderReadOnce_FindsTheSameFiles()
+        {
+            foreach (var name in new[] { "Game.iso", "GAME.SUB", "Game.img", "Game.", "Game", "Game.part.bin", ".Game.bin", "Game [!].iso", "Game [!].bin",
+                "Other.bin", "Other.sbi", "Broken.cue", "Broken.bin", "Tracks.cue", "Tracks (Track 1).bin", "Set.m3u", "Set (Disc 1).iso", "Set (Disc 1).ccd" })
+            {
+                var text = name switch { "Tracks.cue" => "FILE \"Tracks (Track 1).bin\" BINARY", "Set.m3u" => "Set (Disc 1).iso", _ => "data" };
+                File.WriteAllText(Path.Combine(_tempDir, name), text);
+            }
+            Directory.CreateDirectory(Path.Combine(_tempDir, "Game.bin"));
+            if (!OperatingSystem.IsWindows()) File.WriteAllText(Path.Combine(_tempDir, "Gam?.iso"), "data");
+
+            var listings = new Dictionary<string, ILookup<string, string>>();
+            foreach (var file in Directory.GetFiles(_tempDir).OrderBy(f => f, StringComparer.Ordinal))
+            {
+                Assert.That(FileSetResolver.Resolve(file, listings).AllFiles, Is.EqualTo(FileSetResolver.Resolve(file).AllFiles), Path.GetFileName(file));
+            }
+            Assert.That(FileSetResolver.Resolve(Path.Combine(_tempDir, "Game.iso"), listings).CompanionFiles, Is.Not.Empty);
+        }
+
+        // Descriptors written on Windows name their tracks in another case: with the folder read once, each finds
+        // what it finds reading the folder itself
+        [Test]
+        public void Resolve_ReferencesInAnotherCase_WithTheFolderReadOnce_FindTheSameFiles()
+        {
+            var files = new Dictionary<string, string>
+            {
+                ["Tracks.cue"] = "FILE \"TRACKS (TRACK 1).BIN\" BINARY\nFILE \"tracks (track 2).bin\" BINARY\nFILE \"Tracks (Track 3).bin\" BINARY\n",
+                ["Tracks (Track 1).bin"] = "data", ["Tracks (Track 2).bin"] = "data", ["Tracks (Track 3).bin"] = "data",
+                ["Taxi.gdi"] = "2\n1 0 4 2352 \"TAXI (TRACK 1).BIN\" 0\n2 756 0 2352 taxi(track2).raw 0\n",
+                ["Taxi (Track 1).bin"] = "data", ["Taxi(Track2).RAW"] = "data",
+                ["Set.m3u"] = "SET (DISC 1).CUE\nDisc2\\SET (DISC 2).CHD\n",
+                ["Set (Disc 1).cue"] = "FILE \"set (disc 1).BIN\" BINARY\n", ["Set (Disc 1).bin"] = "data", ["disc2/Set (Disc 2).chd"] = "data",
+                ["Dead.cue"] = "FILE \"elsewhere.bin\" BINARY\n", ["DEAD.bin"] = "data", ["Dead.sub"] = "data",
+                ["Two.cue"] = "FILE \"two.bin\" BINARY\n", ["TWO.BIN"] = "data", ["Two.Bin"] = "data",
+                ["Nested.cue"] = "FILE \"DISC2\\SET (DISC 2).CHD\" BINARY\n",
+            };
+            foreach (var (name, text) in files)
+            {
+                var path = Path.Combine(_tempDir, name);
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                File.WriteAllText(path, text);
+            }
+
+            var listings = new Dictionary<string, ILookup<string, string>>();
+            foreach (var file in Directory.GetFiles(_tempDir).OrderBy(f => f, StringComparer.Ordinal))
+                Assert.That(FileSetResolver.Resolve(file, listings).AllFiles, Is.EqualTo(FileSetResolver.Resolve(file).AllFiles), Path.GetFileName(file));
+            Assert.That(FileSetResolver.Resolve(Path.Combine(_tempDir, "Tracks.cue"), listings).CompanionFiles, Has.Count.EqualTo(3));
+        }
+
+        // A track named in another case is looked up in the folder as read, not by reading the folder again
+        [Test]
+        public void Resolve_ReferenceInAnotherCase_IsFoundInTheFolderAsRead()
+        {
+            if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()) Assert.Ignore("needs a file system that tells case apart");
+            var cuePath = Path.Combine(_tempDir, "Game.cue");
+            File.WriteAllText(cuePath, "FILE \"GAME (TRACK 1).BIN\" BINARY\n");
+            var track = Path.Combine(_tempDir, "Game (Track 1).bin");
+            var listings = new Dictionary<string, ILookup<string, string>>
+            {
+                [_tempDir] = new[] { cuePath, track }.ToLookup(f => Path.GetFileNameWithoutExtension(f), StringComparer.OrdinalIgnoreCase)
+            };
+
+            Assert.That(FileSetResolver.Resolve(cuePath, listings).CompanionFiles, Is.EqualTo(new[] { track }));
         }
 
         [Test]

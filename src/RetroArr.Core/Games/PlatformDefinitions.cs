@@ -11,6 +11,11 @@ namespace RetroArr.Core.Games
         // SqliteGameRepository / GameController still reject genuinely invalid ids.
         public const int UnknownPlatformId = 200;
 
+        // Where the Steam and GOG account syncs add the games they bring in
+        public const int SteamPlatformId = 125;
+        public const int GogPlatformId = 126;
+        public const int PcPlatformId = 1;
+
         private static Dictionary<int, Platform>? _platformDict;
         public static Dictionary<int, Platform> PlatformDictionary =>
             _platformDict ??= AllPlatforms.ToDictionary(p => p.Id);
@@ -35,11 +40,27 @@ namespace RetroArr.Core.Games
             // not whatever "retrobat" might match.
             for (int i = segments.Length - 1; i >= 0; i--)
             {
-                var seg = segments[i];
-                var hit = AllPlatforms.FirstOrDefault(p => p.MatchesFolderName(seg));
-                if (hit != null) return hit;
+                if (ByFolderName.TryGetValue(segments[i], out var hit)) return hit;
             }
             return null;
+        }
+
+        // Every name MatchesFolderName takes, to the first platform in list order that has it. Health and repair
+        // resolve every game of the library, and the list walk compared each segment with every platform.
+        private static Dictionary<string, Platform>? _byFolderName;
+        private static Dictionary<string, Platform> ByFolderName => _byFolderName ??= BuildByFolderName();
+
+        private static Dictionary<string, Platform> BuildByFolderName()
+        {
+            var map = new Dictionary<string, Platform>(System.StringComparer.OrdinalIgnoreCase);
+            foreach (var p in AllPlatforms)
+            {
+                foreach (var name in new[] { p.FolderName, p.Slug, p.RetroBatFolderName, p.BatoceraFolderName }.Concat(p.FolderAliases ?? System.Array.Empty<string>()))
+                {
+                    if (!string.IsNullOrEmpty(name)) map.TryAdd(name, p);
+                }
+            }
+            return map;
         }
 
         public static readonly List<Platform> AllPlatforms = new()

@@ -255,20 +255,23 @@ namespace RetroArr.Api.V3.Gog
                 var gogPlatform = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.Slug == "gog");
                 var platformId = gogPlatform?.Id ?? 126;
 
+                // GogId has no index: one read here instead of a scan of the whole Games table per owned title
+                var knownGogIds = new HashSet<string>(await _context.Games.AsNoTracking()
+                    .Where(g => g.GogId != null)
+                    .Select(g => g.GogId!)
+                    .ToListAsync());
+
                 foreach (var gogGame in gogGames.Where(g => g.IsGame))
                 {
-                    // Check if already exists by GOG ID
-                    var existing = await _context.Games
-                        .FirstOrDefaultAsync(g => g.GogId == gogGame.Id.ToString());
-
-                    if (existing != null)
+                    // Check if already exists by GOG ID; the ones this run links or adds count as known from then on
+                    if (!knownGogIds.Add(gogGame.Id.ToString()))
                     {
                         skippedCount++;
                         continue;
                     }
 
                     // Check by title on the GOG platform only (avoid cross-platform corruption)
-                    existing = await _context.Games
+                    var existing = await _context.Games
                         .FirstOrDefaultAsync(g => g.Title == gogGame.Title && g.PlatformId == platformId);
 
                     if (existing != null)

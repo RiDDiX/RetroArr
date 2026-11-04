@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using RetroArr.Core.Data;
 using RetroArr.Core.Prowlarr;
 using RetroArr.Core.Configuration;
 using RetroArr.Core.MetadataSource;
@@ -33,6 +35,7 @@ namespace RetroArr.Api.V3.Settings
         private readonly SteamClient _steamClient;
         private readonly IGameRepository _gameRepository;
         private readonly GogDownloadTracker _gogDownloadTracker;
+        private readonly RetroArrDbContext _context;
 
         public SettingsController(
             ProwlarrSettings prowlarrSettings, 
@@ -41,7 +44,8 @@ namespace RetroArr.Api.V3.Settings
             IGameMetadataServiceFactory metadataServiceFactory,
             SteamClient steamClient,
             IGameRepository gameRepository,
-            GogDownloadTracker gogDownloadTracker)
+            GogDownloadTracker gogDownloadTracker,
+            RetroArrDbContext context)
         {
             _prowlarrSettings = prowlarrSettings;
             _jackettSettings = jackettSettings;
@@ -50,6 +54,7 @@ namespace RetroArr.Api.V3.Settings
             _steamClient = steamClient;
             _gameRepository = gameRepository;
             _gogDownloadTracker = gogDownloadTracker;
+            _context = context;
         }
 
         [HttpPost("prowlarr")]
@@ -233,6 +238,7 @@ namespace RetroArr.Api.V3.Settings
 
         // ==================== Steam Sync (background job) ====================
 
+        private static readonly object _steamSyncLock = new();
         private static volatile bool _isSyncingSteam;
         private static volatile bool _steamSyncCancellationRequested;
         private static int _steamSyncTotal;
@@ -247,12 +253,17 @@ namespace RetroArr.Api.V3.Settings
         [HttpPost("steam/sync")]
         public async Task<IActionResult> SyncSteamLibrary()
         {
-            if (_isSyncingSteam)
-                return Conflict(new { success = false, message = "A Steam sync is already in progress." });
-
             var settings = _configService.LoadSteamSettings();
             if (!settings.IsConfigured)
                 return BadRequest(new { success = false, message = "Steam not configured" });
+
+            // Claimed before the first await, so a second click during the fetch can't start a second run
+            lock (_steamSyncLock)
+            {
+                if (_isSyncingSteam)
+                    return Conflict(new { success = false, message = "A Steam sync is already in progress." });
+                _isSyncingSteam = true;
+            }
 
             // Pre-fetch Steam library (fast, single API call) before going background
             List<SteamUserGame> steamGames;
@@ -263,14 +274,17 @@ namespace RetroArr.Api.V3.Settings
             }
             catch (Exception ex)
             {
+                _isSyncingSteam = false;
                 return BadRequest(new { success = false, message = $"Failed to fetch Steam library: {ex.Message}" });
             }
 
             if (steamGames.Count == 0)
+            {
+                _isSyncingSteam = false;
                 return Ok(new { success = true, message = "Steam library is empty. Nothing to sync.", count = 0 });
+            }
 
             // Reset progress and start background processing
-            _isSyncingSteam = true;
             _steamSyncCancellationRequested = false;
             _steamSyncTotal = steamGames.Count;
             _steamSyncProgress = 0;
@@ -289,7 +303,7 @@ namespace RetroArr.Api.V3.Settings
             {
                 try
                 {
-                    var existingGames = await gameRepository.GetAllAsync();
+                    var findExisting = SteamMatcher(await gameRepository.GetSteamRowsAsync());
                     var metadataService = metadataServiceFactory.CreateService();
 
                     foreach (var steamGame in steamGames)
@@ -305,15 +319,13 @@ namespace RetroArr.Api.V3.Settings
 
                         try
                         {
-                            var existingGame = existingGames.FirstOrDefault(g => g.SteamId == steamGame.AppId ||
-                                (g.Title.Equals(steamGame.Name, StringComparison.OrdinalIgnoreCase)));
+                            var existingGame = findExisting(steamGame.AppId, steamGame.Name);
 
                             if (existingGame != null)
                             {
                                 if (!existingGame.SteamId.HasValue || existingGame.SteamId != steamGame.AppId)
                                 {
-                                    existingGame.SteamId = steamGame.AppId;
-                                    await gameRepository.UpdateAsync(existingGame.Id, existingGame);
+                                    await gameRepository.UpdateFieldsAsync(existingGame.Id, g => g.SteamId = steamGame.AppId);
                                     _steamSyncLinked++;
                                     _logger.Info($"[SteamSync] Linked '{existingGame.Title}' to Steam AppID: {steamGame.AppId}");
                                 }
@@ -331,7 +343,7 @@ namespace RetroArr.Api.V3.Settings
                                     Added = DateTime.UtcNow,
                                     Status = GameStatus.Announced,
                                     Monitored = true,
-                                    PlatformId = 125,
+                                    PlatformId = PlatformDefinitions.SteamPlatformId,
                                     IsExternal = true
                                 };
 
@@ -424,6 +436,20 @@ namespace RetroArr.Api.V3.Settings
             _steamSyncCancellationRequested = true;
             _logger.Info("[SteamSync] Cancellation requested.");
             return Ok(new { message = "Cancellation requested." });
+        }
+
+        // The row an owned app belongs to: the one with its AppID on any platform, else the same title on the
+        // Steam or PC platform (a same-named game elsewhere, a PS2 "Doom", is another game). The first row by id wins.
+        public static Func<int, string?, GameListDto?> SteamMatcher(IEnumerable<GameListDto> rows)
+        {
+            var bySteamId = new Dictionary<int, GameListDto>();
+            var byTitle = new Dictionary<string, GameListDto>(StringComparer.OrdinalIgnoreCase);
+            foreach (var row in rows)
+            {
+                if (row.SteamId is int steamId) bySteamId.TryAdd(steamId, row);
+                if (row.PlatformId is PlatformDefinitions.SteamPlatformId or PlatformDefinitions.PcPlatformId) byTitle.TryAdd(row.Title, row);
+            }
+            return (appId, name) => bySteamId.GetValueOrDefault(appId) ?? (name == null ? null : byTitle.GetValueOrDefault(name));
         }
 
         [HttpGet("screenscraper")]
@@ -769,24 +795,26 @@ namespace RetroArr.Api.V3.Settings
                 }
 
                 var gogGames = await client.GetOwnedGamesAsync();
-                var existingGames = await _gameRepository.GetAllAsync();
+                // Only the rows the matching reads; GogId has no index, so one read instead of a scan per owned title
+                var findExisting = GogMatcher(await _context.Games.AsNoTracking()
+                    .Where(g => g.GogId != null || g.PlatformId == PlatformDefinitions.GogPlatformId)
+                    .OrderBy(g => g.Id)
+                    .Select(g => new Game { Id = g.Id, Title = g.Title, PlatformId = g.PlatformId, GogId = g.GogId })
+                    .ToListAsync());
                 
                 int addedCount = 0;
                 var metadataService = _metadataServiceFactory.CreateService();
 
                 foreach (var gogGame in gogGames.Where(g => g.IsGame))
                 {
-                    var existingGame = existingGames.FirstOrDefault(g => 
-                        g.GogId == gogGame.Id.ToString() || 
-                        g.Title.Equals(gogGame.Title, StringComparison.OrdinalIgnoreCase));
+                    var existingGame = findExisting(gogGame.Id.ToString(), gogGame.Title);
 
                     if (existingGame != null)
                     {
                         // Update existing game if it doesn't have the GogId
                         if (string.IsNullOrEmpty(existingGame.GogId) || existingGame.GogId != gogGame.Id.ToString())
                         {
-                            existingGame.GogId = gogGame.Id.ToString();
-                            await _gameRepository.UpdateAsync(existingGame.Id, existingGame);
+                            await _gameRepository.UpdateFieldsAsync(existingGame.Id, g => g.GogId = gogGame.Id.ToString());
                             _logger.Info($"[GogSync] Linked '{existingGame.Title}' to GOG ID: {gogGame.Id}");
                         }
                     }
@@ -799,7 +827,7 @@ namespace RetroArr.Api.V3.Settings
                             Added = DateTime.UtcNow,
                             Status = GameStatus.Announced,
                             Monitored = true,
-                            PlatformId = 126, // GOG platform
+                            PlatformId = PlatformDefinitions.GogPlatformId,
                             IsExternal = true,
                             Images = new GameImages
                             {
@@ -846,6 +874,20 @@ namespace RetroArr.Api.V3.Settings
             {
                 return BadRequest(new { success = false, message = ex.Message });
             }
+        }
+
+        // The row an owned GOG title belongs to, as in GogController: the one with its GOG id on any platform, else the
+        // same title on the GOG platform (a same-named SNES or PS1 game is another game). The first row by id wins.
+        public static Func<string, string?, Game?> GogMatcher(IEnumerable<Game> rows)
+        {
+            var byGogId = new Dictionary<string, Game>(StringComparer.Ordinal);
+            var byTitle = new Dictionary<string, Game>(StringComparer.OrdinalIgnoreCase);
+            foreach (var row in rows)
+            {
+                if (!string.IsNullOrEmpty(row.GogId)) byGogId.TryAdd(row.GogId, row);
+                if (row.PlatformId == PlatformDefinitions.GogPlatformId) byTitle.TryAdd(row.Title, row);
+            }
+            return (gogId, title) => byGogId.GetValueOrDefault(gogId) ?? (title == null ? null : byTitle.GetValueOrDefault(title));
         }
 
         [HttpGet("gog/downloads/{gogId}")]

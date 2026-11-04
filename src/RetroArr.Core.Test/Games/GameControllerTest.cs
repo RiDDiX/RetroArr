@@ -319,6 +319,122 @@ namespace RetroArr.Core.Test.Games
             Assert.That(await Controller().DeleteMany(new List<int>()), Is.InstanceOf<BadRequestObjectResult>());
         }
 
+        // A repository that refuses to load the whole library
+        private IGameRepository NoFullLoads()
+        {
+            var repo = DispatchProxy.Create<IGameRepository, MissingContentTest.HookedRepository>();
+            var hook = (MissingContentTest.HookedRepository)(object)repo;
+            hook.Inner = new SqliteGameRepository(new DbFactory(_db));
+            hook.Before = (method, _) =>
+            {
+                if (method.Name is nameof(IGameRepository.GetAllAsync) or nameof(IGameRepository.GetAllLightAsync))
+                    throw new InvalidOperationException("every game");
+            };
+            return repo;
+        }
+
+        // A folder is unmapped when no game path is it, lies in it or holds it (an entry of a whole platform folder);
+        // a game in "Mario Kart" leaves "Mario" unmapped and the other way round. The discs folder of a playlist next to it
+        // and the platform's media and NAS system folders (a file per game) are none
+        [Test]
+        public async Task UnmappedFiles_FoldersWithoutAGame_AreListed()
+        {
+            var snes = Path.Combine(_lib, "snes");
+            Put(Path.Combine(snes, "images"), "Mario Kart-image.png");
+            Put(Path.Combine(snes, "videos"), "Mario Kart-video.mp4");
+            Put(Path.Combine(snes, "downloaded_images"), "Mario Kart.png");
+            Put(Path.Combine(snes, ".hidden"), "Mario Kart.sfc");
+            Put(Path.Combine(snes, "@eaDir"), "Mario Kart.sfc@SynoEAStream");
+            Put(Path.Combine(snes, "FF7"), "FF7 (Disc 1).chd");
+            var m3u = Put(snes, "FF7.m3u");
+            Put(Path.Combine(snes, "Mario"), "Mario.sfc");
+            Put(Path.Combine(snes, "Mario Kart"), "Mario Kart.sfc");
+            Put(Path.Combine(snes, "Metroid"), "Metroid.sfc");
+            Put(Path.Combine(snes, "Metroid Fusion"), "Metroid Fusion.sfc");
+            var cue = Put(Path.Combine(snes, "Zelda", "Disc 1"), "Zelda.cue");
+            var exe = Put(Path.Combine(_lib, "windows", "Doom"), "doom.exe");
+            Put(Path.Combine(_lib, "psx", "Crash"), "Crash.bin");
+            Directory.CreateDirectory(Path.Combine(snes, "Empty"));
+            Add(new Game { Id = 1, Title = "Mario Kart", PlatformId = Snes, Path = Path.Combine(snes, "Mario Kart") },
+                new Game { Id = 2, Title = "Metroid", PlatformId = Snes, Path = Path.Combine(snes, "Metroid") },
+                new Game { Id = 3, Title = "Zelda", PlatformId = Snes, Path = cue },
+                new Game { Id = 4, Title = "Doom", PlatformId = Pc, ExecutablePath = exe },
+                new Game { Id = 5, Title = "Collection", PlatformId = Snes, Path = Path.Combine(_lib, "psx") },
+                new Game { Id = 6, Title = "FF7", PlatformId = Snes, Path = m3u });
+
+            var result = await Controller(NoFullLoads()).GetUnmappedFiles();
+
+            var json = System.Text.Json.JsonSerializer.Serialize(((OkObjectResult)result).Value);
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            Assert.That(doc.RootElement.EnumerateArray().Select(f => $"{f.GetProperty("folder").GetString()}/{f.GetProperty("fileName").GetString()}"),
+                Is.EquivalentTo(new[] { "Mario/Mario.sfc", "Metroid Fusion/Metroid Fusion.sfc", "Empty/(empty folder)" }));
+        }
+
+        // Counted per platform by the database; a row without a known platform counts as 0
+        [Test]
+        public async Task PlatformCounts_AreCountedWithoutLoadingTheGames()
+        {
+            Add(new Game { Id = 1, Title = "One", PlatformId = Snes }, new Game { Id = 2, Title = "Two", PlatformId = Snes },
+                new Game { Id = 3, Title = "Three", PlatformId = Pc });
+
+            var result = await Controller(NoFullLoads()).GetPlatformCounts();
+
+            Assert.That(((OkObjectResult)result.Result!).Value, Is.EquivalentTo(new Dictionary<string, int> { ["41"] = 2, ["1"] = 1, ["__total"] = 3 }));
+        }
+
+        // Clearing the library takes what hangs on the games with it; files stay
+        [Test]
+        public async Task DeleteAll_RemovesEveryGameAndWhatHangsOnIt()
+        {
+            var kept = Put(Path.Combine(_lib, "snes"), "One.sfc");
+            Add(new Game { Id = 1, Title = "One", PlatformId = Snes, Path = kept, GameFiles = { new GameFile { RelativePath = "One.sfc" } } },
+                new Game { Id = 2, Title = "Two", PlatformId = Snes });
+            using (var ctx = new RetroArrDbContext(_db))
+            {
+                ctx.Tags.Add(new Tag { Name = "Favs", GameTags = { new GameTag { GameId = 1 }, new GameTag { GameId = 2 } } });
+                ctx.SaveChanges();
+            }
+
+            Assert.That(await Controller(NoFullLoads()).DeleteAll(), Is.InstanceOf<NoContentResult>());
+
+            using var check = new RetroArrDbContext(_db);
+            Assert.That(check.Games.Count() + check.GameFiles.Count() + check.GameTags.Count(), Is.Zero);
+            Assert.That(check.Tags.Count(), Is.EqualTo(1));
+            Assert.That(File.Exists(kept), Is.True);
+        }
+
+        // Another entry of the title on the platform (in any case, also beyond ASCII) is found without loading every
+        // game; one on another platform or of another region is none
+        [TestCase(Snes, "", true)]
+        [TestCase(Snes, "Europe", false)]
+        [TestCase(Pc, "", false)]
+        public async Task Update_TitleOfAnotherEntry_IsAConflict(int platformId, string region, bool conflict)
+        {
+            Add(new Game { Id = 1, Title = "ŌKAMI", PlatformId = platformId, Region = region },
+                new Game { Id = 2, Title = "Okami Den", PlatformId = Snes, Region = "" });
+
+            var result = await Controller(NoFullLoads()).Update(2, new Game { Title = "Ōkami" });
+
+            Assert.That(result.Result, conflict ? Is.InstanceOf<ConflictObjectResult>() : Is.InstanceOf<OkObjectResult>());
+            if (conflict) Assert.That(Value(((ConflictObjectResult)result.Result!).Value!, "otherGameId"), Is.EqualTo(1));
+            Assert.That(Row(2).Title, Is.EqualTo(conflict ? "Okami Den" : "Ōkami"));
+        }
+
+        // The title on the platform of the path (in any case) is a conflict, found without loading every game
+        [TestCase(Snes, true)]
+        [TestCase(Switch, false)]
+        public async Task FixPlatformFromPath_TitleOnThatPlatform_IsAConflict(int otherPlatform, bool conflict)
+        {
+            var file = Put(Path.Combine(_lib, "snes"), "Okami.sfc");
+            Add(new Game { Id = 1, Title = "ŌKAMI", PlatformId = otherPlatform, Region = "Europe" },
+                new Game { Id = 2, Title = "Ōkami", PlatformId = Pc, Path = file });
+
+            var result = await Controller(NoFullLoads()).FixPlatformFromPath(2);
+
+            Assert.That(result, conflict ? Is.InstanceOf<ConflictObjectResult>() : Is.InstanceOf<OkObjectResult>());
+            Assert.That(Row(2).PlatformId, Is.EqualTo(conflict ? Pc : Snes));
+        }
+
         // Untracked, still with every file linked to its game
         [Test]
         public async Task GetAll_ReturnsTheGamesWithTheirFiles()

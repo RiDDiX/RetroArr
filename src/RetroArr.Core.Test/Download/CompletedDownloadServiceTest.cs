@@ -74,6 +74,30 @@ namespace RetroArr.Core.Test.Download
             Assert.That(tracked.StatusMessages, Is.Empty);
         }
 
+        // A download linked to a game takes the game's platform, read for that game alone
+        [Test]
+        public async Task Check_WithoutPlatform_TakesItsGamesPlatform()
+        {
+            using (var ctx = new RetroArrDbContext(_db))
+            {
+                ctx.Games.Add(new Game { Id = 1, Title = "Old Game", PlatformId = 41 });
+                await ctx.SaveChangesAsync();
+            }
+            var factory = new DbFactory(_db);
+            var service = new CompletedDownloadService(null!, _tracker, new TrackedDownloadService(_root),
+                new DownloadHistoryRepository(factory), new DownloadBlacklistRepository(factory),
+                PostDownloadProcessorTest.WithoutLibraryLoads(new SqliteGameRepository(factory)), NullLogger<CompletedDownloadService>.Instance);
+            var tracked = Tracked(TrackedDownloadState.ImportPending, _root);
+            tracked.PlatformFolder = null;
+            tracked.GameId = 1;
+
+            await service.CheckAsync(tracked, new DownloadClient());
+
+            Assert.That(tracked.PlatformFolder, Is.EqualTo("snes"));
+            Assert.That(tracked.State, Is.EqualTo(TrackedDownloadState.ImportPending), string.Join("; ", tracked.StatusMessages));
+            Assert.That(tracked.IsUnmapped, Is.False);
+        }
+
         [Test]
         public async Task Check_BlacklistedDownload_EndsItsPendingGrab()
         {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { steamApi } from '../api/client';
+import apiClient, { steamApi } from '../api/client';
 import { t as translate } from '../i18n/translations';
 import './User.css';
 
@@ -56,6 +56,10 @@ const User: React.FC = () => {
     useEffect(() => {
         const fetchData = async () => {
             try {
+                // every /steam call answers 400 while Steam is not set up
+                const settingsRes = await apiClient.get('/settings/steam');
+                if (settingsRes.data?.isConfigured !== true) return;
+
                 try {
                     const profileRes = await steamApi.getProfile();
                     if (profileRes.data) setProfile(profileRes.data);

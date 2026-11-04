@@ -117,6 +117,7 @@ const Library: React.FC = () => {
   });
   const itemsPerPageOptions = [10, 25, 50, 100, 250, 500, 1000];
   const rescanPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const scanPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Refs to the latest loaders so the LIBRARY_UPDATED_EVENT handler (which
   // captures once at mount) always calls the current-filters version.
@@ -205,7 +206,8 @@ const Library: React.FC = () => {
       // Bulk-load reviews for visible games
       if (data.items.length > 0) {
         const ids = data.items.map((g: GameListDto) => g.id);
-        reviewsApi.getBulk(ids).then(res => setBulkReviews(res.data)).catch(() => {});
+        // Merged: a slower reply for an earlier page must not drop this page's reviews
+        reviewsApi.getBulk(ids).then(res => setBulkReviews(prev => ({ ...prev, ...res.data }))).catch(() => {});
       } else {
         setBulkReviews({});
       }
@@ -309,6 +311,8 @@ const Library: React.FC = () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       if (rescanPollRef.current) clearInterval(rescanPollRef.current);
       if (protonPollRef.current) clearInterval(protonPollRef.current);
+      if (scanPollRef.current) clearInterval(scanPollRef.current);
+      scanPollRef.current = null;
     };
   }, []);
 
@@ -501,21 +505,29 @@ const Library: React.FC = () => {
     setPlatformScanning(true);
     // Poll scan status until finished, then reload games
     const waitForScan = () => {
+      if (scanPollRef.current) clearInterval(scanPollRef.current);
+      const stop = () => {
+        clearInterval(poll);
+        scanPollRef.current = null;
+        setPlatformScanning(false);
+      };
+      // A tick still waiting when the page unmounts or a newer scan replaces this poll does nothing
+      const current = () => scanPollRef.current === poll;
       const poll = setInterval(async () => {
         try {
           const res = await mediaApi.getScanStatus();
-          if (!res.data.isScanning) {
-            clearInterval(poll);
-            setPlatformScanning(false);
-            loadPagedGames();
-            loadPlatformCounts();
+          if (current() && !res.data.isScanning) {
+            stop();
+            // The filters may have changed during the scan
+            loadPagedGamesRef.current();
+            loadPlatformCountsRef.current();
             loadPlatforms();
           }
         } catch {
-          clearInterval(poll);
-          setPlatformScanning(false);
+          if (current()) stop();
         }
       }, 2000);
+      scanPollRef.current = poll;
     };
     try {
       await mediaApi.startScan({ platform: platformSlug });
@@ -1094,7 +1106,8 @@ const Library: React.FC = () => {
                 <GameCard
                   key={dto.id}
                   game={game}
-                  reviewData={bulkReviews[dto.id]}
+                  // The bulk reply has only games with a review row: null keeps the other cards from each fetching their own
+                  reviewData={bulkReviews[dto.id] ?? null}
                   onClick={() => {
                     console.log('Navigating to game details', dto.id);
                     const fromPlatform = selectedPlatform ? platforms.find(p => p.id.toString() === selectedPlatform) : null;

@@ -528,6 +528,80 @@ namespace RetroArr.Core.Test.Games
             Assert.That(Row(1).Monitored, Is.False);
         }
 
+        // A second heal while one runs (a retry after the page gave up) is refused instead of healing the same rows again
+        [Test]
+        public async Task PlatformHeal_WhileOneRuns_Is409()
+        {
+            using var held = new ManualResetEventSlim();
+            using var release = new ManualResetEventSlim();
+            var repo = DispatchProxy.Create<IGameRepository, MissingContentTest.HookedRepository>();
+            var hook = (MissingContentTest.HookedRepository)(object)repo;
+            hook.Inner = new SqliteGameRepository(new DbFactory(_db));
+            hook.Before = (method, _) =>
+            {
+                if (method.Name is not (nameof(IGameRepository.GetAllLightAsync) or nameof(IGameRepository.GetProblemRowsAsync)) || held.IsSet) return;
+                held.Set();
+                release.Wait(TimeSpan.FromSeconds(30));
+            };
+            var media = new RetroArr.Api.V3.Settings.MediaController(new ConfigurationService(_root), Scanner(new FakeIgdb(), repo), repo, new FakeIgdb(), null!);
+            var first = Task.Run(() => media.HealPlatforms());
+            Assert.That(held.Wait(TimeSpan.FromSeconds(30)), Is.True);
+
+            var second = await media.HealPlatforms();
+
+            release.Set();
+            Assert.That(await first, Is.InstanceOf<Microsoft.AspNetCore.Mvc.OkObjectResult>());
+            Assert.That(second, Is.InstanceOf<Microsoft.AspNetCore.Mvc.ConflictObjectResult>());
+        }
+
+        // The heal holds the scan slot, so the scan banner can stop it: that is answered, not a server error
+        [Test]
+        public async Task PlatformHeal_StoppedFromTheBanner_Is409()
+        {
+            await Seed(new Game { Id = 1, Title = "Advance Wars", PlatformId = Gba, Path = Put(Folder("gba"), "Advance Wars.gba") });
+            using var held = new ManualResetEventSlim();
+            using var release = new ManualResetEventSlim();
+            var repo = DispatchProxy.Create<IGameRepository, MissingContentTest.HookedRepository>();
+            var hook = (MissingContentTest.HookedRepository)(object)repo;
+            hook.Inner = new SqliteGameRepository(new DbFactory(_db));
+            hook.Before = (method, _) =>
+            {
+                if (method.Name != nameof(IGameRepository.GetProblemRowsAsync) || held.IsSet) return;
+                held.Set();
+                release.Wait(TimeSpan.FromSeconds(30));
+            };
+            var scanner = Scanner(new FakeIgdb(), repo);
+            var media = new RetroArr.Api.V3.Settings.MediaController(new ConfigurationService(_root), scanner, repo, new FakeIgdb(), null!);
+            var heal = Task.Run(() => media.HealPlatforms());
+            Assert.That(held.Wait(TimeSpan.FromSeconds(30)), Is.True);
+
+            scanner.StopScan();
+            release.Set();
+
+            Assert.That(await heal, Is.InstanceOf<Microsoft.AspNetCore.Mvc.ConflictObjectResult>());
+            Assert.That(scanner.IsScanning, Is.False);
+        }
+
+        // The import of a selection reads the library once, not once per item
+        [Test]
+        public async Task DiscoveryImport_ReadsTheLibraryOnce()
+        {
+            var reads = 0;
+            var repo = DispatchProxy.Create<IGameRepository, MissingContentTest.HookedRepository>();
+            var hook = (MissingContentTest.HookedRepository)(object)repo;
+            hook.Inner = new SqliteGameRepository(new DbFactory(_db));
+            hook.Before = (method, _) => { if (method.Name == nameof(IGameRepository.GetAllLightAsync)) Interlocked.Increment(ref reads); };
+            var discoveries = new DiscoveredGameRepository(new DbFactory(_db));
+            foreach (var title in new[] { "Advance Wars", "Golden Sun", "Metroid Fusion" })
+                await discoveries.AddAsync(new DiscoveredGame { Title = title, Path = Put(Folder("gba"), $"{title}.gba"), PlatformKey = "gba" });
+            var controller = new RetroArr.Api.V3.Discovery.DiscoveryController(discoveries, Scanner(new FakeIgdb(), repo, discoveries: discoveries), repo, new FakeIgdb());
+
+            await controller.ImportSelected(new RetroArr.Api.V3.Discovery.DiscoveryController.ImportRequest { Ids = (await discoveries.GetAllAsync()).Select(d => d.Id).ToList() });
+
+            Assert.That(Rows().Select(g => g.Title), Is.EquivalentTo(new[] { "Advance Wars", "Golden Sun", "Metroid Fusion" }));
+            Assert.That(reads, Is.EqualTo(1));
+        }
+
         // A row inside a PS4 container folder is junk and goes. A library below a folder that is only named like one
         // keeps its games.
         [TestCase(true)]
@@ -631,10 +705,10 @@ namespace RetroArr.Core.Test.Games
             var repo = DispatchProxy.Create<IGameRepository, MissingContentTest.HookedRepository>();
             var hook = (MissingContentTest.HookedRepository)(object)repo;
             hook.Inner = new SqliteGameRepository(new DbFactory(_db));
-            // Held after the first platform's files, before the second's
+            // Held after the first platform's files (its in-game update pass reads its games), before the second's
             hook.Before = (method, _) =>
             {
-                if (method.Name != nameof(IGameRepository.GetAllLightAsync) || Interlocked.Increment(ref reads) != 2) return;
+                if (method.Name != nameof(IGameRepository.GetAllPagedAsync) || Interlocked.Increment(ref reads) != 1) return;
                 held.Set();
                 release.Wait(TimeSpan.FromSeconds(30));
             };
@@ -1250,6 +1324,23 @@ namespace RetroArr.Core.Test.Games
             }));
         }
 
+        // A heal or the content pass shows its own counts in the scan status, not those of the scan before
+        [Test]
+        public async Task ContentPassAndHeal_ShowNoCountsOfTheLastScan()
+        {
+            Put(Folder("gba"), "Advance Wars.gba");
+            var scanner = Scanner(new FakeIgdb());
+            await scanner.ScanAsync();
+            Assert.That(scanner.GamesAddedCount, Is.EqualTo(1));
+
+            await scanner.PromotePresentGamesAsync();
+            Assert.That((scanner.GamesAddedCount, scanner.LastGameFound), Is.EqualTo((0, (string?)null)));
+
+            await scanner.ScanAsync();
+            await scanner.HealPlatformsAsync();
+            Assert.That((scanner.GamesAddedCount, scanner.LastGameFound), Is.EqualTo((0, (string?)null)));
+        }
+
         [Test]
         public async Task ContentPass_WaitsForARunningScan()
         {
@@ -1466,6 +1557,263 @@ namespace RetroArr.Core.Test.Games
             Assert.That(Row(1).Path, Is.EqualTo(found));
             Assert.That(Row(1).Status, Is.EqualTo(GameStatus.Downloaded), "a monitored game without its files is downloaded again");
             Assert.That(Rows(), Has.Count.EqualTo(1));
+        }
+
+        // ---- Large libraries ----
+
+        // What the scanner found going over every file of a folder for each file
+        private static List<string> PrimariesFoundFileByFile(IEnumerable<string> files)
+        {
+            var ordered = files.OrderBy(f => f, StringComparer.Ordinal)
+                .OrderBy(f => Path.GetExtension(f).ToLowerInvariant() switch { ".m3u" => 0, ".cue" => 1, ".gdi" => 2, _ => 3 })
+                .ToList();
+            var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var primaries = new List<string>();
+            foreach (var file in ordered)
+            {
+                if (claimed.Contains(file)) continue;
+                foreach (var member in FileSetResolver.Resolve(file).AllFiles) claimed.Add(Path.GetFullPath(member));
+                var stem = Path.GetFileNameWithoutExtension(file);
+                foreach (var sibling in ordered)
+                {
+                    if (!sibling.Equals(file, StringComparison.OrdinalIgnoreCase) && Path.GetFileNameWithoutExtension(sibling).Equals(stem, StringComparison.OrdinalIgnoreCase))
+                        claimed.Add(sibling);
+                }
+                primaries.Add(file);
+            }
+            return primaries;
+        }
+
+        // A flat folder gives the entries it gave when each file was checked against every other one and against the
+        // whole library, and the discovery doesn't wait between batches nor announce a change of the library
+        [Test]
+        public async Task DiscoveryScan_FlatFolder_FindsWhatTheFileByFilePassFound()
+        {
+            var psx = Folder("psx");
+            var files = new Dictionary<string, string>
+            {
+                ["Alpha.cue"] = "FILE \"ALPHA (TRACK 1).BIN\" BINARY\nFILE \"Alpha (Track 2).bin\" BINARY\n",
+                ["Alpha (Track 1).bin"] = "rom", ["Alpha (Track 2).bin"] = "rom",
+                ["Bravo.iso"] = "rom", ["Bravo.mdf"] = "rom", ["Bravo.mds"] = "rom",
+                ["Charlie.ccd"] = "rom", ["CHARLIE.img"] = "rom", ["Charlie.sub"] = "rom",
+                ["Delta.m3u"] = "DELTA (DISC 1).CUE\nDelta (Disc 2).chd\n",
+                ["Delta (Disc 1).cue"] = "FILE \"delta (disc 1).bin\" BINARY\n", ["Delta (Disc 1).bin"] = "rom", ["Delta (Disc 2).chd"] = "rom",
+                ["Echo.bin"] = "rom", ["ECHO.CUE"] = "FILE \"missing.bin\" BINARY\n", ["echo.img"] = "rom",
+                ["Foxtrot (USA).chd"] = "rom", ["Foxtrot (Europe).chd"] = "rom",
+                ["Golf.chd"] = "rom", ["Hotel.chd"] = "rom", ["India.chd"] = "rom",
+            };
+            for (var i = 0; i < 100; i++) files[$"Single {i:000}.chd"] = "rom";
+            foreach (var (name, text) in files) File.WriteAllText(Path.Combine(psx, name), text);
+            // Golf is the platform's in another case, Hotel another platform's, India's path is the library's in another case
+            await Seed(
+                new Game { Id = 1, Title = "golf", PlatformId = Ps1, Path = Path.Combine(_root, "elsewhere", "Golf.chd") },
+                new Game { Id = 2, Title = "Hotel", PlatformId = Gba, Path = Path.Combine(_root, "elsewhere", "Hotel.gba") },
+                new Game { Id = 3, Title = "Stored India", PlatformId = Ps1, Path = Path.Combine(psx, "INDIA.chd") });
+            var discs = new[] { ".bin", ".cue", ".chd", ".iso", ".img", ".mdf", ".m3u", ".ccd" };
+            var expected = PrimariesFoundFileByFile(Directory.GetFiles(psx).Where(f => discs.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase)))
+                .Where(f => Path.GetFileName(f) is not ("Golf.chd" or "India.chd"))
+                .ToList();
+            var discoveries = new DiscoveredGameRepository(new DbFactory(_db));
+            var scanner = Scanner(new FakeIgdb(), discoveries: discoveries);
+            var announced = 0;
+            scanner.OnBatchFinished += () => announced++;
+
+            var watch = Stopwatch.StartNew();
+            await scanner.DiscoverOnlyAsync();
+            watch.Stop();
+
+            Assert.That((await discoveries.GetAllAsync()).Select(d => d.Path), Is.EquivalentTo(expected));
+            Assert.That(expected.Select(Path.GetFileName), Is.SupersetOf(new[] { "Alpha.cue", "Delta.m3u", "ECHO.CUE", "Hotel.chd", "Foxtrot (USA).chd", "Foxtrot (Europe).chd" }));
+            Assert.That(expected, Has.Count.EqualTo(108));
+            Assert.That(watch.Elapsed, Is.LessThan(TimeSpan.FromSeconds(2)), "waited between batches that asked no metadata provider");
+            Assert.That(announced, Is.Zero, "a discovery scan announced a change of the library");
+        }
+
+        // A rescan of files the library has by their path, under other titles, asks no provider: no wait, and nothing
+        // to announce before the scan ends
+        [Test]
+        public async Task Rescan_FilesTheLibraryHasByPath_NeitherWaitsNorAnnounces()
+        {
+            var psx = Folder("psx");
+            await Seed(Enumerable.Range(1, 101)
+                .Select(i => new Game { Id = i, Title = $"Stored {i}", PlatformId = Ps1, Path = Put(psx, i == 101 ? "Single 101.iso" : $"Single {i:000}.chd"), Status = GameStatus.Downloaded })
+                .ToArray());
+            Put(psx, "Single 101.mds");
+            var igdb = new FakeIgdb();
+            var scanner = Scanner(igdb);
+            var announced = 0;
+            scanner.OnBatchFinished += () => announced++;
+
+            var watch = Stopwatch.StartNew();
+            await scanner.ScanAsync();
+            watch.Stop();
+
+            Assert.That(Rows(), Has.Count.EqualTo(101));
+            Assert.That(GameFiles(7), Is.EqualTo(new[] { "Single 007.chd" }));
+            Assert.That(GameFiles(101), Is.EquivalentTo(new[] { "Single 101.iso", "Single 101.mds" }), "a disc past the first batch kept its companion");
+            Assert.That(igdb.Searches, Is.Zero);
+            Assert.That(watch.Elapsed, Is.LessThan(TimeSpan.FromSeconds(2)), "waited between batches that asked no metadata provider");
+            Assert.That(announced, Is.Zero);
+
+            Put(psx, "New Game.chd");
+            await scanner.ScanAsync();
+            Assert.That(announced, Is.EqualTo(1), "a folder that added a game");
+        }
+
+        // A file is held by the game of its title in any case on its platform and in its region; another platform's or
+        // another region's game of that title doesn't hold it
+        [Test]
+        public async Task FileOfAGameOfItsTitle_IsHeldOnlyOnItsPlatformAndInItsRegion()
+        {
+            var gba = Folder("gba");
+            var plain = Put(gba, "Advance Wars.gba");
+            var europe = Put(gba, "Advance Wars (Europe).gba");
+            var japan = Put(gba, "Advance Wars (Japan).gba");
+            var other = Put(Folder("psx"), "Advance Wars (Japan).chd");
+            string? Region(string file) => TitleCleanerService.ExtractFilenameMetadata(Path.GetFileNameWithoutExtension(file)).Region;
+            await Seed(
+                new Game { Id = 1, Title = "advance wars", PlatformId = Gba, Path = plain, ExecutablePath = plain, Status = GameStatus.Downloaded },
+                new Game { Id = 2, Title = "ADVANCE WARS", PlatformId = Gba, Region = Region(europe), Path = europe, ExecutablePath = europe, Status = GameStatus.Downloaded },
+                new Game { Id = 3, Title = "Advance Wars", PlatformId = Ps1, Region = Region(japan), Path = other, ExecutablePath = other, Status = GameStatus.Downloaded });
+
+            await Scanner(new FakeIgdb()).ScanAsync();
+
+            var rows = Rows();
+            Assert.That(rows, Has.Count.EqualTo(4));
+            Assert.That(rows.Single(g => g.Id > 3).Path, Is.EqualTo(japan));
+            Assert.That(rows.Where(g => g.Id <= 3).Select(g => g.Path), Is.EqualTo(new[] { plain, europe, other }));
+        }
+
+        // Updates in a folder that two games share are neither's; a game alone in a folder named like the shared one keeps its own
+        [Test]
+        public async Task InGameUpdates_OfAFolderGamesShare_AreLinkedToNone()
+        {
+            var pack = Folder("switch", "Pack");
+            var alpha = Put(pack, "Alpha [0100000000010000].nsp");
+            var bravo = Put(pack, "Bravo [0100000000020000].nsp");
+            Put(pack, "Updates/Alpha [0100000000010800][v65536].nsp");
+            var charlie = Put(Folder("switch", "Pack (EU)"), "Charlie [0100000000030000].nsp");
+            Put(Folder("switch", "Pack (EU)"), "Updates/Charlie [0100000000030800][v65536].nsp");
+            await Seed(
+                new Game { Id = 1, Title = "Alpha", PlatformId = Switch, Path = alpha, ExecutablePath = alpha, Status = GameStatus.Downloaded },
+                new Game { Id = 2, Title = "Bravo", PlatformId = Switch, Path = bravo, ExecutablePath = bravo, Status = GameStatus.Downloaded },
+                new Game { Id = 3, Title = "Charlie", PlatformId = Switch, Path = charlie, ExecutablePath = charlie, Status = GameStatus.Downloaded });
+
+            await Scanner(new FakeIgdb()).ScanAsync();
+
+            Assert.That(GameFiles(1), Is.EqualTo(new[] { "Alpha [0100000000010000].nsp" }));
+            Assert.That(GameFiles(2), Is.EqualTo(new[] { "Bravo [0100000000020000].nsp" }));
+            Assert.That(GameFiles(3), Is.EquivalentTo(new[] { "Charlie [0100000000030000].nsp", "Updates/Charlie [0100000000030800][v65536].nsp" }));
+            Assert.That(Rows(), Has.Count.EqualTo(3));
+        }
+
+        // The index finds what the list's first game at the path is, while games are added, dropped and moved
+        [Test]
+        public void GamePaths_FindTheListsFirstGameAtAPath()
+        {
+            var sep = Path.DirectorySeparatorChar.ToString();
+            var pool = new List<string?>
+            {
+                Path.Combine(_lib, "psx", "Alpha.cue"), Path.Combine(_lib, "PSX", "Alpha.cue"), Path.Combine(_lib, "psx", "alpha.CUE"),
+                Path.Combine(_lib, "psx", ".", "Alpha.cue"), Path.Combine(_lib, "snes", "..", "psx", "Alpha.cue"),
+                Path.Combine(_lib, "psx", "Bravo") + sep, Path.Combine(_lib, "psx", "Bravo"), Path.Combine(_lib, "psx", "Bravo (EU)"),
+                null, "", "psx/relative.cue", "bad\0path",
+            };
+            var random = new Random(13);
+            string? Any() => pool[random.Next(pool.Count)];
+            var nextId = 1;
+            var games = Enumerable.Range(0, 30).Select(_ => new Game { Id = nextId++, Path = Any() }).ToList();
+            var paths = new MediaScannerService.GamePaths(games);
+
+            for (var step = 0; step < 600; step++)
+            {
+                var op = random.Next(3);
+                if (op == 0 || games.Count == 0)
+                {
+                    var added = new Game { Id = nextId++, Path = Any() };
+                    games.Add(added);
+                    paths.Add(added);
+                }
+                else if (op == 1)
+                {
+                    var dropped = games[random.Next(games.Count)];
+                    games.Remove(dropped);
+                    paths.Remove(dropped);
+                }
+                else
+                {
+                    var moved = games[random.Next(games.Count)];
+                    moved.Path = Any();
+                    paths.Moved(moved);
+                }
+
+                foreach (var probe in pool)
+                    Assert.That(paths.At(probe), Is.SameAs(games.FirstOrDefault(g => MediaScannerService.SamePath(g.Path, probe))), $"step {step}: {probe}");
+            }
+        }
+
+        // The sorted run finds what the pass over every game of the platform found
+        [Test]
+        public void AnyOtherUnder_FindsWhatThePassOverEveryGameFound()
+        {
+            var sep = Path.DirectorySeparatorChar.ToString();
+            var root = Path.Combine(_lib, "psx");
+            var names = new[] { "Pack", "pack", "PACK", "Pack (EU)", "Pack2", "Pack-1", "Pack.d", "Pac" };
+            var games = new List<Game>();
+            foreach (var name in names)
+            {
+                games.Add(new Game { Id = games.Count + 1, Path = Path.Combine(root, name, "Alpha.cue") });
+                games.Add(new Game { Id = games.Count + 1, Path = Path.Combine(root, name) });
+                games.Add(new Game { Id = games.Count + 1, Path = Path.Combine(root, name) + sep });
+            }
+            games.Add(new Game { Id = games.Count + 1, Path = Path.Combine(root, "Solo", "Solo.cue") });
+            games.Add(new Game { Id = games.Count + 1, Path = Path.Combine(root, "PACK", "deep", "x.bin") });
+            games.Add(new Game { Id = games.Count + 1, Path = Path.Combine(root, "Lone") });
+            games.Add(new Game { Id = games.Count + 1, Path = Path.Combine(root, "lone") });
+            games.Add(new Game { Id = games.Count + 1, Path = null });
+            var folders = names.Select(n => Path.Combine(root, n))
+                .Concat(new[] { Path.Combine(root, "Solo"), Path.Combine(root, "pack", "DEEP"), Path.Combine(root, "LONE"), Path.Combine(root, "Lone"), root, Path.Combine(root, "Pa"), string.Empty })
+                .ToList();
+
+            foreach (var library in new[] { games, games.Where((_, i) => i % 2 == 0).ToList(), games.Where((_, i) => i % 3 != 0).ToList() })
+            {
+                var sorted = MediaScannerService.SortedPaths(library);
+                foreach (var folder in folders)
+                {
+                    foreach (var except in library.Select(g => g.Id).Append(0))
+                    {
+                        var linear = library.Any(g => g.Id != except && !string.IsNullOrEmpty(g.Path)
+                            && (g.Path.Equals(folder, StringComparison.OrdinalIgnoreCase) || g.Path.StartsWith(folder + sep, StringComparison.OrdinalIgnoreCase)));
+                        Assert.That(MediaScannerService.AnyOtherUnder(sorted, except, folder), Is.EqualTo(linear), $"'{folder}' but {except}");
+                    }
+                }
+            }
+        }
+
+        // The titles of a platform find, in the library's order, what the pass over the library found
+        [Test]
+        public void TitlesOn_FindWhatThePassOverTheLibraryFound()
+        {
+            var games = new List<Game>
+            {
+                new() { Id = 1, Title = "Advance Wars", PlatformId = Gba },
+                new() { Id = 2, Title = "advance wars", PlatformId = Gba, Region = "Europe" },
+                new() { Id = 3, Title = "ADVANCE WARS", PlatformId = Ps1 },
+                new() { Id = 4, Title = "Advance Wars 2", PlatformId = Gba },
+                new() { Id = 5, Title = "Ökoland", PlatformId = Gba },
+                new() { Id = 6, Title = "ökoland", PlatformId = Ps1 },
+                new() { Id = 7, Title = "", PlatformId = Gba },
+                new() { Id = 8, Title = "Advance Wars", PlatformId = Gba },
+            };
+            foreach (var platform in new[] { 0, Gba, Ps1, Switch })
+            {
+                var titled = MediaScannerService.TitlesOn(games, platform);
+                foreach (var title in new[] { "Advance Wars", "ADVANCE wars", "Ökoland", "ÖKOLAND", "", "Advance" })
+                {
+                    bool Matches(Game g) => g.Title.Equals(title, StringComparison.OrdinalIgnoreCase) && (platform == 0 || g.PlatformId == platform);
+                    Assert.That(titled[title].Where(Matches), Is.EqualTo(games.Where(Matches)), $"'{title}' on {platform}");
+                }
+            }
         }
     }
 }

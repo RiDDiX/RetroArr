@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import apiClient from '../api/client';
+import apiClient, { getErrorMessage } from '../api/client';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faFileImport, faRefresh, faCheck, faEyeSlash,
@@ -35,6 +35,9 @@ interface PlatformOption {
   slug: string;
 }
 
+// Thousands of rows at once freeze the page for many seconds
+const PAGE_SIZE = 200;
+
 const ReviewImport: React.FC = () => {
   const [items, setItems] = useState<ReviewItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -43,9 +46,12 @@ const ReviewImport: React.FC = () => {
   const [editPlatformId, setEditPlatformId] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [shown, setShown] = useState(PAGE_SIZE);
 
   const loadItems = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const [itemsRes, platformsRes] = await Promise.all([
         apiClient.get('/review/items?pendingOnly=true'),
@@ -54,7 +60,7 @@ const ReviewImport: React.FC = () => {
       setItems(itemsRes.data.items || []);
       setPlatforms(platformsRes.data || []);
     } catch (err) {
-      console.error('Error loading review items:', err);
+      setError(getErrorMessage(err, 'Error loading review items'));
     } finally {
       setLoading(false);
     }
@@ -62,57 +68,41 @@ const ReviewImport: React.FC = () => {
 
   useEffect(() => { loadItems(); }, [loadItems]);
 
+  // Each action changes only its own item, so the list is not fetched again
+  const act = async (id: string, request: () => Promise<unknown>, done: (list: ReviewItem[]) => ReviewItem[], fallback: string) => {
+    setActionLoading(id);
+    setError(null);
+    try {
+      await request();
+      setItems(done);
+      return true;
+    } catch (err) {
+      setError(getErrorMessage(err, fallback));
+      return false;
+    } finally {
+      setActionLoading(null);
+    }
+  };
+  const without = (id: string) => (list: ReviewItem[]) => list.filter(i => i.id !== id);
+
   const handleMap = async (id: string) => {
-    setActionLoading(id);
-    try {
-      await apiClient.post(`/review/items/${id}/map`, {
-        platformId: editPlatformId,
-        overrideTitle: editTitle || undefined
-      });
-      setEditingId(null);
-      await loadItems();
-    } catch (err) {
-      console.error('Error mapping item:', err);
-    } finally {
-      setActionLoading(null);
-    }
+    const overrideTitle = editTitle || undefined;
+    const mapped = await act(id, () => apiClient.post(`/review/items/${id}/map`, { platformId: editPlatformId, overrideTitle }),
+      list => list.map(i => i.id === id
+        ? { ...i, status: 'Mapped', assignedPlatformId: editPlatformId ?? i.assignedPlatformId, overrideTitle: overrideTitle ?? i.overrideTitle }
+        : i),
+      'Error mapping item');
+    if (mapped) setEditingId(null);
   };
 
-  const handleFinalize = async (id: string) => {
-    setActionLoading(id);
-    try {
-      await apiClient.post(`/review/items/${id}/finalize`);
-      await loadItems();
-    } catch (err) {
-      console.error('Error finalizing item:', err);
-    } finally {
-      setActionLoading(null);
-    }
-  };
+  const handleFinalize = (id: string) =>
+    act(id, () => apiClient.post(`/review/items/${id}/finalize`, undefined, { timeout: 600000 }), without(id), 'Error finalizing item');
 
-  const handleIgnore = async (id: string) => {
-    setActionLoading(id);
-    try {
-      await apiClient.post(`/review/items/${id}/ignore`);
-      await loadItems();
-    } catch (err) {
-      console.error('Error ignoring item:', err);
-    } finally {
-      setActionLoading(null);
-    }
-  };
+  const handleIgnore = (id: string) =>
+    act(id, () => apiClient.post(`/review/items/${id}/ignore`), without(id), 'Error ignoring item');
 
-  const handleDismiss = async (id: string) => {
-    setActionLoading(id);
-    try {
-      await apiClient.post(`/review/items/${id}/dismiss`);
-      await loadItems();
-    } catch (err) {
-      console.error('Error dismissing item:', err);
-    } finally {
-      setActionLoading(null);
-    }
-  };
+  const handleDismiss = (id: string) =>
+    act(id, () => apiClient.post(`/review/items/${id}/dismiss`), without(id), 'Error dismissing item');
 
   const startEditing = (item: ReviewItem) => {
     setEditingId(item.id);
@@ -144,6 +134,8 @@ const ReviewImport: React.FC = () => {
         </button>
       </div>
 
+      {error && <div className="alert alert-error">{error}</div>}
+
       {loading && items.length === 0 && (
         <div className="review-import-loading">
           <FontAwesomeIcon icon={faSpinner} spin style={{ fontSize: '24px' }} />
@@ -163,7 +155,7 @@ const ReviewImport: React.FC = () => {
 
       {items.length > 0 && (
         <div className="review-import-list">
-          {items.map(item => (
+          {items.slice(0, shown).map(item => (
             <div key={item.id} className="review-item">
               <div className="review-item-header">
                 <div className="review-item-title-row">
@@ -263,6 +255,13 @@ const ReviewImport: React.FC = () => {
               )}
             </div>
           ))}
+          {items.length > shown && (
+            <div className="review-item-actions" style={{ justifyContent: 'center' }}>
+              <button className="btn-ignore" onClick={() => setShown(n => n + PAGE_SIZE)}>
+                Show more ({items.length - shown} left)
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

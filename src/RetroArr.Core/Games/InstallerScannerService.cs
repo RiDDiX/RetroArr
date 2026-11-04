@@ -4,7 +4,9 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
 using RetroArr.Core.Configuration;
+using RetroArr.Core.Data;
 
 namespace RetroArr.Core.Games
 {
@@ -12,15 +14,15 @@ namespace RetroArr.Core.Games
     {
         private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(Logging.AppLoggerService.ScannerMedia);
         private readonly ConfigurationService _configService;
-        private readonly IGameRepository _gameRepository;
+        private readonly IDbContextFactory<RetroArrDbContext> _contextFactory;
 
         private static readonly string[] InstallerExtensions = { ".exe", ".bin", ".sh", ".dmg", ".pkg" };
         private static readonly string[] SwitchUpdateExtensions = { ".nsp", ".xci", ".nsz" };
 
-        public InstallerScannerService(ConfigurationService configService, IGameRepository gameRepository)
+        public InstallerScannerService(ConfigurationService configService, IDbContextFactory<RetroArrDbContext> contextFactory)
         {
             _configService = configService;
-            _gameRepository = gameRepository;
+            _contextFactory = contextFactory;
         }
 
         // walks /gog/downloads, /gog/dlc, /gog/patches, /gog/extras
@@ -43,8 +45,7 @@ namespace RetroArr.Core.Games
                 gogRootPath = gogBasePath;
             }
 
-            var allGames = await _gameRepository.GetAllAsync();
-            var gogGames = allGames.Where(g => !string.IsNullOrEmpty(g.GogId) || g.PlatformId == 126).ToList();
+            var gogGames = await CandidatesAsync(g => (g.GogId != null && g.GogId.Length > 0) || g.PlatformId == PlatformDefinitions.GogPlatformId);
 
             // Scan GOG folders: downloads, dlc, patches, extras
             var gogFolders = new Dictionary<string, string>
@@ -120,8 +121,9 @@ namespace RetroArr.Core.Games
             if (string.IsNullOrEmpty(basePath))
                 return matches;
 
-            var allGames = await _gameRepository.GetAllAsync();
-            var switchGames = allGames.Where(g => g.Platform?.FolderName == "switch" || g.Platform?.FolderName == "switch2").ToList();
+            // By PlatformId: the Platform navigation was never loaded here, so no update ever matched a game
+            var switchIds = PlatformDefinitions.AllPlatforms.Where(p => p.FolderName is "switch" or "switch2").Select(p => p.Id).ToList();
+            var switchGames = await CandidatesAsync(g => switchIds.Contains(g.PlatformId));
 
             // Scan all Switch extra folders (switch and switch2)
             var switchFolders = new[] { "switch", "switch2" };
@@ -190,37 +192,13 @@ namespace RetroArr.Core.Games
             return matches;
         }
 
-        public async Task EnrichGamesWithExtrasAsync(List<Game> games)
+        // Only the columns the matching reads, of the games it may match
+        private async Task<List<Game>> CandidatesAsync(System.Linq.Expressions.Expression<Func<Game, bool>> filter)
         {
-            var installerMatches = await ScanGogInstallersAsync();
-            var updateMatches = await ScanSwitchUpdatesAsync();
-
-            foreach (var game in games)
-            {
-                // Check for GOG installers
-                var installerMatch = installerMatches.FirstOrDefault(m => m.MatchedGame?.Id == game.Id);
-                if (installerMatch != null)
-                {
-                    game.InstallerPath = installerMatch.InstallerFiles.FirstOrDefault()?.FilePath;
-                    game.InstallerStatus = installerMatch.InstallerFiles.Count > 1 
-                        ? InstallerStatus.Multiple 
-                        : InstallerStatus.Found;
-                }
-
-                // Check for Switch updates
-                var gameUpdates = updateMatches.Where(m => m.MatchedGame?.Id == game.Id).ToList();
-                if (gameUpdates.Any())
-                {
-                    game.UpdateFiles = gameUpdates.Select(u => new GameUpdateFile
-                    {
-                        FileName = u.FileName,
-                        FilePath = u.FilePath,
-                        Version = u.Version,
-                        Size = u.Size,
-                        Type = u.Type
-                    }).ToList();
-                }
-            }
+            using var context = await _contextFactory.CreateDbContextAsync();
+            return await context.Games.AsNoTracking().Where(filter).OrderBy(g => g.Id)
+                .Select(g => new Game { Id = g.Id, Title = g.Title, Path = g.Path })
+                .ToListAsync();
         }
 
         private static Game? FindBestGameMatch(string searchName, List<Game> games)

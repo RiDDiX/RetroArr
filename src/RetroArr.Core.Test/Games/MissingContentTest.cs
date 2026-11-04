@@ -476,6 +476,74 @@ namespace RetroArr.Core.Test.Games
             Assert.That(held, Is.EqualTo(new[] { $"{Path.Combine(_lib, "ps3")}: 12 of 13" }));
         }
 
+        // The breaker decides as CheckAll over the others and the game, for one game after another, for a game changed
+        // since the library was read, and over the library read again: random libraries of present, gone, emptied and
+        // flagged games, flat or a folder per game, with one root, nested roots, or games outside the root
+        [Test]
+        public void Breaker_DecidesAsCheckAll()
+        {
+            var random = new Random(7);
+            int holds = 0, lets = 0;
+            for (var round = 0; round < 90; round++)
+            {
+                var lib = Directory.CreateDirectory(Path.Combine(_root, $"lib{round}")).FullName;
+                var roots = (round % 3) switch
+                {
+                    0 => new[] { lib },
+                    1 => new[] { lib, Path.Combine(lib, "psx") },
+                    _ => new[] { Path.Combine(lib, "gba") }
+                };
+                var perGame = round % 2 == 1;
+                var goneRate = new[] { 0.1, 0.5, 0.9 }[random.Next(3)];
+                var games = Enumerable.Range(1, random.Next(4, 40)).Select(id =>
+                {
+                    var folder = Path.Combine(lib, new[] { "gba", "snes", "psx" }[random.Next(3)], perGame ? $"Game {id}" : "");
+                    Directory.CreateDirectory(Path.GetDirectoryName(folder)!);
+                    var path = Path.Combine(folder, $"Game {id}.gba");
+                    if (random.NextDouble() >= goneRate)
+                    {
+                        if (random.Next(3) == 0) Directory.CreateDirectory(path);
+                        else if (random.Next(2) == 0) Put(path, "Game.gba");
+                        else Put(folder, $"Game {id}.gba", "rom");
+                    }
+                    else if (perGame && random.Next(2) == 0) Put(folder, $"Game {id}.sav");
+                    return new Game { Id = id, PlatformId = Gba, Path = path, Status = random.Next(4) == 0 ? GameStatus.Missing : GameStatus.Downloaded };
+                }).ToList();
+                Game Changed(Game g) => new() { Id = g.Id, PlatformId = Gba, Path = games[random.Next(games.Count)].Path, Status = random.Next(2) == 0 ? GameStatus.Missing : GameStatus.Downloaded };
+
+                void Compare(List<Game> library, MediaScannerService.Breaker breaker, Game? only = null)
+                {
+                    foreach (var (game, content) in MediaScannerService.CheckAll(library, roots, new List<string>()))
+                    {
+                        if (only != null && game != only) continue;
+                        var now = MediaScannerService.CheckContent(game, roots);
+                        if (now is not (GameContent.Gone or GameContent.Empty)) continue;
+                        if (content == GameContent.Unknown) holds++; else lets++;
+                        Assert.That(breaker.Holds(game, now), Is.EqualTo(content == GameContent.Unknown), $"round {round}: {game.Path}");
+                    }
+                }
+
+                var read = new MediaScannerService.Breaker(games, roots);
+                Compare(games, read);
+                for (var i = 0; i < 5; i++)
+                {
+                    var game = Changed(games[random.Next(games.Count)]);
+                    Compare(games.Where(g => g.Id != game.Id).Append(game).ToList(), read, game);
+                }
+                var changed = games.Select(g => random.Next(4) == 0 ? Changed(g) : g).ToList();
+                Compare(changed, read.Reread(changed));
+            }
+            Assert.That((holds > 0, lets > 0), Is.EqualTo((true, true)));
+        }
+
+        [Test]
+        public void Breaker_OneGameMovedInAHealthyLibrary_DoesNotHoldIt()
+        {
+            var games = Games(Folder("gba"), 30, 1);
+
+            Assert.That(new MediaScannerService.Breaker(games, new[] { _lib }).Holds(games[^1], GameContent.Gone), Is.False);
+        }
+
         // ---- Scanner ----
 
         [Test]

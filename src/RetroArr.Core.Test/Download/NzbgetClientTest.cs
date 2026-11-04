@@ -374,6 +374,46 @@ namespace RetroArr.Core.Test.Download
             }
         }
 
+        // A poll reads the games its downloads link to in one query, not the whole library
+        [Test]
+        public async Task Queue_ResolvesItsGames_WithoutLoadingTheLibrary()
+        {
+            using var nzbget = new FakeNzbget();
+            var root = System.IO.Directory.CreateDirectory(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "retroarr_nzbget_" + Guid.NewGuid().ToString("N"))).FullName;
+            try
+            {
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(root, "config"));
+                var config = new RetroArr.Core.Configuration.ConfigurationService(root);
+                config.SaveDownloadClients(new List<DownloadClient>
+                {
+                    new() { Id = 1, Name = "nzbget", Implementation = "NZBGet", Host = "127.0.0.1", Port = nzbget.Port, Username = "nzbget", Password = "tegbzn6789" }
+                });
+                var db = new DbContextOptionsBuilder<RetroArrDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+                using (var ctx = new RetroArrDbContext(db))
+                {
+                    ctx.Games.Add(new RetroArr.Core.Games.Game { Id = 7, Title = "Advance Wars", PlatformId = 52 });
+                    await ctx.SaveChangesAsync();
+                }
+                var tracker = new DownloadPlatformTracker(root);
+                tracker.SetPlatformForDownload("job1", "", 7);
+                tracker.SetPlatformForDownload("job2", "", 7);
+                var calls = new List<string>();
+                var controller = new RetroArr.Api.V3.DownloadClients.DownloadClientController(config, new ImportStatusService(), tracker,
+                    new TrackedDownloadService(root), null!, null!, null!,
+                    PostDownloadProcessorTest.WithoutLibraryLoads(new RetroArr.Core.Games.SqliteGameRepository(new DbFactory(db)), calls));
+
+                var queue = (List<DownloadStatus>)((Microsoft.AspNetCore.Mvc.OkObjectResult)(await controller.GetQueue()).Result!).Value!;
+
+                Assert.That(queue.Where(d => d.GameId.HasValue).Select(d => $"{d.Name} {d.GameTitle} {d.PlatformFolder}"),
+                    Is.EquivalentTo(new[] { "job1 Advance Wars gba", "job2 Advance Wars gba" }));
+                Assert.That(calls, Is.EqualTo(new[] { nameof(RetroArr.Core.Games.IGameRepository.GetListItemsAsync) }));
+            }
+            finally
+            {
+                System.IO.Directory.Delete(root, true);
+            }
+        }
+
         // Upgrade: NZBGet history still holds jobs from before release names, all called RetroArr_download
         [Test]
         public async Task History_LegacyJobName_IsLeftUnmapped_ReleaseNamesStillMap()

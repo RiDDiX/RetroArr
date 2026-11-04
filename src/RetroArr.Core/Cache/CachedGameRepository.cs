@@ -39,6 +39,15 @@ namespace RetroArr.Core.Cache
 
         public Task<List<GameProblemRow>> GetProblemRowsAsync() => _inner.GetProblemRowsAsync();
 
+        public Task<List<GamePathRow>> GetPathRowsAsync() => _inner.GetPathRowsAsync();
+
+        public Task<Dictionary<int, int>> CountByPlatformAsync() => _inner.CountByPlatformAsync();
+
+        public Task<List<GameListDto>> GetSteamRowsAsync() => _inner.GetSteamRowsAsync();
+
+        public Task<List<GameReviewRow>> GetReviewRowsAsync() => _inner.GetReviewRowsAsync();
+        public Task<List<GameMetadataRow>> GetMetadataRowsAsync(int? platformId) => _inner.GetMetadataRowsAsync(platformId);
+
         public Task<PagedResult<GameListDto>> GetAllPagedAsync(int page, int pageSize, int? platformId = null, string? search = null, string sortOrder = "asc", bool? missingOnly = null, string? protonDbTier = null)
             => _inner.GetAllPagedAsync(page, pageSize, platformId, search, sortOrder, missingOnly, protonDbTier);
 
@@ -121,6 +130,9 @@ namespace RetroArr.Core.Cache
         public Task<HashSet<int>> GetIgdbIdsAsync()
             => _inner.GetIgdbIdsAsync();
 
+        public Task<List<GameListDto>> GetListItemsAsync(IReadOnlyCollection<int> gameIds)
+            => _inner.GetListItemsAsync(gameIds);
+
         public async Task<List<GameFile>> GetGameFilesAsync(int gameId)
         {
             if (!_cache.IsEnabled) return await _inner.GetGameFilesAsync(gameId);
@@ -176,7 +188,7 @@ namespace RetroArr.Core.Cache
             return result;
         }
 
-        public Task<List<Game>> GetMissingAsync() => _inner.GetMissingAsync();
+        public Task<List<Game>> GetMissingAsync(IReadOnlyCollection<int> gameIds) => _inner.GetMissingAsync(gameIds);
 
         public async Task<int> DeleteMissingOlderThanAsync(DateTime threshold, IReadOnlyCollection<int> goneIds)
         {

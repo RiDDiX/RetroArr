@@ -208,21 +208,36 @@ namespace RetroArr.Api.V3.Reviews
         [HttpGet("stats")]
         public async Task<ActionResult> GetStats()
         {
-            var reviews = await _context.GameReviews.ToListAsync();
+            // Counted in SQL, one row per completion status: loading every review to count them grew with the library
+            var byStatus = await _context.GameReviews
+                .GroupBy(r => r.CompletionStatus)
+                .Select(grp => new
+                {
+                    Status = grp.Key,
+                    Count = grp.Count(),
+                    Favorites = grp.Sum(r => r.IsFavorite ? 1 : 0),
+                    Wishlisted = grp.Sum(r => r.IsWishlisted ? 1 : 0),
+                    Playtime = grp.Sum(r => r.PlaytimeMinutes ?? 0),
+                    Rated = grp.Sum(r => r.UserRating != null ? 1 : 0),
+                    Rating = grp.Sum(r => r.UserRating ?? 0)
+                })
+                .ToListAsync();
             var totalGames = await _context.Games.CountAsync();
+            int Of(CompletionStatus status) => byStatus.Where(s => s.Status == status).Sum(s => s.Count);
+            var rated = byStatus.Sum(s => s.Rated);
 
             var stats = new
             {
                 TotalGames = totalGames,
-                Favorites = reviews.Count(r => r.IsFavorite),
-                Wishlisted = reviews.Count(r => r.IsWishlisted),
-                NotPlayed = reviews.Count(r => r.CompletionStatus == CompletionStatus.NotPlayed),
-                Playing = reviews.Count(r => r.CompletionStatus == CompletionStatus.Playing),
-                Completed = reviews.Count(r => r.CompletionStatus == CompletionStatus.Completed),
-                Mastered = reviews.Count(r => r.CompletionStatus == CompletionStatus.Mastered),
-                Dropped = reviews.Count(r => r.CompletionStatus == CompletionStatus.Dropped),
-                TotalPlaytimeHours = reviews.Sum(r => r.PlaytimeMinutes ?? 0) / 60.0,
-                AverageUserRating = reviews.Where(r => r.UserRating.HasValue).Average(r => (double?)r.UserRating)
+                Favorites = byStatus.Sum(s => s.Favorites),
+                Wishlisted = byStatus.Sum(s => s.Wishlisted),
+                NotPlayed = Of(CompletionStatus.NotPlayed),
+                Playing = Of(CompletionStatus.Playing),
+                Completed = Of(CompletionStatus.Completed),
+                Mastered = Of(CompletionStatus.Mastered),
+                Dropped = Of(CompletionStatus.Dropped),
+                TotalPlaytimeHours = byStatus.Sum(s => s.Playtime) / 60.0,
+                AverageUserRating = rated == 0 ? (double?)null : (double)byStatus.Sum(s => s.Rating) / rated
             };
 
             return Ok(stats);

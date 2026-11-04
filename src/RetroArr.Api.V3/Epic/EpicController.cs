@@ -178,10 +178,15 @@ namespace RetroArr.Api.V3.Epic
                 }).ToList();
                 var pairs = await Task.WhenAll(lookups);
 
+                // EpicId has no index: one read here instead of a scan of the whole Games table per asset
+                var knownEpicIds = new HashSet<string>(await _context.Games.AsNoTracking()
+                    .Where(g => g.EpicId != null)
+                    .Select(g => g.EpicId!)
+                    .ToListAsync());
+
                 foreach (var (asset, item) in pairs)
                 {
-                    var existing = await _context.Games.FirstOrDefaultAsync(g => g.EpicId == asset.CatalogItemId);
-                    if (existing != null) { skipped++; continue; }
+                    if (knownEpicIds.Contains(asset.CatalogItemId!)) { skipped++; continue; }
 
                     if (item == null)
                     {

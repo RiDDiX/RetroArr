@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { gamesApi, platformsApi, monitorApi, type GameListDto, type Platform, type PlatformMonitorCount } from '../api/client';
+import { gamesApi, platformsApi, monitorApi, reviewsApi, type BulkReviewData, type GameListDto, type Platform, type PlatformMonitorCount } from '../api/client';
 import GameCard from '../components/GameCard';
 import { Skeleton } from '../components/retro';
 import { useRetroNavigate } from '../hooks/useRetroNavigate';
@@ -13,6 +13,7 @@ type Shelf = {
   platform: Platform;
   games: GameListDto[];
   total: number;
+  reviews: Record<number, BulkReviewData>;
 };
 
 const SHELF_PAGE_SIZE = 12;
@@ -72,13 +73,19 @@ export default function Platforms() {
               pageSize: SHELF_PAGE_SIZE,
               sortOrder: 'asc',
             });
+            const games = r.data.items || [];
+            // One review request per shelf instead of one per card
+            const reviews = games.length > 0
+              ? await reviewsApi.getBulk(games.map((g) => g.id)).then((res) => res.data, () => ({}))
+              : {};
             return {
               platform: p,
-              games: r.data.items || [],
+              games,
               total: r.data.totalItems || 0,
+              reviews,
             } as Shelf;
           } catch {
-            return { platform: p, games: [], total: 0 } as Shelf;
+            return { platform: p, games: [], total: 0, reviews: {} } as Shelf;
           }
         })
       );
@@ -134,11 +141,17 @@ export default function Platforms() {
     loadShelves(controller.signal);
     loadMonitorCounts();
 
-    const handleLibraryUpdate = () => { loadShelves(); loadMonitorCounts(); };
+    // Debounced like Library: a scan fires this per batch
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const handleLibraryUpdate = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => { loadShelves(); loadMonitorCounts(); }, 2000);
+    };
     window.addEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
     return () => {
       controller.abort();
       window.removeEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
+      if (debounceTimer) clearTimeout(debounceTimer);
     };
   }, [loadShelves, loadMonitorCounts]);
 
@@ -240,6 +253,7 @@ export default function Platforms() {
                     <div key={dto.id} className="shelf__slot" role="listitem">
                       <GameCard
                         game={game}
+                        reviewData={shelf.reviews[dto.id] ?? null}
                         onMonitoredChange={handleCardMonitoredChange}
                         onClick={() => navigate(`/game/${dto.id}`, {
                           state: {

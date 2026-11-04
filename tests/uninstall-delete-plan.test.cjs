@@ -6,7 +6,7 @@ const assert = (cond, msg) => { if (!cond) throw new Error(msg); };
 
 // The dialog shows what the server will move to the trash instead of guessing folders of its own.
 const modal = read('frontend', 'src', 'components', 'UninstallModal.tsx');
-assert(modal.includes('apiClient.get<DeletePlan>(`/game/${gameId}/delete-plan`)'),
+assert(modal.includes('apiClient.get<DeletePlan>(`/game/${gameId}/delete-plan`, { timeout: 120000 })'),
   'the dialog must ask the server what goes to the trash');
 assert(modal.includes('plan.paths.map(p => <div key={p}>{p}</div>)') && modal.includes('<span>{plan.refused}</span>'),
   'the dialog must list the planned paths, or say why nothing can go');
@@ -28,7 +28,7 @@ const details = read('frontend', 'src', 'pages', 'GameDetails.tsx');
 assert(!details.includes('targetPath=') && !details.includes('downloadPath='),
   'the delete call must not send folders the server did not plan');
 assert(details.includes('gameId={game.id}'), 'the dialog needs the game id to ask for the plan');
-assert(details.includes('{ data: { paths: plan.paths ?? [], downloads: plan.downloads } }'),
+assert(details.includes('{ data: { paths: plan.paths ?? [], downloads: plan.downloads }, timeout: 600000 }'),
   'the delete call must send what the dialog showed, so the server can refuse a changed plan');
 
 const controller = read('src', 'RetroArr.Api.V3', 'Games', 'GameController.cs');

@@ -380,6 +380,10 @@ namespace RetroArr.Core.Games
             "z:", "d:"
         };
 
+        // A folder that holds no game: media (also the scrapers' downloaded_images/ and media/), tools, hidden, NAS system folders
+        public static bool IsIgnoredFolder(string name) => _folderBlacklist.Contains(name) || IsIgnoredEntry(name)
+            || name.StartsWith("downloaded_", StringComparison.OrdinalIgnoreCase) || name.Equals("media", StringComparison.OrdinalIgnoreCase);
+
         private static readonly HashSet<string> _containerNames = new(StringComparer.OrdinalIgnoreCase)
         {
             "common", "steamapps", "games", "juegos", "roms", "emulators", "others", "downloads", "library", "biblioteca", "collection"
@@ -544,7 +548,7 @@ namespace RetroArr.Core.Games
                     if (group.All(i => hold[i])) continue;
                     var known = group.Count(i => results[i].Content != GameContent.Unknown);
                     var losses = group.Count(i => results[i].Content == GameContent.Gone && Flags(results[i].Game, GameContent.Gone));
-                    if (losses < 5 || losses * 2 <= known) continue;
+                    if (losses < MassLoss || losses * 2 <= known) continue;
 
                     held.Add($"{(group.Key.Length == 0 ? "outside the library" : group.Key)}: {losses} of {known}");
                     foreach (var i in group) hold[i] = true;
@@ -556,6 +560,111 @@ namespace RetroArr.Core.Games
                     results[i] = (results[i].Game, GameContent.Unknown);
             }
             return results;
+        }
+
+        private const int MassLoss = 5;
+
+        // CheckAll's answer for one game at a time over one read of the library (a merge, an import): whether the
+        // others as read and the game as it is now, gone or emptied, hold it back. A root or a folder holds only with
+        // MassLoss games or more that may be newly gone, which a path its folder lists is not, so the folders are
+        // listed first and the games are checked on disk only when that can't rule it out. Each is done once.
+        internal sealed class Breaker
+        {
+            private const int Unlisted = 0, Losses = 1, Known = 2;
+            internal IReadOnlyList<string> Roots { get; }
+            // Each game with a path as read: the game, its groups (its root, its folder) and what it counts in them
+            private readonly Dictionary<int, (Game Game, string[] Groups, int[] Counts)> _read = new();
+            private readonly Dictionary<string, int[]> _sums = new(StringComparer.OrdinalIgnoreCase);
+            private readonly Dictionary<string, HashSet<string>?> _listings;
+            private readonly Dictionary<(string, string?, int), GameContent> _contents;
+            private bool? _listed;
+            private bool _checked;
+
+            public Breaker(IEnumerable<Game> library, IReadOnlyList<string> roots) : this(library, roots, new(), new()) { }
+
+            private Breaker(IEnumerable<Game> library, IReadOnlyList<string> roots,
+                Dictionary<string, HashSet<string>?> listings, Dictionary<(string, string?, int), GameContent> contents)
+            {
+                Roots = roots;
+                _listings = listings;
+                _contents = contents;
+                foreach (var g in library)
+                    if (!string.IsNullOrEmpty(g.Path)) _read[g.Id] = (g, GroupsOf(g.Path), new int[3]);
+            }
+
+            // The library as it is now, with what was listed and checked on disk kept
+            public Breaker Reread(IEnumerable<Game> library) => new(library, Roots, _listings, _contents);
+
+            public bool Holds(Game game, GameContent content)
+            {
+                var groups = GroupsOf(game.Path);
+                var loss = content == GameContent.Gone && Flags(game, GameContent.Gone) ? 1 : 0;
+                if (_listed == null) List();
+                if (_listed == true && !groups.Any(k => Sum(k, game.Id, Unlisted, loss) >= MassLoss)) return false;
+                if (!_checked) Check();
+                return groups.Any(k => Sum(k, game.Id, Losses, loss) is var losses && losses >= MassLoss && losses * 2 > Sum(k, game.Id, Known, 1));
+            }
+
+            private string[] GroupsOf(string? path) => new[] { "r" + RootOf(path, Roots), "f" + ParentOf(path) };
+
+            // A group's sum with the game as it is now in place of its row as read
+            private int Sum(string group, int id, int i, int own) =>
+                (_sums.TryGetValue(group, out var sums) ? sums[i] : 0) + own
+                - (_read.TryGetValue(id, out var read) && read.Groups.Contains(group, StringComparer.OrdinalIgnoreCase) ? read.Counts[i] : 0);
+
+            private void List()
+            {
+                var gone = _read.Values.Where(e => Flags(e.Game, GameContent.Gone)).ToList();
+                // A listing costs about what the check of a game does, so a game per folder is checked instead
+                _listed = gone.Select(e => e.Groups[1]).Distinct(StringComparer.OrdinalIgnoreCase).Count() * 2 <= gone.Count;
+                if (_listed == true)
+                    foreach (var e in gone) Add(e, Unlisted, Listed(e.Game.Path!, _listings) ? 0 : 1);
+            }
+
+            private void Check()
+            {
+                foreach (var e in _read.Values)
+                {
+                    var key = (e.Game.Path!, e.Game.ExecutablePath, e.Game.PlatformId);
+                    if (!_contents.TryGetValue(key, out var content)) _contents[key] = content = CheckContent(e.Game, Roots);
+                    Add(e, Losses, content == GameContent.Gone && Flags(e.Game, GameContent.Gone) ? 1 : 0);
+                    Add(e, Known, content != GameContent.Unknown ? 1 : 0);
+                }
+                _checked = true;
+            }
+
+            private void Add((Game Game, string[] Groups, int[] Counts) e, int i, int n)
+            {
+                e.Counts[i] = n;
+                foreach (var k in e.Groups)
+                {
+                    if (!_sums.TryGetValue(k, out var sums)) _sums[k] = sums = new int[3];
+                    sums[i] += n;
+                }
+            }
+        }
+
+        // Whether its folder lists the path, read once per folder. CheckContent finds such a path, unless the folder
+        // can be listed but not searched; then nothing in it counts as listed.
+        private static bool Listed(string path, Dictionary<string, HashSet<string>?> listings)
+        {
+            string full;
+            try { full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)); }
+            catch (Exception ex) when (IsPathError(ex)) { return false; }
+            var folder = Path.GetDirectoryName(full);
+            if (folder == null) return false;
+            if (!listings.TryGetValue(folder, out var names))
+            {
+                try
+                {
+                    names = Directory.EnumerateFileSystemEntries(folder).Select(e => Path.GetFileName(e)).ToHashSet(StringComparer.Ordinal);
+                    var probe = names.Count > 0 ? Path.Combine(folder, names.First()) : null;
+                    if (probe != null && !File.Exists(probe) && !Directory.Exists(probe)) names = null;
+                }
+                catch (Exception ex) when (IsPathError(ex)) { names = null; }
+                listings[folder] = names;
+            }
+            return names != null && names.Contains(Path.GetFileName(full));
         }
 
         internal static bool Flags(Game game, GameContent content) =>
@@ -588,6 +697,39 @@ namespace RetroArr.Core.Games
             return path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
         }
 
+        // The games' paths as stored, sorted the way IsUnder compares them, so the ones at or below a folder are one run
+        internal static (string[] Paths, int[] Ids) SortedPaths(IEnumerable<Game> games)
+        {
+            var withPath = games.Where(g => !string.IsNullOrEmpty(g.Path)).ToList();
+            var paths = withPath.Select(g => g.Path!).ToArray();
+            var ids = withPath.Select(g => g.Id).ToArray();
+            Array.Sort(paths, ids, StringComparer.OrdinalIgnoreCase);
+            return (paths, ids);
+        }
+
+        // Any(g => g.Id != except && IsUnder(g.Path, folder)) over the sorted paths: the folder itself, then what lies below it
+        internal static bool AnyOtherUnder((string[] Paths, int[] Ids) sorted, int except, string folder)
+        {
+            var prefix = Path.EndsInDirectorySeparator(folder) ? folder : folder + Path.DirectorySeparatorChar;
+            for (var i = LowerBound(sorted.Paths, folder); i < sorted.Paths.Length && sorted.Paths[i].Equals(folder, StringComparison.OrdinalIgnoreCase); i++)
+                if (sorted.Ids[i] != except) return true;
+            for (var i = LowerBound(sorted.Paths, prefix); i < sorted.Paths.Length && sorted.Paths[i].StartsWith(prefix, StringComparison.OrdinalIgnoreCase); i++)
+                if (sorted.Ids[i] != except) return true;
+            return false;
+        }
+
+        // The first path not sorted before the value
+        private static int LowerBound(string[] sorted, string value)
+        {
+            int lo = 0, hi = sorted.Length;
+            while (lo < hi)
+            {
+                var mid = (lo + hi) / 2;
+                if (StringComparer.OrdinalIgnoreCase.Compare(sorted[mid], value) < 0) lo = mid + 1; else hi = mid;
+            }
+            return lo;
+        }
+
         // Case is ignored only on Windows and macOS, whose file systems usually ignore it: elsewhere a lost game
         // at /snes/Game.sfc is not the file at /SNES/Game.sfc.
         private static readonly StringComparer PathComparer =
@@ -605,6 +747,20 @@ namespace RetroArr.Core.Games
         }
 
         private static bool IsIgnoredEntry(string name) => name.StartsWith('.') || _ignoredEntryNames.Contains(name);
+
+        // What a platform folder holds besides its games: bookkeeping, media and update folders (images/, Updates/, and
+        // the scrapers' downloaded_images/ and media/), and files of a kind none of its games is (gamelist.xml, covers)
+        internal static bool IsNoGame(string path, bool isFolder, Platform platform)
+        {
+            var name = Path.GetFileName(path);
+            if (IsIgnoredEntry(name)) return true;
+            if (isFolder)
+                return _folderBlacklist.Contains(name) || _supplementaryFolderNames.Contains(name)
+                    || name.StartsWith("downloaded_", StringComparison.OrdinalIgnoreCase) || name.Equals("media", StringComparison.OrdinalIgnoreCase);
+            var ext = Path.GetExtension(name);
+            return _globalBlacklist.Contains(ext)
+                && ResolveRuleForPlatform(platform, _platformRules["default"]).Extensions?.Contains(ext, StringComparer.OrdinalIgnoreCase) != true;
+        }
 
         private static bool HasEntries(string folder) =>
             Directory.Exists(folder) && Directory.EnumerateFileSystemEntries(folder).Any(e => !IsIgnoredEntry(Path.GetFileName(e)));
@@ -723,9 +879,9 @@ namespace RetroArr.Core.Games
 
         public bool IsDiscoveryMode => _discoveryOnlyMode;
 
-        // Temporary per-import override that wins over the per-platform setting.
-        // Single-threaded scan loop, so a plain field is fine.
-        private string? _metadataSourceOverride;
+        // Temporary per-import override that wins over the per-platform setting. Per call, so an import beside
+        // another or beside a scan keeps its own.
+        private readonly System.Threading.AsyncLocal<string?> _metadataSourceOverride = new();
 
         // Library roots for content checks, read once per scan.
         private List<string>? _roots;
@@ -733,13 +889,14 @@ namespace RetroArr.Core.Games
         // The whole library checked once per scan, by game id
         private Dictionary<int, GameContent>? _libraryContent;
 
-        public async Task<bool> ImportDiscoveredAsync(DiscoveredGame discovered, string? metadataSourceOverride = null)
+        // existingGames: the library, read once for a batch of imports, which keep it current as a scan does
+        public async Task<bool> ImportDiscoveredAsync(DiscoveredGame discovered, string? metadataSourceOverride = null, List<Game>? existingGames = null)
         {
             if (discovered == null) return false;
-            var existingGames = await _gameRepository.GetAllLightAsync();
+            existingGames ??= await _gameRepository.GetAllLightAsync();
             var metadataService = _metadataServiceFactory.CreateService();
 
-            _metadataSourceOverride = string.IsNullOrEmpty(metadataSourceOverride) ? null : metadataSourceOverride.ToLowerInvariant();
+            _metadataSourceOverride.Value = string.IsNullOrEmpty(metadataSourceOverride) ? null : metadataSourceOverride.ToLowerInvariant();
             try
             {
                 return await ProcessPotentialGame(
@@ -758,7 +915,7 @@ namespace RetroArr.Core.Games
             }
             finally
             {
-                _metadataSourceOverride = null;
+                _metadataSourceOverride.Value = null;
                 // The next import checks the library again; a running scan keeps its own check
                 if (!IsScanning) _libraryContent = null;
             }
@@ -846,6 +1003,9 @@ namespace RetroArr.Core.Games
                 }
                 _isScanning = true;
                 _scanCts = cts;
+                // The status shows this pass, not the counts of the last scan
+                _gamesAddedCount = 0;
+                _lastGameFound = null;
             }
             var ct = cts.Token;
             try
@@ -863,6 +1023,37 @@ namespace RetroArr.Core.Games
             finally
             {
                 // An import meanwhile kept its check of the library, which this pass made stale
+                _libraryContent = null;
+                _scanCts?.Dispose();
+                _scanCts = null;
+                FreeScanSlot();
+            }
+        }
+
+        // The platform heal on its own, in the scan slot like PromotePresentGamesAsync: null while a scan or another
+        // heal has it, so a retry doesn't heal and merge the same rows twice at once
+        public async Task<(int healed, int dupesDropped, int mergedDuplicates)?> HealPlatformsAsync()
+        {
+            var cts = new System.Threading.CancellationTokenSource();
+            lock (_stateLock)
+            {
+                if (_isScanning)
+                {
+                    cts.Dispose();
+                    return null;
+                }
+                _isScanning = true;
+                _scanCts = cts;
+                // The status shows this pass, not the counts of the last scan
+                _gamesAddedCount = 0;
+                _lastGameFound = null;
+            }
+            try
+            {
+                return await HealWrongPlatformsAsync(cts.Token);
+            }
+            finally
+            {
                 _libraryContent = null;
                 _scanCts?.Dispose();
                 _scanCts = null;
@@ -1098,6 +1289,8 @@ namespace RetroArr.Core.Games
             var scanPlatDef = PlatformDefinitions.AllPlatforms.FirstOrDefault(
                 p => p.MatchesFolderName(platformKey));
             if (scanPlatDef != null) scanPlatformId = scanPlatDef.Id;
+            var byTitle = TitlesOn(existingGames, scanPlatformId);
+            var pc = _pcPlatformKeys.Contains(platformKey);
 
             foreach (var dir in directories)
             {
@@ -1112,12 +1305,13 @@ namespace RetroArr.Core.Games
 
                 try
                 {
-                    // Advanced Scanner Logic V2: Find the best executable in the folder structure
-                    var (bestExePath, isInstaller) = FindBestExecutable(dir, rule.Extensions, isExternal: false);
-                    
+                    // Advanced Scanner Logic V2: Find the best executable in the folder structure. A console's is
+                    // only looked for once the folder is no game's in the library.
+                    var (bestExePath, isInstaller) = pc ? FindBestExecutable(dir, rule.Extensions, isExternal: false) : (null, false);
+
                     // For console folder-mode platforms the folder IS the game - no executable required.
                     // PC platforms still need an executable to avoid picking up random folders.
-                    if (string.IsNullOrEmpty(bestExePath) && _pcPlatformKeys.Contains(platformKey))
+                    if (string.IsNullOrEmpty(bestExePath) && pc)
                         continue;
 
                     // Strip container extensions (.ps3, .ps4) before title cleaning
@@ -1126,11 +1320,12 @@ namespace RetroArr.Core.Games
                     var (cleanName, serial) = _titleCleaner.CleanGameTitle(baseFolderName);
                     
                     // Same title on a different platform OR a different region is a separate game
-                    var existingGame = HoldingGame(existingGames, g => g.Title.Equals(cleanName, StringComparison.OrdinalIgnoreCase) &&
+                    var existingGame = HoldingGame(byTitle[cleanName], existingGames, g => g.Title.Equals(cleanName, StringComparison.OrdinalIgnoreCase) &&
                         (scanPlatformId == 0 || g.PlatformId == scanPlatformId) &&
                         SameRegion(g.Region, region));
                     if (existingGame == null)
                     {
+                        if (!pc) (bestExePath, isInstaller) = FindBestExecutable(dir, rule.Extensions, isExternal: false);
                         var candidate = new GameCandidate
                         {
                             Title = cleanName,
@@ -1351,6 +1546,9 @@ namespace RetroArr.Core.Games
 
                 Log($"[FileMode] Discovery phase finished. Found {validFilesByFolder.Count} candidate folders items. Applying clustering...");
 
+                var byTitle = TitlesOn(existingGames, fileScanPlatformId);
+                // Each folder is read once for the same-stem files of all the disc images in it
+                var listings = new Dictionary<string, ILookup<string, string>>(StringComparer.Ordinal);
                 foreach (var folderEntry in validFilesByFolder)
                 {
                     ct.ThrowIfCancellationRequested();
@@ -1382,12 +1580,13 @@ namespace RetroArr.Core.Games
                             })
                             .ToList();
                         var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        var byStem = orderedPaths.ToLookup(f => Path.GetFileNameWithoutExtension(f), StringComparer.OrdinalIgnoreCase);
 
                         foreach (var filePath in orderedPaths)
                         {
                             if (claimed.Contains(filePath)) continue;
 
-                            var fileSet = FileSetResolver.Resolve(filePath);
+                            var fileSet = FileSetResolver.Resolve(filePath, listings);
                             foreach (var member in fileSet.AllFiles)
                                 claimed.Add(Path.GetFullPath(member));
 
@@ -1396,12 +1595,9 @@ namespace RetroArr.Core.Games
                             var stem = Path.GetFileNameWithoutExtension(filePath);
                             if (!string.IsNullOrEmpty(stem))
                             {
-                                foreach (var sibling in orderedPaths)
+                                foreach (var sibling in byStem[stem])
                                 {
-                                    if (sibling.Equals(filePath, StringComparison.OrdinalIgnoreCase)) continue;
-                                    if (claimed.Contains(sibling)) continue;
-                                    if (Path.GetFileNameWithoutExtension(sibling).Equals(stem, StringComparison.OrdinalIgnoreCase))
-                                        claimed.Add(sibling);
+                                    if (!sibling.Equals(filePath, StringComparison.OrdinalIgnoreCase)) claimed.Add(sibling);
                                 }
                             }
 
@@ -1411,7 +1607,7 @@ namespace RetroArr.Core.Games
                             var (fileRegion, fileLangs, fileRevision) = TitleCleanerService.ExtractFilenameMetadata(rawFileName);
                             var (cleanTitle, serial) = _titleCleaner.CleanGameTitle(rawFileName);
 
-                            if (HoldingGame(existingGames, g => g.Title.Equals(cleanTitle, StringComparison.OrdinalIgnoreCase) &&
+                            if (HoldingGame(byTitle[cleanTitle], existingGames, g => g.Title.Equals(cleanTitle, StringComparison.OrdinalIgnoreCase) &&
                                 (fileScanPlatformId == 0 || g.PlatformId == fileScanPlatformId) &&
                                 SameRegion(g.Region, fileRegion)) == null)
                             {
@@ -1536,7 +1732,7 @@ namespace RetroArr.Core.Games
                         
                         Log($"[Scanner] Title Resolution: File('{cleanFile}') vs Folder('{cleanFolder}') -> Selected: '{finalTitle}' (Source: {source})");
 
-                        if (!existingGames.Any(g => g.Title.Equals(finalTitle, StringComparison.OrdinalIgnoreCase) &&
+                        if (!byTitle[finalTitle].Any(g => g.Title.Equals(finalTitle, StringComparison.OrdinalIgnoreCase) &&
                             (fileScanPlatformId == 0 || g.PlatformId == fileScanPlatformId)))
                         {
                             string finalPlatformKey = platformKey;
@@ -1863,11 +2059,18 @@ namespace RetroArr.Core.Games
             Log($"Processing {candidates.Count} candidates in batches of {batchSize}...");
             ILookup<string, Game>? gamesByPath = null;
             List<string>? stops = null;
+            // A discovery scan leaves the library as it is
+            HashSet<string>? libraryPaths = null;
+            ILookup<string, Game>? libraryTitles = null;
+            // Each folder is read once for the file sets of all the candidates in it
+            var listings = new Dictionary<string, ILookup<string, string>>(StringComparer.Ordinal);
 
             for (int i = 0; i < candidates.Count; i += batchSize)
             {
                 ct.ThrowIfCancellationRequested();
                 var batch = candidates.Skip(i).Take(batchSize).ToList();
+                // The delay spares the metadata providers, so it follows only a batch that may have asked them
+                var lookedUp = false;
 
                 foreach (var candidate in batch)
                 {
@@ -1941,11 +2144,10 @@ namespace RetroArr.Core.Games
                                 if (plat != null) platId = plat.Id;
                             }
 
-                            var alreadyInLibrary = existingGames.Any(g =>
-                                (!string.IsNullOrEmpty(g.Path) && string.Equals(g.Path, candidate.Path, StringComparison.OrdinalIgnoreCase))
-                                || (g.PlatformId == (platId ?? 0)
-                                    && !string.IsNullOrEmpty(g.Title)
-                                    && string.Equals(g.Title, candidate.Title, StringComparison.OrdinalIgnoreCase)));
+                            libraryPaths ??= existingGames.Where(g => !string.IsNullOrEmpty(g.Path)).Select(g => g.Path!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                            libraryTitles ??= existingGames.Where(g => !string.IsNullOrEmpty(g.Title)).ToLookup(g => g.Title, StringComparer.OrdinalIgnoreCase);
+                            var alreadyInLibrary = libraryPaths.Contains(candidate.Path)
+                                || libraryTitles[candidate.Title].Any(g => g.PlatformId == (platId ?? 0));
                             if (alreadyInLibrary)
                             {
                                 continue;
@@ -1975,7 +2177,9 @@ namespace RetroArr.Core.Games
                             continue;
                         }
 
-                        if (await ProcessPotentialGame(candidate.Title, existingGames, metadataService, candidate.Path, candidate.PlatformKey, candidate.Serial, exePath, isInstaller, candidate.IsExternal, candidate.Region, candidate.Languages, candidate.Revision))
+                        // A file of a game in the library is no new lookup
+                        lookedUp |= _gamePaths.GetValue(existingGames, games => new GamePaths(games)).At(candidate.Path) == null;
+                        if (await ProcessPotentialGame(candidate.Title, existingGames, metadataService, candidate.Path, candidate.PlatformKey, candidate.Serial, exePath, isInstaller, candidate.IsExternal, candidate.Region, candidate.Languages, candidate.Revision, listings))
                         {
                             added++;
                         }
@@ -1987,23 +2191,54 @@ namespace RetroArr.Core.Games
                     }
                 }
 
-                if (i + batchSize < candidates.Count) await Task.Delay(delayMs, ct);
+                if (lookedUp && i + batchSize < candidates.Count) await Task.Delay(delayMs, ct);
             }
             
-            OnBatchFinished?.Invoke();
+            // The pages reload on it, so only for games added or linked; what else changed is announced when the scan ends
+            if (added > 0 && !_discoveryOnlyMode) OnBatchFinished?.Invoke();
             return added;
         }
 
         // A file matching a game in the library is that game's, and is left alone while the game may still have
         // its content. A game without a path takes the file, and so does one whose content is known to be gone
         // (the game was moved), but not while its library may be offline: the game comes back with it.
-        private Game? HoldingGame(List<Game> existingGames, Func<Game, bool> matches) =>
-            existingGames.Where(matches).FirstOrDefault(g => !string.IsNullOrEmpty(g.Path) && !Lost(g, existingGames));
+        // titled: the games of the library with the file's title, in the library's order
+        private Game? HoldingGame(IEnumerable<Game> titled, List<Game> existingGames, Func<Game, bool> matches) =>
+            titled.Where(matches).FirstOrDefault(g => !string.IsNullOrEmpty(g.Path) && !Lost(g, existingGames));
 
-        // Gone or emptied on disk now, and not held back by the breaker when the scan checked the library
-        private bool Lost(Game game, List<Game> existingGames) =>
-            CheckContent(game, Roots) is GameContent.Gone or GameContent.Empty
-            && (!LibraryContent(existingGames).TryGetValue(game.Id, out var found) || found is GameContent.Gone or GameContent.Empty);
+        // The games of the platform (all with 0) by title, in the library's order, for a pass that only collects
+        // files and leaves the library as it is
+        internal static ILookup<string, Game> TitlesOn(IEnumerable<Game> games, int platformId) =>
+            games.Where(g => platformId == 0 || g.PlatformId == platformId).ToLookup(g => g.Title, StringComparer.OrdinalIgnoreCase);
+
+        // Gone or emptied on disk now, and not held back by the breaker when the scan checked the library. An import
+        // asks the breaker for this game alone, over the library as it is now.
+        private bool Lost(Game game, List<Game> existingGames)
+        {
+            var roots = Roots;
+            var content = CheckContent(game, roots);
+            if (content is not (GameContent.Gone or GameContent.Empty)) return false;
+            if (_libraryContent == null && !IsScanning)
+            {
+                var listed = existingGames.LastOrDefault(g => g.Id == game.Id && !string.IsNullOrEmpty(g.Path));
+                if (listed == null) return true;
+                if (listed != game) content = CheckContent(listed, roots);
+                return content is GameContent.Gone or GameContent.Empty && !ImportBreaker(existingGames, roots).Holds(listed, content);
+            }
+            return !LibraryContent(existingGames).TryGetValue(game.Id, out var found) || found is GameContent.Gone or GameContent.Empty;
+        }
+
+        // A batch of imports shares its library, and with it what its breaker listed and checked on disk
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<List<Game>, Breaker> _importBreakers = new();
+
+        private Breaker ImportBreaker(List<Game> library, List<string> roots)
+        {
+            var breaker = _importBreakers.TryGetValue(library, out var last) && last.Roots.SequenceEqual(roots)
+                ? last.Reread(library)
+                : new Breaker(library, roots);
+            _importBreakers.AddOrUpdate(library, breaker);
+            return breaker;
+        }
 
         // The breaker judges the whole library, so an outage of a share is seen even by a small platform in it
         private Dictionary<int, GameContent> LibraryContent(List<Game> existingGames)
@@ -2028,6 +2263,59 @@ namespace RetroArr.Core.Games
             }
             return paths.ToLookup(p => p.Path, p => p.Game, PathComparer);
         }
+
+        // The games of a list by full path, first in the list's order first: what FirstOrDefault(SamePath) finds in it.
+        // Kept in step as games are added to the list, dropped from it and moved.
+        internal sealed class GamePaths
+        {
+            private readonly Dictionary<string, List<Game>> _byPath = new(PathComparer);
+            private readonly Dictionary<Game, (string? Key, int Order)> _of = new();
+            private int _next;
+
+            public GamePaths(IEnumerable<Game> games)
+            {
+                foreach (var game in games) Add(game);
+            }
+
+            public Game? At(string? path) => Key(path) is { } key && _byPath.TryGetValue(key, out var games) ? games.FirstOrDefault() : null;
+
+            public void Add(Game game)
+            {
+                _of[game] = (null, _next++);
+                Moved(game);
+            }
+
+            public void Remove(Game game)
+            {
+                if (_of.Remove(game, out var entry) && entry.Key != null) _byPath[entry.Key].Remove(game);
+            }
+
+            // After the game's path may have changed
+            public void Moved(Game game)
+            {
+                if (!_of.TryGetValue(game, out var entry)) return;
+                if (entry.Key != null) _byPath[entry.Key].Remove(game);
+                var key = Key(game.Path);
+                _of[game] = (key, entry.Order);
+                if (key == null) return;
+                if (!_byPath.TryGetValue(key, out var games)) _byPath[key] = games = new List<Game>();
+                var at = games.FindIndex(g => _of[g].Order > entry.Order);
+                games.Insert(at < 0 ? games.Count : at, game);
+            }
+
+            private static string? Key(string? path)
+            {
+                if (string.IsNullOrEmpty(path)) return null;
+                try { return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)); }
+                catch (Exception ex) when (IsPathError(ex)) { return null; }
+            }
+        }
+
+        // The scan's list, by path: only the scan changes it, through ProcessPotentialGame
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<List<Game>, GamePaths> _gamePaths = new();
+
+        private Game? GameAt(List<Game> existingGames, string? path) =>
+            _gamePaths.TryGetValue(existingGames, out var paths) ? paths.At(path) : existingGames.FirstOrDefault(g => SamePath(g.Path, path));
 
         // The game in whose folder the file or folder lies, below the stops. A platform folder or a container holds
         // many games and belongs to none of them.
@@ -2061,11 +2349,12 @@ namespace RetroArr.Core.Games
             return stops;
         }
 
-        private async Task<bool> ProcessPotentialGame(string gameTitle, List<Game> existingGames, GameMetadataService metadataService, string? localPath = null, string? platformKey = null, string? serial = null, string? executablePath = null, bool isInstaller = false, bool isExternal = false, string? region = null, string? languages = null, string? revision = null)
+        // listings: the folders read for the file sets of a batch of files, see FileSetResolver.Resolve
+        private async Task<bool> ProcessPotentialGame(string gameTitle, List<Game> existingGames, GameMetadataService metadataService, string? localPath = null, string? platformKey = null, string? serial = null, string? executablePath = null, bool isInstaller = false, bool isExternal = false, string? region = null, string? languages = null, string? revision = null, Dictionary<string, ILookup<string, string>>? listings = null)
         {
             Log($"[Scanner-Trace] Processing Candidate: '{localPath}' (Title: {gameTitle})");
             
-            var existingByPath = existingGames.FirstOrDefault(g => SamePath(g.Path, localPath));
+            var existingByPath = GameAt(existingGames, localPath);
             if (existingByPath != null)
             {
                 int? correctedPlatformId = null;
@@ -2097,6 +2386,7 @@ namespace RetroArr.Core.Games
                             {
                                 await _gameRepository.DeleteAsync(existingByPath.Id);
                                 existingGames.Remove(existingByPath);
+                                if (_gamePaths.TryGetValue(existingGames, out var paths)) paths.Remove(existingByPath);
                             }
                             catch (Exception ex) { Log($"[Scanner] Dupe drop failed id={existingByPath.Id}: {ex.Message}", LogLevel.Warning); }
                             return false; // nothing more to do with the deleted row
@@ -2124,7 +2414,7 @@ namespace RetroArr.Core.Games
                 }
 
                 // Refresh GameFiles so cue/bin companions show up.
-                try { await SyncGameFilesFromDisk(existingByPath.Id, existingByPath.Path); }
+                try { await SyncGameFilesFromDisk(existingByPath.Id, existingByPath.Path, listings); }
                 catch (Exception ex) { Log($"[Scanner] File resync failed for '{existingByPath.Title}': {ex.Message}", LogLevel.Warning); }
 
                 return false;
@@ -2201,7 +2491,7 @@ namespace RetroArr.Core.Games
                 return await MergeMetadataIntoExisting(existingByTitle, existingGames, finalGame, platformKey);
             }
 
-            return await PersistNewGame(finalGame, existingGames, localPath, executablePath, isExternal, isInstaller, platformKey, gameTitle);
+            return await PersistNewGame(finalGame, existingGames, localPath, executablePath, isExternal, isInstaller, platformKey, gameTitle, listings);
         }
 
         private async Task<bool> UpdateExistingGamePaths(Game existing, List<Game> existingGames, string? localPath, string? executablePath, bool isExternal, bool isInstaller, string? platformKey = null, string? region = null, string? languages = null, string? revision = null)
@@ -2222,7 +2512,7 @@ namespace RetroArr.Core.Games
 
             try
             {
-                if (!await UpdateGameAsync(existing, g =>
+                if (!await UpdateGameAsync(existing, existingGames, g =>
                 {
                     if (correctedPlatformId != null) g.PlatformId = correctedPlatformId.Value;
                     if (!TakePath(g, existingGames, localPath, executablePath, isExternal)) return;
@@ -2269,8 +2559,8 @@ namespace RetroArr.Core.Games
                 // is tried first for the listed sources; if it returns nothing the default
                 // chain (IGDB then ScreenScraper then TheGamesDB) takes over. An import-time
                 // override (set by ImportDiscoveredAsync) wins over the platform setting.
-                var preferredSource = !string.IsNullOrEmpty(_metadataSourceOverride)
-                    ? _metadataSourceOverride!
+                var preferredSource = !string.IsNullOrEmpty(_metadataSourceOverride.Value)
+                    ? _metadataSourceOverride.Value!
                     : (scanPlatformId > 0
                         ? PlatformService.GetMetadataSource(scanPlatformId).ToLowerInvariant()
                         : PlatformService.MetadataSourceIgdb);
@@ -2517,19 +2807,20 @@ namespace RetroArr.Core.Games
         // Writes only what change sets, on the row as it is stored now, so an edit made since the scan
         // loaded the game (Monitored, a new path from an import) survives. The scan's copy then takes the
         // saved row. False when the game is no longer in the library.
-        private async Task<bool> UpdateGameAsync(Game game, Action<Game> change)
+        private async Task<bool> UpdateGameAsync(Game game, List<Game> existingGames, Action<Game> change)
         {
             var saved = await _gameRepository.UpdateFieldsAsync(game.Id, change);
             if (saved == null) return false;
             foreach (var property in typeof(Game).GetProperties().Where(p => p.CanWrite))
                 property.SetValue(game, property.GetValue(saved));
+            if (_gamePaths.TryGetValue(existingGames, out var paths)) paths.Moved(game);
             return true;
         }
 
         // The file matched a game in the library by its metadata id
         private async Task AdoptPathAsync(Game game, List<Game> existingGames, string? localPath, string? executablePath, bool isExternal)
         {
-            if (!await UpdateGameAsync(game, g => TakePath(g, existingGames, localPath, executablePath, isExternal))) return;
+            if (!await UpdateGameAsync(game, existingGames, g => TakePath(g, existingGames, localPath, executablePath, isExternal))) return;
             await MarkPresentAsync(game);
             await SyncGameFilesFromDisk(game.Id, game.Path);
         }
@@ -2618,7 +2909,7 @@ namespace RetroArr.Core.Games
                 if (pathPlatformId.HasValue && pathPlatformId.Value > 0 && pathPlatformId.Value != UnresolvedPlatformIdFallback)
                     folderPlatId = pathPlatformId.Value;
             }
-            if (!await UpdateGameAsync(existing, g =>
+            if (!await UpdateGameAsync(existing, existingGames, g =>
             {
                 g.Title = freshData.Title;
                 g.Overview = freshData.Overview;
@@ -2645,13 +2936,13 @@ namespace RetroArr.Core.Games
 
         private async Task<bool> MergePathsIntoExisting(Game existing, List<Game> existingGames, string? localPath, string? executablePath, bool isExternal)
         {
-            if (!await UpdateGameAsync(existing, g => TakePath(g, existingGames, localPath, executablePath, isExternal))) return false;
+            if (!await UpdateGameAsync(existing, existingGames, g => TakePath(g, existingGames, localPath, executablePath, isExternal))) return false;
             await MarkPresentAsync(existing);
             await SyncGameFilesFromDisk(existing.Id, existing.Path);
             return Linked(existing, localPath);
         }
 
-        private async Task<bool> PersistNewGame(Game finalGame, List<Game> existingGames, string? localPath, string? executablePath, bool isExternal, bool isInstaller, string? platformKey, string gameTitle)
+        private async Task<bool> PersistNewGame(Game finalGame, List<Game> existingGames, string? localPath, string? executablePath, bool isExternal, bool isInstaller, string? platformKey, string gameTitle, Dictionary<string, ILookup<string, string>>? listings)
         {
             finalGame.Path = localPath;
             finalGame.ExecutablePath = executablePath;
@@ -2710,12 +3001,13 @@ namespace RetroArr.Core.Games
             {
                 var newGame = await _gameRepository.AddAsync(finalGame);
                 existingGames.Add(newGame);
+                if (_gamePaths.TryGetValue(existingGames, out var paths)) paths.Add(newGame);
                 
                 Log($"Added new game: {newGame.Title} (Exe: {executablePath ?? "None"}, Ext: {isExternal})");
                 _lastGameFound = newGame.Title;
                 _gamesAddedCount++;
                 OnGameAdded?.Invoke(newGame);
-                await SyncGameFilesFromDisk(newGame.Id, localPath);
+                await SyncGameFilesFromDisk(newGame.Id, localPath, listings);
                 return true;
             }
             catch (Exception ex)
@@ -2726,7 +3018,7 @@ namespace RetroArr.Core.Games
             }
         }
         
-        public async Task SyncGameFilesFromDisk(int gameId, string? gamePath)
+        public async Task SyncGameFilesFromDisk(int gameId, string? gamePath, Dictionary<string, ILookup<string, string>>? listings = null)
         {
             if (string.IsNullOrEmpty(gamePath) || gameId <= 0) return;
 
@@ -2746,7 +3038,7 @@ namespace RetroArr.Core.Games
 
                     // Pull cue/gdi/m3u track refs and same-stem siblings (cue+bin etc.)
                     // so the game owns the whole set, not just the primary file.
-                    var fileSet = FileSetResolver.Resolve(gamePath);
+                    var fileSet = FileSetResolver.Resolve(gamePath, listings);
                     var seenStems = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     foreach (var member in fileSet.AllFiles)
                     {
@@ -3093,6 +3385,10 @@ namespace RetroArr.Core.Games
             {
                 // Each file linked here, by the game it went to
                 var linkedTo = new Dictionary<string, int>(PathComparer);
+                // The games a file may belong to, and their serials, once for all the files: the pass leaves the library as it is
+                var platformId = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.MatchesFolderName(platformKey))?.Id ?? 0;
+                var platformGames = platformId > 0 ? existingGames.Where(g => g.PlatformId == platformId).ToList() : existingGames;
+                var serials = new Dictionary<Game, string?>();
                 var directories = Directory.GetDirectories(platformFolderPath);
                 foreach (var dir in directories)
                 {
@@ -3135,7 +3431,7 @@ namespace RetroArr.Core.Games
                         }
 
                         // Try to find the parent game
-                        var parentGame = FindParentGame(info, existingGames, platformKey);
+                        var parentGame = FindParentGame(info, platformGames, serials);
                         if (parentGame != null)
                         {
                             var fi = new FileInfo(filePath);
@@ -3192,7 +3488,7 @@ namespace RetroArr.Core.Games
                         var info = _titleCleaner.ClassifySupplementaryContent(subFolderName);
                         if (info.FileType == "Main") info.FileType = "DLC"; // Subfolder in supplementary = DLC
 
-                        var parentGame = FindParentGame(info, existingGames, platformKey);
+                        var parentGame = FindParentGame(info, platformGames, serials);
                         if (parentGame != null)
                         {
                             // Add all files in this DLC subfolder to the parent game
@@ -3318,13 +3614,17 @@ namespace RetroArr.Core.Games
         {
             try
             {
-                var allGames = await _gameRepository.GetAllLightAsync();
                 int platformId = 0;
                 var platDef = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.MatchesFolderName(platformKey));
                 if (platDef != null) platformId = platDef.Id;
                 if (platformId == 0) return;
 
-                var platformGames = allGames.Where(g => g.PlatformId == platformId && !string.IsNullOrEmpty(g.Path)).ToList();
+                // The platform's games as stored now, not the whole library
+                var platformGames = (await _gameRepository.GetAllPagedAsync(1, int.MaxValue, platformId)).Items
+                    .Where(g => !string.IsNullOrEmpty(g.Path))
+                    .Select(g => new Game { Id = g.Id, Title = g.Title, PlatformId = g.PlatformId, Path = g.Path })
+                    .ToList();
+                var paths = SortedPaths(platformGames);
                 var normalizedPlatformRoot = Path.GetFullPath(platformFolderPath).TrimEnd(Path.DirectorySeparatorChar);
 
                 foreach (var game in platformGames)
@@ -3353,7 +3653,7 @@ namespace RetroArr.Core.Games
                         continue;
                     }
                     // Nor a folder the file shares with other games: what lies there is not all its own
-                    if (!SamePath(gameFolder, game.Path) && platformGames.Any(g => g.Id != game.Id && IsUnder(g.Path!, normalizedGameFolder)))
+                    if (!SamePath(gameFolder, game.Path) && AnyOtherUnder(paths, game.Id, normalizedGameFolder))
                     {
                         continue;
                     }
@@ -3457,17 +3757,10 @@ namespace RetroArr.Core.Games
             }
         }
 
-        private Game? FindParentGame(TitleCleanerService.SupplementaryContentInfo info, List<Game> existingGames, string platformKey)
+        // platformGames: the games of the scanned platform (the library when it is none); serials: what their names
+        // gave so far
+        private Game? FindParentGame(TitleCleanerService.SupplementaryContentInfo info, List<Game> platformGames, Dictionary<Game, string?> serials)
         {
-            // Resolve platform ID for this scan context
-            int platformId = 0;
-            var platDef = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.MatchesFolderName(platformKey));
-            if (platDef != null) platformId = platDef.Id;
-
-            var platformGames = platformId > 0
-                ? existingGames.Where(g => g.PlatformId == platformId).ToList()
-                : existingGames;
-
             // Strategy 1: Serial match (PS3/PS4/PS5 - highest confidence)
             if (!string.IsNullOrEmpty(info.Serial))
             {
@@ -3484,7 +3777,8 @@ namespace RetroArr.Core.Games
                 // Also try serial extracted from the game's own title cleaning
                 foreach (var game in platformGames)
                 {
-                    var (_, gameSerial) = _titleCleaner.CleanGameTitle(Path.GetFileName(game.Path ?? game.Title));
+                    if (!serials.TryGetValue(game, out var gameSerial))
+                        serials[game] = gameSerial = _titleCleaner.CleanGameTitle(Path.GetFileName(game.Path ?? game.Title)).Serial;
                     if (!string.IsNullOrEmpty(gameSerial) &&
                         gameSerial.Equals(info.Serial, StringComparison.OrdinalIgnoreCase))
                     {
@@ -3581,6 +3875,8 @@ namespace RetroArr.Core.Games
             var roots = Roots;
             int flagged = 0, cleared = 0, promoted = 0, resynced = 0, unknown = 0;
             var goneIds = new List<int>();
+            // Each folder is read once for the file sets of all the games in it
+            var listings = new Dictionary<string, ILookup<string, string>>(StringComparer.Ordinal);
             var now = DateTime.UtcNow;
 
             foreach (var (game, found) in results)
@@ -3610,7 +3906,7 @@ namespace RetroArr.Core.Games
                 }
                 else if (resync && content != GameContent.Unknown)
                 {
-                    await SyncGameFilesFromDisk(game.Id, game.Path);
+                    await SyncGameFilesFromDisk(game.Id, game.Path, listings);
                     resynced++;
                 }
             }
@@ -3633,13 +3929,16 @@ namespace RetroArr.Core.Games
         // without touching the Missing-flag lifecycle.
         public async Task<(int healed, int dupesDropped, int mergedDuplicates)> HealWrongPlatformsAsync(System.Threading.CancellationToken ct = default)
         {
+            // The columns the heal reads, once: the pruned rows are left out of what follows
+            var all = await _gameRepository.GetProblemRowsAsync();
+
             // first sweep: drop rows pointing inside .psvita / .ps4 etc.
             int prunedOrphans = 0;
+            var pruned = new HashSet<int>();
             try
             {
-                var preList = await _gameRepository.GetAllLightAsync();
                 var roots = Roots;
-                foreach (var g in preList)
+                foreach (var g in all)
                 {
                     ct.ThrowIfCancellationRequested();
                     // Only below a library root: a folder above it that is named like a container is not one
@@ -3647,6 +3946,7 @@ namespace RetroArr.Core.Games
                     try
                     {
                         await _gameRepository.DeleteAsync(g.Id);
+                        pruned.Add(g.Id);
                         prunedOrphans++;
                         Log($"[Heal] Pruned container orphan id={g.Id} path='{g.Path}'");
                     }
@@ -3656,8 +3956,8 @@ namespace RetroArr.Core.Games
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex) { Log($"[Heal] Container orphan pass skipped: {ex.Message}", LogLevel.Warning); }
+            all.RemoveAll(g => pruned.Contains(g.Id));
 
-            var all = await _gameRepository.GetAllLightAsync();
             int healed = 0;
             int dupesDropped = prunedOrphans;
 
@@ -3676,13 +3976,14 @@ namespace RetroArr.Core.Games
                 if (dropped.Contains(g.Id)) continue;
                 if (string.IsNullOrEmpty(g.Path)) continue;
 
+                // The path is looked at only when it names another platform
+                var pathPlatform = PlatformDefinitions.ResolvePlatformFromPath(g.Path);
+                if (pathPlatform == null || pathPlatform.Id == g.PlatformId) continue;
+
                 bool pathExists;
                 try { pathExists = Directory.Exists(g.Path) || File.Exists(g.Path); }
                 catch { continue; }
                 if (!pathExists) continue;
-
-                var pathPlatform = PlatformDefinitions.ResolvePlatformFromPath(g.Path);
-                if (pathPlatform == null || pathPlatform.Id == g.PlatformId) continue;
 
                 var titleKey = g.Title?.ToLowerInvariant() ?? string.Empty;
                 var hasLiveCollision = live.TryGetValue((titleKey, pathPlatform.Id), out var set)

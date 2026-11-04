@@ -82,6 +82,8 @@ namespace RetroArr.Api.V3.Discovery
 
             var imported = 0;
             var failed = new List<int>();
+            // Read once for all of them; each import keeps it current
+            var library = await _gameRepository.GetAllLightAsync();
             foreach (var id in request.Ids.Distinct())
             {
                 var item = await _repo.GetByIdAsync(id);
@@ -89,7 +91,7 @@ namespace RetroArr.Api.V3.Discovery
 
                 try
                 {
-                    var ok = await _scanner.ImportDiscoveredAsync(item, request.MetadataSource);
+                    var ok = await _scanner.ImportDiscoveredAsync(item, request.MetadataSource, library);
                     if (ok)
                     {
                         await _repo.DeleteAsync(id);

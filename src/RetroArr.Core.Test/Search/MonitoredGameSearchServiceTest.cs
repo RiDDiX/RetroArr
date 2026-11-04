@@ -425,6 +425,37 @@ namespace RetroArr.Core.Test.Search
             Assert.That(jackett.Queries, Is.EqualTo(new[] { "Gears of War" }));
         }
 
+        // The sweep reaches a game hours after it started on a monitored platform: it searches the game as it is then,
+        // also one the sweep itself flagged missing at its start
+        [TestCase(false)]
+        [TestCase(true, TestName = "Sweep_GameFlaggedMissingThenRenamedWhileTheSweepRuns_IsSearchedByItsNewTitle")]
+        public async Task Sweep_GameRenamedWhileTheSweepRuns_IsSearchedByItsNewTitle(bool emptied)
+        {
+            var library = Directory.CreateDirectory(Path.Combine(_root, "library")).FullName;
+            var gears = Directory.CreateDirectory(Path.Combine(library, "xbox360", "Gears of War")).FullName;
+            using (var ctx = new RetroArrDbContext(_dbOptions))
+            {
+                ctx.Games.Add(emptied
+                    ? new Game { Id = 2, Title = "Gears of War", PlatformId = 31, Monitored = true, Status = GameStatus.Downloaded, Path = gears }
+                    : new Game { Id = 2, Title = "Gears of War", PlatformId = 31, Monitored = true });
+                ctx.SaveChanges();
+            }
+            using var jackett = new FakeServer(_ =>
+            {
+                using var ctx = new RetroArrDbContext(_dbOptions);
+                ctx.Games.Single(g => g.Id == 2).Title = "Gears of War 2";
+                ctx.SaveChanges();
+                return JackettResults();
+            });
+            var config = new ConfigurationService(_root);
+            config.SaveMediaSettings(new MediaSettings { FolderPath = library, DestinationPath = library });
+            config.SaveJackettSettings(new JackettSettings { Url = $"http://127.0.0.1:{jackett.Port}", ApiKey = "key", Enabled = true });
+
+            await Sweep(config);
+
+            Assert.That(jackett.Queries, Is.EqualTo(new[] { "Halo 3", "Gears of War 2" }));
+        }
+
         // A library with Halo 3 at <library>/xbox360/Halo 3, searched by a Jackett that finds nothing.
         private (string Game, ConfigurationService Config) Library(FakeServer jackett, GameStatus status, bool monitored = true, bool createFolder = true)
         {

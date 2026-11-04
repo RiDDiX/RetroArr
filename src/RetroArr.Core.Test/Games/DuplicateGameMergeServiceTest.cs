@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
@@ -309,6 +310,73 @@ namespace RetroArr.Core.Test.Games
                 Is.EqualTo(takes ? (copy, copy, GameStatus.Downloaded, (DateTime?)null) : (own, (string?)null, GameStatus.Downloaded, (DateTime?)null)));
         }
 
+        // One breaker answers for every survivor: lost ones take their copies, unless most of their folder is gone too
+        [TestCase(0, true)]
+        [TestCase(5, false)]
+        public async Task MergeAsync_SeveralLostSurvivors_TakeTheirCopiesUnlessTheBreakerHoldsThem(int othersGone, bool takes)
+        {
+            var snes = Path.Combine(_lib, "snes");
+            var titles = new[] { "Chrono Trigger", "Earthbound", "Secret of Mana" };
+            using (var ctx = new RetroArrDbContext(_sqlite))
+            {
+                for (var i = 0; i < titles.Length; i++)
+                {
+                    var copy = Put(snes, $"{titles[i]} (USA).sfc");
+                    ctx.Games.AddRange(
+                        new Game { Id = 1 + 2 * i, Title = titles[i], PlatformId = Snes, IgdbId = 5 + i, Path = Path.Combine(snes, $"{titles[i]}.sfc"), Status = GameStatus.Downloaded },
+                        new Game { Id = 2 + 2 * i, Title = titles[i], PlatformId = Snes, Path = copy, ExecutablePath = copy, Status = GameStatus.Downloaded });
+                }
+                ctx.Games.AddRange(Enumerable.Range(10, othersGone).Select(i =>
+                    new Game { Id = i, Title = $"Game {i}", PlatformId = Snes, Path = Path.Combine(snes, $"Game {i}.sfc"), Status = GameStatus.Downloaded }));
+                await ctx.SaveChangesAsync();
+            }
+
+            var result = await new DuplicateGameMergeService(new DbFactory(_sqlite), _config).MergeAsync();
+
+            Assert.That(result.RowsMerged, Is.EqualTo(3));
+            Assert.That(new[] { 1, 3, 5 }.Select(id => Row(id).Path),
+                Is.EqualTo(titles.Select(t => Path.Combine(snes, takes ? $"{t} (USA).sfc" : $"{t}.sfc"))));
+        }
+
+        // Opens its first context only when the test lets it, and counts the contexts opened
+        private sealed class HeldFactory : IDbContextFactory<RetroArrDbContext>
+        {
+            private readonly DbContextOptions<RetroArrDbContext> _options;
+            public readonly TaskCompletionSource Release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            public int Opened;
+            public HeldFactory(DbContextOptions<RetroArrDbContext> options) => _options = options;
+            public RetroArrDbContext CreateDbContext() => new RetroArrDbContext(_options);
+            public async Task<RetroArrDbContext> CreateDbContextAsync(CancellationToken ct = default)
+            {
+                if (Interlocked.Increment(ref Opened) == 1) await Release.Task;
+                return CreateDbContext();
+            }
+        }
+
+        // A second merge (repair while the heal after a scan merges) waits for the first and then finds nothing left
+        [Test]
+        public async Task MergeAsync_TwoAtOnce_RunOneAfterTheOther()
+        {
+            var snes = Path.Combine(_lib, "snes");
+            using (var ctx = new RetroArrDbContext(_sqlite))
+            {
+                ctx.Games.AddRange(
+                    new Game { Id = 1, Title = "Chrono Trigger", PlatformId = Snes, IgdbId = 5, Path = Put(snes, "Chrono Trigger.sfc"), Status = GameStatus.Downloaded },
+                    new Game { Id = 2, Title = "Chrono Trigger", PlatformId = Snes, Path = Put(snes, "Chrono Trigger (USA).sfc"), Status = GameStatus.Downloaded });
+                await ctx.SaveChangesAsync();
+            }
+            var factory = new HeldFactory(_sqlite);
+            var service = new DuplicateGameMergeService(factory, _config);
+
+            var first = service.MergeAsync();
+            var second = service.MergeAsync();
+            Assert.That(factory.Opened, Is.EqualTo(1));
+            factory.Release.SetResult();
+
+            Assert.That((await first).RowsMerged + (await second).RowsMerged, Is.EqualTo(1));
+            Assert.That(factory.Opened, Is.EqualTo(2));
+        }
+
         // The rows of both entries find their files by the survivor's path: the survivor's own stay relative to its
         // folder, the merged single file's (relative to the platform folder) keep their full path
         [Test]
@@ -402,6 +470,32 @@ namespace RetroArr.Core.Test.Games
             Assert.That(File.Exists(GameFilePaths.Resolve(target.Path, row)), Is.True);
         }
 
+        // A target whose file is gone takes the source's, unless most of its folder is gone with it (the breaker)
+        [TestCase(0, true)]
+        [TestCase(5, false)]
+        public async Task MergeInto_TargetGone_TakesTheSourcesPathUnlessTheBreakerHoldsIt(int othersGone, bool takes)
+        {
+            var snes = Path.Combine(_lib, "snes");
+            var copy = Put(snes, "Chrono Trigger (USA).sfc");
+            var own = Path.Combine(snes, "Chrono Trigger.sfc");
+            using (var ctx = new RetroArrDbContext(_sqlite))
+            {
+                ctx.Games.AddRange(
+                    new Game { Id = 1, Title = "Chrono Trigger", PlatformId = Snes, Path = own, Status = GameStatus.Downloaded },
+                    new Game { Id = 2, Title = "Chrono Trigger (USA)", PlatformId = Snes, Path = copy, ExecutablePath = copy, Status = GameStatus.Downloaded });
+                ctx.Games.AddRange(Enumerable.Range(3, othersGone).Select(i =>
+                    new Game { Id = i, Title = $"Game {i}", PlatformId = Snes, Path = Path.Combine(snes, $"Game {i}.sfc"), Status = GameStatus.Downloaded }));
+                await ctx.SaveChangesAsync();
+            }
+            var controller = new GameController(new SqliteGameRepository(new DbFactory(_sqlite)), null!, null!, null!, _config, null!, null!, null!, null!, null!, null!, null!,
+                mergeService: new DuplicateGameMergeService(new DbFactory(_sqlite), _config));
+
+            var result = await controller.MergeInto(2, 1);
+
+            Assert.That(result, Is.InstanceOf<OkObjectResult>());
+            Assert.That(Row(1).Path, Is.EqualTo(takes ? copy : own));
+        }
+
         // The repair merges with the library roots: an entry on a root that is not mounted keeps its path
         [Test]
         public async Task Repair_MergeDuplicates_KeepsAPathOnARootThatIsOffline()
@@ -418,7 +512,7 @@ namespace RetroArr.Core.Test.Games
                     new Game { Id = 2, Title = "CHRONO TRIGGER", PlatformId = Snes, Region = "USA", Path = copy, ExecutablePath = copy, Status = GameStatus.Downloaded });
                 await ctx.SaveChangesAsync();
             }
-            var controller = new DatabaseController(_config, new DbFactory(_sqlite), null!, new DuplicateGameMergeService(new DbFactory(_sqlite), _config));
+            var controller = new DatabaseController(_config, new DbFactory(_sqlite), null!, new DuplicateGameMergeService(new DbFactory(_sqlite), _config), null!);
 
             var result = await controller.Repair(new DatabaseRepairRequest { MergeDuplicates = true });
 
@@ -439,7 +533,7 @@ namespace RetroArr.Core.Test.Games
                     new Game { Id = 2, Title = "Chrono Trigger", PlatformId = Snes });
                 await ctx.SaveChangesAsync();
             }
-            var controller = new DatabaseController(_config, new DbFactory(_sqlite), null!, new DuplicateGameMergeService(new DbFactory(_sqlite), _config));
+            var controller = new DatabaseController(_config, new DbFactory(_sqlite), null!, new DuplicateGameMergeService(new DbFactory(_sqlite), _config), null!);
 
             var result = await controller.Repair(new DatabaseRepairRequest { MergeDuplicates = merge });
 
@@ -475,7 +569,7 @@ namespace RetroArr.Core.Test.Games
                         Path = heal ? Put(snes, "Chrono Trigger (USA) (Rev 1).sfc") : null });
                 await ctx.SaveChangesAsync();
             }
-            var controller = new DatabaseController(_config, new DbFactory(_sqlite), null!, new DuplicateGameMergeService(new DbFactory(_sqlite), _config));
+            var controller = new DatabaseController(_config, new DbFactory(_sqlite), null!, new DuplicateGameMergeService(new DbFactory(_sqlite), _config), null!);
 
             var result = await controller.Repair(new DatabaseRepairRequest { MergeDuplicates = merge });
 
@@ -500,7 +594,7 @@ namespace RetroArr.Core.Test.Games
                     new Game { Id = 3, Title = "Icon", PlatformId = Snes, Path = Path.Combine(lib, "ps4", "Game.ps4", "sce_sys", "icon0.png") });
                 await ctx.SaveChangesAsync();
             }
-            var controller = new DatabaseController(_config, new DbFactory(_sqlite), null!, new DuplicateGameMergeService(new DbFactory(_sqlite), _config));
+            var controller = new DatabaseController(_config, new DbFactory(_sqlite), null!, new DuplicateGameMergeService(new DbFactory(_sqlite), _config), null!);
 
             var result = await controller.Repair(new DatabaseRepairRequest { HealPlatformFromPath = false });
 

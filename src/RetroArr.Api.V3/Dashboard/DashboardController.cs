@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -27,17 +29,32 @@ namespace RetroArr.Api.V3.Dashboard
         [HttpGet("stats")]
         public async Task<ActionResult> GetStats()
         {
-            var games = await _context.Games.ToListAsync();
-            
-            var totalGames = games.Count;
-            var installedGames = games.Count(g => !string.IsNullOrEmpty(g.InstallPath));
-            var externalGames = games.Count(g => g.IsExternal);
+            // Counted in SQL: loading every game to count them took seconds on a large library
+            var byStatus = await _context.Games
+                .GroupBy(g => g.Status)
+                .Select(grp => new
+                {
+                    Status = grp.Key,
+                    Count = grp.Count(),
+                    Installed = grp.Sum(g => g.InstallPath != null && g.InstallPath.Length > 0 ? 1 : 0),
+                    External = grp.Sum(g => g.IsExternal ? 1 : 0),
+                    Excellent = grp.Sum(g => g.Rating >= 80 ? 1 : 0),
+                    Good = grp.Sum(g => g.Rating >= 60 && g.Rating < 80 ? 1 : 0),
+                    Average = grp.Sum(g => g.Rating >= 40 && g.Rating < 60 ? 1 : 0),
+                    Poor = grp.Sum(g => g.Rating > 0 && g.Rating < 40 ? 1 : 0),
+                    Unrated = grp.Sum(g => g.Rating == null || g.Rating == 0 ? 1 : 0)
+                })
+                .ToListAsync();
+
+            var totalGames = byStatus.Sum(s => s.Count);
+            var installedGames = byStatus.Sum(s => s.Installed);
+            var externalGames = byStatus.Sum(s => s.External);
             var favoriteGames = 0; // Reviews track favorites
             
-            // Genre distribution
-            var genreStats = games
-                .Where(g => g.Genres != null && g.Genres.Any())
-                .SelectMany(g => g.Genres!)
+            // Genres is a JSON column, so only that column is read and counted here
+            var genreStats = (await _context.Games.Select(g => g.Genres).ToListAsync())
+                .Where(g => g != null)
+                .SelectMany(g => g)
                 .GroupBy(g => g)
                 .Select(grp => new { Genre = grp.Key, Count = grp.Count() })
                 .OrderByDescending(x => x.Count)
@@ -45,55 +62,58 @@ namespace RetroArr.Api.V3.Dashboard
                 .ToList();
 
             // Platform distribution
-            var platformStats = games
-                .Where(g => g.PlatformId > 0)
-                .GroupBy(g => g.PlatformId)
-                .Select(grp => new 
+            var platformStats = (await _context.Games
+                    .Where(g => g.PlatformId > 0)
+                    .GroupBy(g => g.PlatformId)
+                    .Select(grp => new { PlatformId = grp.Key, Count = grp.Count() })
+                    .OrderByDescending(x => x.Count)
+                    .ThenBy(x => x.PlatformId)
+                    .Take(10)
+                    .ToListAsync())
+                .Select(x => new
                 { 
-                    PlatformId = grp.Key,
-                    Platform = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.Id == grp.Key)?.Name ?? "Unknown",
-                    Count = grp.Count() 
+                    x.PlatformId,
+                    Platform = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.Id == x.PlatformId)?.Name ?? "Unknown",
+                    x.Count
                 })
-                .OrderByDescending(x => x.Count)
-                .Take(10)
                 .ToList();
 
             // Year distribution
-            var yearStats = games
+            var yearStats = await _context.Games
                 .Where(g => g.Year > 1970)
                 .GroupBy(g => g.Year)
                 .Select(grp => new { Year = grp.Key, Count = grp.Count() })
                 .OrderByDescending(x => x.Year)
                 .Take(20)
-                .ToList();
+                .ToListAsync();
 
             // Recently added games
-            var recentlyAdded = games
+            var recentlyAdded = await _context.Games
                 .OrderByDescending(g => g.Added)
+                .ThenBy(g => g.Id)
                 .Take(10)
                 .Select(g => new 
                 {
                     g.Id,
                     g.Title,
                     g.Added,
-                    CoverUrl = g.Images?.CoverUrl
+                    CoverUrl = g.Images != null ? g.Images.CoverUrl : null
                 })
-                .ToList();
+                .ToListAsync();
 
             // Rating distribution
             var ratingStats = new
             {
-                Excellent = games.Count(g => g.Rating.HasValue && g.Rating >= 80),
-                Good = games.Count(g => g.Rating.HasValue && g.Rating >= 60 && g.Rating < 80),
-                Average = games.Count(g => g.Rating.HasValue && g.Rating >= 40 && g.Rating < 60),
-                Poor = games.Count(g => g.Rating.HasValue && g.Rating > 0 && g.Rating < 40),
-                Unrated = games.Count(g => !g.Rating.HasValue || g.Rating == 0)
+                Excellent = byStatus.Sum(s => s.Excellent),
+                Good = byStatus.Sum(s => s.Good),
+                Average = byStatus.Sum(s => s.Average),
+                Poor = byStatus.Sum(s => s.Poor),
+                Unrated = byStatus.Sum(s => s.Unrated)
             };
 
             // Status distribution
-            var statusStats = games
-                .GroupBy(g => g.Status)
-                .Select(grp => new { Status = grp.Key.ToString(), Count = grp.Count() })
+            var statusStats = byStatus
+                .Select(s => new { Status = s.Status.ToString(), s.Count })
                 .ToList();
 
             return Ok(new
@@ -114,28 +134,40 @@ namespace RetroArr.Api.V3.Dashboard
         [HttpGet("random")]
         public async Task<ActionResult> GetRandomGame([FromQuery] int? platformId = null, [FromQuery] string? genre = null)
         {
-            var query = _context.Games.AsQueryable();
+            var query = _context.Games.AsNoTracking();
 
             if (platformId.HasValue)
             {
                 query = query.Where(g => g.PlatformId == platformId.Value);
             }
 
-            var games = await query.ToListAsync();
-
-            // Genres is a JSON column, so this can't run in SQL
+            Game? randomGame = null;
             if (!string.IsNullOrEmpty(genre))
             {
-                games = games.Where(g => g.Genres != null && g.Genres.Contains(genre)).ToList();
+                // Genres is a JSON column, so this can't run in SQL; only ids and genres are read
+                var ids = (await query.Select(g => new { g.Id, g.Genres }).ToListAsync())
+                    .Where(g => g.Genres != null && g.Genres.Contains(genre))
+                    .Select(g => g.Id)
+                    .ToList();
+                if (ids.Count > 0)
+                {
+                    var id = ids[Random.Shared.Next(ids.Count)];
+                    randomGame = await query.FirstOrDefaultAsync(g => g.Id == id);
+                }
+            }
+            else
+            {
+                var count = await query.CountAsync();
+                if (count > 0)
+                {
+                    randomGame = await query.OrderBy(g => g.Id).Skip(Random.Shared.Next(count)).FirstOrDefaultAsync();
+                }
             }
             
-            if (!games.Any())
+            if (randomGame == null)
             {
                 return NotFound(new { message = "No games found matching criteria" });
             }
-
-            var random = new Random();
-            var randomGame = games[random.Next(games.Count)];
 
             // Populate platform
             if (randomGame.PlatformId > 0)
@@ -150,15 +182,11 @@ namespace RetroArr.Api.V3.Dashboard
         [HttpGet("shuffle")]
         public async Task<ActionResult> GetShuffledGames([FromQuery] int count = 5)
         {
-            var games = await _context.Games.ToListAsync();
-            
-            if (!games.Any())
-            {
-                return Ok(new List<Game>());
-            }
-
-            var random = new Random();
-            var shuffled = games.OrderBy(x => random.Next()).Take(Math.Min(count, games.Count)).ToList();
+            // Picks among the ids and loads only the picked games
+            var ids = await _context.Games.Select(g => g.Id).ToListAsync();
+            var picked = ids.OrderBy(_ => Random.Shared.Next()).Take(Math.Min(count, ids.Count)).ToList();
+            var games = await _context.Games.AsNoTracking().Where(g => picked.Contains(g.Id)).ToListAsync();
+            var shuffled = games.OrderBy(_ => Random.Shared.Next()).ToList();
 
             foreach (var game in shuffled)
             {
@@ -172,90 +200,122 @@ namespace RetroArr.Api.V3.Dashboard
             return Ok(shuffled);
         }
 
-        [HttpGet("export")]
-        public async Task<ActionResult> ExportLibrary()
+        // An export runs a few KB per game, so Kestrel's 30 MB default turned large libraries away
+        private const long ImportMaxBytes = 1L << 30;
+
+        private sealed class ImportFile
         {
-            var games = await _context.Games.ToListAsync();
-            var collections = await _context.Collections.Include(c => c.CollectionGames).ToListAsync();
-            var tags = await _context.Tags.Include(t => t.GameTags).ToListAsync();
-            var reviews = await _context.GameReviews.ToListAsync();
+            public List<Game?>? Games { get; set; }
+        }
+
+        // Games are streamed to the response: the whole library as one string ran out of memory
+        [HttpGet("export")]
+        public async Task ExportLibrary()
+        {
+            var collections = await _context.Collections.AsNoTracking().Select(c => new
+            {
+                c.Id,
+                c.Name,
+                c.Description,
+                c.CoverUrl,
+                GameIds = c.CollectionGames.Select(cg => cg.GameId).ToList()
+            }).ToListAsync();
+            var tags = await _context.Tags.AsNoTracking().Select(t => new
+            {
+                t.Id,
+                t.Name,
+                t.Color,
+                GameIds = t.GameTags.Select(gt => gt.GameId).ToList()
+            }).ToListAsync();
+            var reviews = await _context.GameReviews.AsNoTracking().Select(r => new
+            {
+                r.Id,
+                r.GameId,
+                r.UserRating,
+                r.Notes,
+                r.IsFavorite,
+                r.IsWishlisted,
+                r.CompletionStatus,
+                r.StartedAt,
+                r.CompletedAt,
+                r.CreatedAt,
+                r.UpdatedAt
+            }).ToListAsync();
 
             var exportData = new
             {
                 ExportDate = DateTime.UtcNow,
                 Version = "1.0",
-                Games = games.Select(g => new
-                {
-                    g.Id,
-                    g.Title,
-                    g.Overview,
-                    g.Storyline,
-                    g.Year,
-                    g.ReleaseDate,
-                    g.Developer,
-                    g.Publisher,
-                    g.Genres,
-                    g.PlatformId,
-                    g.IgdbId,
-                    g.SteamId,
-                    g.GogId,
-                    g.EpicId,
-                    g.Rating,
-                    g.Status,
-                    g.InstallPath,
-                    g.IsExternal,
-                    g.Region,
-                    g.Added,
-                    Images = g.Images
-                }),
-                Collections = collections.Select(c => new
-                {
-                    c.Id,
-                    c.Name,
-                    c.Description,
-                    c.CoverUrl,
-                    GameIds = c.CollectionGames?.Select(cg => cg.GameId).ToList()
-                }),
-                Tags = tags.Select(t => new
-                {
-                    t.Id,
-                    t.Name,
-                    t.Color,
-                    GameIds = t.GameTags?.Select(gt => gt.GameId).ToList()
-                }),
-                Reviews = reviews.Select(r => new
-                {
-                    r.Id,
-                    r.GameId,
-                    r.UserRating,
-                    r.Notes,
-                    r.IsFavorite,
-                    r.IsWishlisted,
-                    r.CompletionStatus,
-                    r.StartedAt,
-                    r.CompletedAt,
-                    r.CreatedAt,
-                    r.UpdatedAt
-                })
+                Games = ExportGames(HttpContext.RequestAborted),
+                Collections = collections,
+                Tags = tags,
+                Reviews = reviews
             };
 
-            var json = JsonSerializer.Serialize(exportData, new JsonSerializerOptions 
+            Response.ContentType = "application/json";
+            Response.Headers.ContentDisposition = $"attachment; filename=RetroArr-export-{DateTime.UtcNow:yyyyMMdd}.json";
+            await JsonSerializer.SerializeAsync(Response.Body, exportData, new JsonSerializerOptions
             { 
-                WriteIndented = true,
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            });
+            }, HttpContext.RequestAborted);
+        }
 
-            return File(System.Text.Encoding.UTF8.GetBytes(json), "application/json", $"RetroArr-export-{DateTime.UtcNow:yyyyMMdd}.json");
+        // Read in batches by id: one open reader held SQLite's lock against every writer for the whole
+        // download, and the retrying PostgreSQL/MySQL strategy buffers a whole result before the first row
+        private async IAsyncEnumerable<object> ExportGames([EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            const int batchSize = 500;
+            var lastId = int.MinValue;
+            while (true)
+            {
+                var batch = await _context.Games.AsNoTracking()
+                    .Where(g => g.Id > lastId)
+                    .OrderBy(g => g.Id)
+                    .Take(batchSize)
+                    .Select(g => new
+                    {
+                        g.Id,
+                        g.Title,
+                        g.Overview,
+                        g.Storyline,
+                        g.Year,
+                        g.ReleaseDate,
+                        g.Developer,
+                        g.Publisher,
+                        g.Genres,
+                        g.PlatformId,
+                        g.IgdbId,
+                        g.SteamId,
+                        g.GogId,
+                        g.EpicId,
+                        g.Rating,
+                        g.Status,
+                        g.InstallPath,
+                        g.IsExternal,
+                        g.Region,
+                        g.Added,
+                        Images = g.Images
+                    })
+                    .ToListAsync(cancellationToken);
+                foreach (var game in batch) yield return game;
+                if (batch.Count < batchSize) yield break;
+                lastId = batch[^1].Id;
+            }
         }
 
         [HttpPost("import")]
-        public async Task<ActionResult> ImportLibrary([FromBody] Newtonsoft.Json.Linq.JObject body)
+        [RequestSizeLimit(ImportMaxBytes)]
+        public async Task<ActionResult> ImportLibrary()
         {
             try
             {
-                // MVC binds bodies with Newtonsoft here, so a JsonElement parameter came in empty
-                using var document = JsonDocument.Parse(body.ToString(Newtonsoft.Json.Formatting.None));
-                var gamesElement = document.RootElement.GetProperty("games");
+                // Read from the body stream: binding it to a JObject first kept three copies of a large export
+                var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+                var file = await JsonSerializer.DeserializeAsync<ImportFile>(Request.Body, jsonOptions);
+                if (file?.Games == null)
+                {
+                    return BadRequest(new { success = false, message = "Import failed: the file has no games list" });
+                }
                 var importedCount = 0;
                 var skippedCount = 0;
 
@@ -264,12 +324,10 @@ namespace RetroArr.Api.V3.Dashboard
                 var existing = await _context.Games.Select(g => new { g.Title, g.PlatformId, g.Region, g.IgdbId }).ToListAsync();
                 var titles = existing.Select(g => (g.Title, g.PlatformId, g.Region ?? string.Empty)).ToHashSet();
                 var igdbIds = existing.Where(g => g.IgdbId != null).Select(g => (g.IgdbId!.Value, g.PlatformId)).ToHashSet();
-                var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 
-                foreach (var gameElement in gamesElement.EnumerateArray())
+                // The export writes Game's own property names
+                foreach (var game in file.Games)
                 {
-                    // The export writes Game's own property names
-                    var game = gameElement.Deserialize<Game>(jsonOptions);
                     if (game == null || string.IsNullOrEmpty(game.Title) || !platformIds.Contains(game.PlatformId))
                     {
                         skippedCount++;

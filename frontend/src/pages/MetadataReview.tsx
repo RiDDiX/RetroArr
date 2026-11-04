@@ -5,6 +5,9 @@ import { faSearch, faCheck, faForward, faTimes, faSpinner, faFilter, faExclamati
 import PlatformIcon from '../components/PlatformIcon';
 import './MetadataReview.css';
 
+// Thousands of rows at once freeze the page for many seconds
+const PAGE_SIZE = 200;
+
 const MetadataReview: React.FC = () => {
   const [queue, setQueue] = useState<MetadataReviewItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -15,11 +18,14 @@ const MetadataReview: React.FC = () => {
   const [candidatesLoading, setCandidatesLoading] = useState(false);
   const [searchOverride, setSearchOverride] = useState('');
   const [confirming, setConfirming] = useState<number | null>(null);
+  const [shown, setShown] = useState(PAGE_SIZE);
 
+  useEffect(() => { setShown(PAGE_SIZE); }, [platformFilter]);
+
+  // The whole queue once; the platform filter and every action work on it here
   const loadQueue = useCallback(async () => {
-    setLoading(true);
     try {
-      const response = await metadataReviewApi.getQueue(platformFilter || undefined);
+      const response = await metadataReviewApi.getQueue();
       setQueue(response.data);
       setError(null);
     } catch (err: unknown) {
@@ -27,11 +33,16 @@ const MetadataReview: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [platformFilter]);
+  }, []);
 
   useEffect(() => {
     loadQueue();
   }, [loadQueue]);
+
+  const drop = (...gameIds: number[]) => {
+    setQueue(prev => prev.filter(q => !gameIds.includes(q.gameId)));
+    setError(null);
+  };
 
   const openReview = async (item: MetadataReviewItem) => {
     setSelectedGame(item);
@@ -65,8 +76,9 @@ const MetadataReview: React.FC = () => {
     if (!selectedGame) return;
     setConfirming(candidate.igdbId || -1);
     try {
+      let response;
       if (candidate.source === 'ScreenScraper') {
-        await metadataReviewApi.confirm(selectedGame.gameId, 0, candidate.score, 'ScreenScraper', {
+        response = await metadataReviewApi.confirm(selectedGame.gameId, 0, candidate.score, 'ScreenScraper', {
           title: candidate.title,
           overview: candidate.overview,
           year: candidate.year,
@@ -80,11 +92,12 @@ const MetadataReview: React.FC = () => {
           bannerUrl: candidate.bannerUrl,
         });
       } else {
-        await metadataReviewApi.confirm(selectedGame.gameId, candidate.igdbId, candidate.score, 'IGDB');
+        response = await metadataReviewApi.confirm(selectedGame.gameId, candidate.igdbId, candidate.score, 'IGDB');
       }
       setSelectedGame(null);
       setCandidates([]);
-      await loadQueue();
+      // A merge confirms the entry it went into as well
+      drop(selectedGame.gameId, response.data?.survivorId);
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Failed to confirm match'));
     } finally {
@@ -96,7 +109,7 @@ const MetadataReview: React.FC = () => {
     try {
       await metadataReviewApi.skip(gameId);
       setSelectedGame(null);
-      await loadQueue();
+      drop(gameId);
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Failed to skip'));
     }
@@ -106,13 +119,14 @@ const MetadataReview: React.FC = () => {
     try {
       await metadataReviewApi.dismiss(gameId);
       setSelectedGame(null);
-      await loadQueue();
+      drop(gameId);
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Failed to dismiss'));
     }
   };
 
   const platforms = [...new Set(queue.map(q => q.platformName).filter(Boolean))];
+  const filtered = platformFilter ? queue.filter(q => q.platformName === platformFilter) : queue;
 
   const getConfidenceColor = (score?: number): string => {
     if (!score) return '#888';
@@ -133,7 +147,7 @@ const MetadataReview: React.FC = () => {
         <h1>
           <FontAwesomeIcon icon={faExclamationTriangle} />
           {' '}Metadata Review
-          {queue.length > 0 && <span className="review-count">{queue.length}</span>}
+          {filtered.length > 0 && <span className="review-count">{filtered.length}</span>}
         </h1>
         <div className="review-filters">
           <div className="filter-group">
@@ -154,7 +168,7 @@ const MetadataReview: React.FC = () => {
         <div className="review-loading">
           <FontAwesomeIcon icon={faSpinner} spin /> Loading review queue...
         </div>
-      ) : queue.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <div className="review-empty">
           <FontAwesomeIcon icon={faCheck} size="2x" />
           <p>No games need metadata review.</p>
@@ -168,12 +182,12 @@ const MetadataReview: React.FC = () => {
             <span className="col-reason">Reason</span>
             <span className="col-actions">Actions</span>
           </div>
-          {queue.map(item => (
+          {filtered.slice(0, shown).map(item => (
             <div key={item.gameId} className="review-row">
               <div className="col-title">
                 <div className="review-game-info">
                   {item.coverUrl ? (
-                    <img src={item.coverUrl} alt="" className="review-cover-thumb" />
+                    <img src={item.coverUrl} alt="" className="review-cover-thumb" loading="lazy" />
                   ) : (
                     <div className="review-cover-placeholder">
                       <FontAwesomeIcon icon={faGamepad} />
@@ -218,6 +232,11 @@ const MetadataReview: React.FC = () => {
               </div>
             </div>
           ))}
+          {filtered.length > shown && (
+            <button className="btn-review" style={{ alignSelf: 'center' }} onClick={() => setShown(n => n + PAGE_SIZE)}>
+              Show more ({filtered.length - shown} left)
+            </button>
+          )}
         </div>
       )}
 

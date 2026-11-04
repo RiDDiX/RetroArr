@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import apiClient, { getErrorMessage } from '../api/client';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -58,6 +58,17 @@ interface PlanResult {
   operations: OperationResult[];
 }
 
+// Counts only, polled while a scan or run goes
+interface ResortStatus {
+  isRunning: boolean;
+  total: number;
+  completed: number;
+  failed: number;
+  currentOperation: string | null;
+  scanning: boolean;
+  plan: Omit<PlanResult, 'operations'> | null;
+}
+
 const issueTypeLabels: Record<string, string> = {
   WrongPlatformFolder: 'Wrong Platform',
   WrongGameFolderName: 'Wrong Name',
@@ -80,8 +91,12 @@ const issueTypeColors: Record<string, string> = {
   CompatibilityModeMismatch: 'var(--ctp-mauve)',
 };
 
+// A big library has tens of thousands of issues; rendering them all freezes the page
+const PAGE_SIZE = 200;
+
 const LibraryResort: React.FC = () => {
   const [issues, setIssues] = useState<StructureIssue[]>([]);
+  const [shown, setShown] = useState(PAGE_SIZE);
   const [scanning, setScanning] = useState(false);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,36 +114,104 @@ const LibraryResort: React.FC = () => {
   const [reassignTarget, setReassignTarget] = useState<number>(0);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [fixingPlatforms, setFixingPlatforms] = useState(false);
+  const [status, setStatus] = useState<ResortStatus | null>(null);
+  // This page's own request is under way: the status poll leaves ending it to the response
+  const scanInFlight = useRef(false);
+  const applyInFlight = useRef(false);
+  const sawRunning = useRef(false);
+
+  const showIssues = useCallback((list: StructureIssue[]) => {
+    setIssues(list);
+    setShown(PAGE_SIZE);
+    setScanned(true);
+    setSelected(new Set());
+  }, []);
+
+  // The last scan the server holds, so a long one is not lost by leaving the page
+  const loadIssues = useCallback(async () => {
+    try {
+      const response = await apiClient.get('/resort/issues', { timeout: 120000 });
+      if (response.data.scanned) showIssues(response.data.issues || []);
+    } catch {
+      // the page offers a scan instead
+    }
+  }, [showIssues]);
 
   useEffect(() => {
     apiClient.get('/resort/platforms').then(res => {
       setAllPlatforms(res.data || []);
     }).catch(() => {});
-  }, []);
+    apiClient.get<ResortStatus>('/resort/status').then(({ data }) => {
+      setStatus(data);
+      sawRunning.current = data.isRunning;
+      if (data.isRunning) setApplying(true);
+      if (data.scanning) setScanning(true);
+    }).catch(() => {});
+    loadIssues();
+  }, [loadIssues]);
+
+  // While a scan or run goes, this page's or one from before it was opened, the light status says how far it is
+  useEffect(() => {
+    if (!applying && !scanning) return;
+    let stop = false;
+    let timer = 0;
+    const poll = async () => {
+      try {
+        const { data } = await apiClient.get<ResortStatus>('/resort/status');
+        if (stop) return;
+        setStatus(data);
+        if (data.isRunning) sawRunning.current = true;
+        if (scanning && !data.scanning && !scanInFlight.current) {
+          setScanning(false);
+          loadIssues();
+        }
+        if (applying && !data.isRunning && !applyInFlight.current) {
+          setApplying(false);
+          // No response with every operation came (another tab ran it, or a proxy gave up on it); the counts did
+          // One a restart cut off is left to the interrupted banner
+          if (sawRunning.current && data.plan?.isComplete) {
+            setError(null);
+            setSuccessMsg(`Resort finished: ${data.plan.appliedCount} applied, ${data.plan.failedCount} failed, ${data.plan.skippedCount} skipped. Scan again to see what is left.`);
+          }
+        }
+      } catch {
+        // the next poll tries again
+      }
+      if (!stop) timer = window.setTimeout(poll, 1500);
+    };
+    poll();
+    return () => {
+      stop = true;
+      window.clearTimeout(timer);
+    };
+  }, [applying, scanning, loadIssues]);
 
   const scan = useCallback(async () => {
     setScanning(true);
     setError(null);
     setPlan(null);
     setSuccessMsg(null);
+    scanInFlight.current = true;
     try {
-      const response = await apiClient.post('/resort/scan', {}, { timeout: 120000 });
-      setIssues(response.data.issues || []);
-      setScanned(true);
-      setSelected(new Set());
+      // Checks every game on disk: minutes on a large library on spinning drives
+      const response = await apiClient.post('/resort/scan', {}, { timeout: 600000 });
+      showIssues(response.data.issues || []);
+      setScanning(false);
     } catch (err: unknown) {
+      // A scan the server still runs is picked up by the status poll when it ends
       setError(getErrorMessage(err, 'Failed to scan library'));
     } finally {
-      setScanning(false);
+      scanInFlight.current = false;
     }
-  }, []);
+  }, [showIssues]);
 
   const fixPlatforms = useCallback(async () => {
     setFixingPlatforms(true);
     setError(null);
     setSuccessMsg(null);
     try {
-      const response = await apiClient.post('/resort/fix-platforms', null, { timeout: 120000 });
+      // One write per game it moves to another platform
+      const response = await apiClient.post('/resort/fix-platforms', null, { timeout: 600000 });
       const { count, message } = response.data;
       setSuccessMsg(message);
       if (count > 0 && scanned) {
@@ -156,22 +239,46 @@ const LibraryResort: React.FC = () => {
     }
   }, []);
 
-  const applyFixes = useCallback(async (issueIds: string[]) => {
-    if (issueIds.length === 0) return;
+  const run = useCallback(async (url: string, body: object | null) => {
     setApplying(true);
     setError(null);
+    setSuccessMsg(null);
+    setStatus(null);
+    sawRunning.current = false;
+    applyInFlight.current = true;
     try {
-      const response = await apiClient.post('/resort/apply', {
-        issueIds,
-        defaultConflictResolution: 'Skip',
-      });
-      setPlan(response.data);
+      // As long as the moves take: the status poll shows how far it got, and Cancel stops it
+      const response = await apiClient.post(url, body, { timeout: 0 });
+      const data: PlanResult = response.data;
+      if (data.operations) {
+        // What was applied is no longer open, here as in the list the server keeps
+        const applied = new Set(data.operations.filter(o => o.status === 'Applied').map(o => o.issueId));
+        setIssues(list => list.filter(i => !applied.has(i.id)));
+        setSelected(sel => new Set([...sel].filter(id => !applied.has(id))));
+        // What failed or was skipped comes first, not somewhere past the rows shown
+        data.operations = [...data.operations].sort((a, b) => Number(a.status === 'Applied') - Number(b.status === 'Applied'));
+        setPlan(data);
+        setShown(PAGE_SIZE);
+      } else {
+        setSuccessMsg(response.data.message);
+      }
+      // The last poll may have come before the run took over the interrupted plan
+      setStatus(null);
+      setApplying(false);
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Failed to apply fixes'));
     } finally {
-      setApplying(false);
+      applyInFlight.current = false;
     }
   }, []);
+
+  const applyFixes = (issueIds: string[]) => {
+    if (issueIds.length > 0) run('/resort/apply', { issueIds, defaultConflictResolution: 'Skip' });
+  };
+
+  const cancel = () => {
+    apiClient.post('/resort/cancel').catch((err: unknown) => setError(getErrorMessage(err, 'Failed to cancel')));
+  };
 
   const handleApplySelected = () => {
     if (selected.size === 0) return;
@@ -180,7 +287,7 @@ const LibraryResort: React.FC = () => {
   };
 
   const handleApplyAll = () => {
-    if (filteredIssues.length === 0) return;
+    if (applicable.length === 0) return;
     setConfirmAction('all');
     setShowConfirm(true);
   };
@@ -188,7 +295,7 @@ const LibraryResort: React.FC = () => {
   const confirmApply = () => {
     setShowConfirm(false);
     const ids = confirmAction === 'all'
-      ? filteredIssues.map(i => i.id)
+      ? applicable.map(i => i.id)
       : Array.from(selected);
     applyFixes(ids);
   };
@@ -203,21 +310,33 @@ const LibraryResort: React.FC = () => {
   };
 
   const toggleSelectAll = () => {
-    if (selected.size === filteredIssues.length) {
+    if (selected.size === applicable.length) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(filteredIssues.map(i => i.id)));
+      setSelected(new Set(applicable.map(i => i.id)));
     }
   };
 
-  // Derived data
-  const issueTypes = Array.from(new Set(issues.map(i => i.issueType)));
-  const platforms = Array.from(
-    new Map(issues.map(i => [i.platformId, i.platformName])).entries()
-  );
-  const folders = Array.from(new Set(issues.map(i => i.currentFolder).filter(Boolean))).sort();
+  // Derived data, in one pass over what may be a hundred thousand issues, not again on every click
+  const { issueTypes, platforms, folders, typeCounts, folderCounts } = useMemo(() => {
+    const typeCounts: Record<string, number> = {};
+    const folderCounts: Record<string, number> = {};
+    const platformNames = new Map<number, string>();
+    for (const i of issues) {
+      typeCounts[i.issueType] = (typeCounts[i.issueType] || 0) + 1;
+      if (i.currentFolder) folderCounts[i.currentFolder] = (folderCounts[i.currentFolder] || 0) + 1;
+      platformNames.set(i.platformId, i.platformName);
+    }
+    return {
+      issueTypes: Object.keys(typeCounts),
+      platforms: Array.from(platformNames.entries()),
+      folders: Object.keys(folderCounts).sort(),
+      typeCounts,
+      folderCounts,
+    };
+  }, [issues]);
 
-  const filteredIssues = issues.filter(i => {
+  const filteredIssues = useMemo(() => issues.filter(i => {
     if (filter !== 'all' && i.issueType !== filter) return false;
     if (platformFilter > 0 && i.platformId !== platformFilter) return false;
     if (folderFilter && i.currentFolder !== folderFilter) return false;
@@ -232,17 +351,10 @@ const LibraryResort: React.FC = () => {
       );
     }
     return true;
-  });
+  }), [issues, filter, platformFilter, folderFilter, searchQuery]);
 
-  const typeCounts = issueTypes.reduce((acc, t) => {
-    acc[t] = issues.filter(i => i.issueType === t).length;
-    return acc;
-  }, {} as Record<string, number>);
-
-  const folderCounts = folders.reduce((acc, f) => {
-    acc[f] = issues.filter(i => i.currentFolder === f).length;
-    return acc;
-  }, {} as Record<string, number>);
+  // Orphans are only reported: nothing applies to them, a library scan imports them
+  const applicable = useMemo(() => filteredIssues.filter(i => i.proposedAction !== 'LinkOrphan'), [filteredIssues]);
 
   return (
     <div className="resort-page">
@@ -266,20 +378,20 @@ const LibraryResort: React.FC = () => {
             <button
               className="resort-btn btn-apply"
               onClick={handleApplySelected}
-              disabled={applying}
+              disabled={applying || scanning}
             >
               <FontAwesomeIcon icon={faPlay} />
               Apply Selected ({selected.size})
             </button>
           )}
-          {filteredIssues.length > 0 && (
+          {applicable.length > 0 && (
             <button
               className="resort-btn btn-apply-all"
               onClick={handleApplyAll}
-              disabled={applying}
+              disabled={applying || scanning}
             >
               <FontAwesomeIcon icon={faPlay} />
-              Apply All ({filteredIssues.length})
+              Apply All ({applicable.length})
             </button>
           )}
           <button
@@ -374,19 +486,37 @@ const LibraryResort: React.FC = () => {
         </div>
       )}
 
+      {/* Interrupted run */}
+      {!applying && status?.plan && !status.plan.isComplete && !status.isRunning && (
+        <div className="resort-error">
+          <FontAwesomeIcon icon={faExclamationTriangle} />
+          A resort was interrupted with {status.plan.pendingCount} of {status.plan.totalCount} operations left.
+          <button className="resort-btn btn-apply" onClick={() => run('/resort/resume', null)} disabled={scanning}>
+            <FontAwesomeIcon icon={faPlay} />
+            Resume
+          </button>
+        </div>
+      )}
+
       {/* Progress */}
       {applying && (
         <div className="resort-progress">
           <div className="resort-progress-header">
-            <span>Applying fixes...</span>
-            <span>{plan ? `${plan.appliedCount + plan.skippedCount + plan.failedCount} / ${plan.totalCount}` : ''}</span>
+            <span>{status?.isRunning ? 'Applying fixes...' : 'Preparing...'}</span>
+            <span>{status?.isRunning ? `${status.completed} / ${status.total}` : ''}</span>
+            <button className="resort-btn btn-cancel" onClick={cancel} disabled={!status?.isRunning}>
+              Cancel
+            </button>
           </div>
           <div className="resort-progress-bar">
             <div
               className="resort-progress-fill"
-              style={{ width: plan ? `${((plan.appliedCount + plan.skippedCount + plan.failedCount) / Math.max(plan.totalCount, 1)) * 100}%` : '0%' }}
+              style={{ width: status?.isRunning ? `${(status.completed / Math.max(status.total, 1)) * 100}%` : '0%' }}
             />
           </div>
+          {status?.isRunning && status.currentOperation && (
+            <div className="resort-progress-current">{status.currentOperation}</div>
+          )}
         </div>
       )}
 
@@ -410,7 +540,7 @@ const LibraryResort: React.FC = () => {
             )}
           </div>
           <div className="resort-op-list">
-            {plan.operations.map(op => (
+            {plan.operations.slice(0, shown).map(op => (
               <div key={op.id} className="resort-op-item">
                 <span className={`resort-op-status ${op.status.toLowerCase()}`}>
                   {op.status === 'Applied' && <FontAwesomeIcon icon={faCheckCircle} />}
@@ -425,6 +555,11 @@ const LibraryResort: React.FC = () => {
                 )}
               </div>
             ))}
+            {plan.operations.length > shown && (
+              <button className="resort-btn btn-preview" style={{ alignSelf: 'center' }} onClick={() => setShown(n => n + PAGE_SIZE)}>
+                Show more ({plan.operations.length - shown} left)
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -461,14 +596,14 @@ const LibraryResort: React.FC = () => {
             <label className="resort-select-all">
               <input
                 type="checkbox"
-                checked={selected.size === filteredIssues.length && filteredIssues.length > 0}
+                checked={selected.size === applicable.length && applicable.length > 0}
                 onChange={toggleSelectAll}
               />
               Select All
             </label>
             <span>{filteredIssues.length} issues</span>
           </div>
-          {filteredIssues.map(issue => (
+          {filteredIssues.slice(0, shown).map(issue => (
             <div
               key={issue.id}
               className={`resort-item ${selected.has(issue.id) ? 'selected' : ''}`}
@@ -477,6 +612,8 @@ const LibraryResort: React.FC = () => {
                 type="checkbox"
                 className="resort-checkbox"
                 checked={selected.has(issue.id)}
+                disabled={issue.proposedAction === 'LinkOrphan'}
+                title={issue.proposedAction === 'LinkOrphan' ? 'Only reported: a library scan imports it' : undefined}
                 onChange={() => toggleSelect(issue.id)}
               />
               <div className="resort-info">
@@ -559,6 +696,11 @@ const LibraryResort: React.FC = () => {
               </div>
             </div>
           ))}
+          {filteredIssues.length > shown && (
+            <button className="resort-btn btn-preview" style={{ alignSelf: 'center' }} onClick={() => setShown(n => n + PAGE_SIZE)}>
+              Show more ({filteredIssues.length - shown} left)
+            </button>
+          )}
         </div>
       )}
 
@@ -569,7 +711,7 @@ const LibraryResort: React.FC = () => {
             <h3>Confirm Apply</h3>
             <p>
               {confirmAction === 'all'
-                ? `Apply fixes for all ${filteredIssues.length} issues? This will move/rename files and update the database.`
+                ? `Apply fixes for all ${applicable.length} issues? This will move/rename files and update the database.`
                 : `Apply fixes for ${selected.size} selected issues? This will move/rename files and update the database.`
               }
             </p>

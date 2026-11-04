@@ -35,9 +35,21 @@ namespace RetroArr.Core.Games
         // is there (the repair's). They are merged as rows of that platform, and a survivor among them goes there.
         public async Task<DuplicateMergeResult> MergeAsync(IReadOnlyDictionary<int, int>? moves, CancellationToken ct = default)
         {
-            using var context = await _contextFactory.CreateDbContextAsync(ct);
-            return await MergeAsync(context, ct, Roots(), moves);
+            // One at a time (repair, the heal after a scan, heal-platforms): two at once take the same clusters, and the
+            // second finds a winner the first merged away
+            await _merging.WaitAsync(ct);
+            try
+            {
+                using var context = await _contextFactory.CreateDbContextAsync(ct);
+                return await MergeAsync(context, ct, Roots(), moves);
+            }
+            finally
+            {
+                _merging.Release();
+            }
         }
+
+        private readonly SemaphoreSlim _merging = new(1, 1);
 
         public static async Task<DuplicateMergeResult> MergeAsync(RetroArrDbContext context, CancellationToken ct = default, IReadOnlyList<string>? roots = null, IReadOnlyDictionary<int, int>? moves = null)
         {
@@ -48,6 +60,9 @@ namespace RetroArr.Core.Games
                 .ToListAsync(ct);
             int PlatformOf(int id, int platformId) => moves != null && moves.TryGetValue(id, out var moved) ? moved : platformId;
             var library = games.Select(g => new Game { Id = g.Id, PlatformId = PlatformOf(g.Id, g.PlatformId), Path = g.Path, ExecutablePath = g.ExecutablePath, Status = g.Status }).ToList();
+            // One breaker for every survivor: the library is listed and checked on disk once
+            MediaScannerService.Breaker? breaker = null;
+            MediaScannerService.Breaker Breaker() => breaker ??= new(library, roots ?? Array.Empty<string>());
 
             var probes = games.Select(g => new DuplicateProbe
             {
@@ -84,7 +99,7 @@ namespace RetroArr.Core.Games
 
                 var survivor = await context.Games.FirstAsync(g => g.Id == winner.GameId, ct);
                 var loserRows = await context.Games.Where(g => losers.Contains(g.Id)).OrderBy(g => g.Id).ToListAsync(ct);
-                foreach (var loser in loserRows) TakeOver(survivor, loser, roots ?? Array.Empty<string>(), library);
+                foreach (var loser in loserRows) TakeOver(survivor, loser, Takes(survivor, loser, roots ?? Array.Empty<string>(), Breaker));
                 // unless the IGDB id is another release's there (another region)
                 if (moves != null && moves.TryGetValue(survivor.Id, out var platform)
                     && !games.Any(g => g.PlatformId == platform && g.IgdbId != null && g.IgdbId == survivor.IgdbId && !alive.Any(m => m.GameId == g.Id)))
@@ -108,12 +123,19 @@ namespace RetroArr.Core.Games
 
         // A merge through the repository (metadata review, merge-into): what hangs off the source moves to the target
         // and the source row goes, so the target can take its path (unique). TakeOver and change are then applied to
-        // the stored target. library: the games in the library, for the breaker. Null when the target is gone. One
-        // transaction: a target that can't be saved leaves the source and what hangs off it as they were.
-        public async Task<Game?> MergeIntoAsync(IGameRepository repository, Game source, int targetId, IEnumerable<Game> library, Action<Game>? change = null)
+        // the stored target. Null when the target is gone. One transaction: a target that can't be saved leaves the
+        // source and what hangs off it as they were.
+        public async Task<Game?> MergeIntoAsync(IGameRepository repository, Game source, int targetId, Action<Game>? change = null)
         {
             var roots = Roots();
             using var context = await _contextFactory.CreateDbContextAsync();
+            // The breaker reads the library and may check all of it on disk: that is done before the transaction, by
+            // the target as it is stored now, and within it again only for a target changed meanwhile. The source is
+            // still counted once it is gone.
+            MediaScannerService.Breaker? breaker = null;
+            MediaScannerService.Breaker Breaker() => breaker ??= new(LibraryOf(context).Where(g => g.Id != source.Id).Append(source), roots);
+            var before = await context.Games.AsNoTracking().FirstOrDefaultAsync(g => g.Id == targetId);
+            var takes = before != null && Takes(before, source, roots, Breaker);
             // PostgreSQL and MariaDB retry on failure, which takes a transaction only inside the strategy
             var saved = await context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
             {
@@ -126,7 +148,7 @@ namespace RetroArr.Core.Games
                 await context.SaveChangesAsync();
                 await context.Games.Where(g => g.Id == source.Id).ExecuteDeleteAsync();
 
-                TakeOver(target, source, roots, library);
+                TakeOver(target, source, before != null && Unchanged(target, before) ? takes : Takes(target, source, roots, Breaker));
                 change?.Invoke(target);
                 if (MediaScannerService.CheckContent(target, roots) == GameContent.Present)
                     target.ApplyContent(GameContent.Present, DateTime.UtcNow);
@@ -147,21 +169,29 @@ namespace RetroArr.Core.Games
         // What a check of the game's path finds, by the scanner's rules
         public GameContent CheckContent(Game game) => MediaScannerService.CheckContent(game, Roots());
 
-        // Its content gone or emptied and not held back by the breaker. library: the games in the library.
-        public bool Lost(Game game, IEnumerable<Game> library) => Lost(game, Roots(), library);
+        // Its content gone or emptied and not held back by the breaker, which reads the library only then
+        public bool Lost(Game game)
+        {
+            var roots = Roots();
+            using var context = _contextFactory.CreateDbContext();
+            return Lost(game, roots, () => new MediaScannerService.Breaker(LibraryOf(context), roots));
+        }
 
         private List<string> Roots() => MediaScannerService.LibraryRoots(_config.LoadMediaSettings());
 
-        // The survivor is monitored when either was. Like the scanner's TakePath, it keeps a path whose content may
-        // still be there (present, or unknown while its share may be offline) and takes the other entry's path with
-        // its state when it has none, or when its content is lost and the other's is there. True when it took it.
-        private static bool TakeOver(Game survivor, Game other, IReadOnlyList<string> roots, IEnumerable<Game> library)
+        // Like the scanner's TakePath, the survivor keeps a path whose content may still be there (present, or unknown
+        // while its share may be offline) and takes the other entry's path when it has none, or when its content is
+        // lost and the other's is there. breaker: over the library, made when it is needed.
+        private static bool Takes(Game survivor, Game other, IReadOnlyList<string> roots, Func<MediaScannerService.Breaker> breaker) =>
+            !string.IsNullOrEmpty(other.Path)
+            && (string.IsNullOrEmpty(survivor.Path)
+                || MediaScannerService.CheckContent(other, roots) == GameContent.Present && Lost(survivor, roots, breaker));
+
+        // The survivor is monitored when either was, and takes the other entry's path with its state when it takes it
+        private static void TakeOver(Game survivor, Game other, bool takes)
         {
             survivor.Monitored |= other.Monitored;
-            if (string.IsNullOrEmpty(other.Path)) return false;
-            if (!string.IsNullOrEmpty(survivor.Path)
-                && !(MediaScannerService.CheckContent(other, roots) == GameContent.Present && Lost(survivor, roots, library)))
-                return false;
+            if (!takes) return;
 
             survivor.Path = other.Path;
             survivor.ExecutablePath = other.ExecutablePath;
@@ -169,14 +199,26 @@ namespace RetroArr.Core.Games
             survivor.Status = other.Status;
             survivor.MissingSince = other.MissingSince;
             survivor.ProblemResolvedAt = other.ProblemResolvedAt;
-            return true;
         }
 
+        // What Takes reads of the survivor is as it was
+        private static bool Unchanged(Game now, Game before) =>
+            now.Path == before.Path && now.ExecutablePath == before.ExecutablePath && now.PlatformId == before.PlatformId && now.Status == before.Status;
+
         // Gone or emptied, and not held back by the breaker: a mass loss in the library is more likely an offline share
-        private static bool Lost(Game game, IReadOnlyList<string> roots, IEnumerable<Game> library) =>
-            MediaScannerService.CheckContent(game, roots) is GameContent.Gone or GameContent.Empty
-            && MediaScannerService.CheckAll(library.Where(g => g.Id != game.Id && !string.IsNullOrEmpty(g.Path)).Append(game).ToList(), roots, new List<string>())[^1].Content
-                is GameContent.Gone or GameContent.Empty;
+        private static bool Lost(Game game, IReadOnlyList<string> roots, Func<MediaScannerService.Breaker> breaker)
+        {
+            var content = MediaScannerService.CheckContent(game, roots);
+            return content is GameContent.Gone or GameContent.Empty && !breaker().Holds(game, content);
+        }
+
+        // What the breaker reads of each game with a path
+        private static List<Game> LibraryOf(RetroArrDbContext context) =>
+            context.Games.AsNoTracking().Where(g => g.Path != null)
+                .Select(g => new { g.Id, g.PlatformId, g.Path, g.ExecutablePath, g.Status })
+                .AsEnumerable()
+                .Select(g => new Game { Id = g.Id, PlatformId = g.PlatformId, Path = g.Path, ExecutablePath = g.ExecutablePath, Status = g.Status })
+                .ToList();
 
         // Move FK rows from losers to the winner, respecting unique indexes. winnerPath: where the winner ends up, null
         // while that is not settled.

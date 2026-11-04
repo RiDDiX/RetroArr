@@ -1,6 +1,6 @@
 using System;
 using System.Linq;
-using System.Threading;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using RetroArr.Core.Games;
@@ -14,7 +14,6 @@ namespace RetroArr.Api.V3.Games
     {
         private readonly LibraryResortService _resortService;
         private readonly IGameRepository _gameRepository;
-        private CancellationTokenSource? _applyCts;
 
         public ResortController(LibraryResortService resortService, IGameRepository gameRepository)
         {
@@ -53,6 +52,7 @@ namespace RetroArr.Api.V3.Games
             var issues = _resortService.LastScanResults;
             return Ok(new
             {
+                scanned = _resortService.Scanned,
                 count = issues.Count,
                 issues = issues.Select(i => new
                 {
@@ -89,6 +89,7 @@ namespace RetroArr.Api.V3.Games
             var oldPlatformId = game.PlatformId;
             game.PlatformId = request.NewPlatformId;
             await _gameRepository.UpdateAsync(game.Id, game);
+            _resortService.Forget(game.Id);
 
             return Ok(new
             {
@@ -116,19 +117,22 @@ namespace RetroArr.Api.V3.Games
             if (request?.IssueIds == null || request.IssueIds.Count == 0)
                 return BadRequest(new { message = "No issues selected." });
 
-            _applyCts = new CancellationTokenSource();
-            var plan = await _resortService.ApplyAsync(
-                request.IssueIds,
-                request.DefaultConflictResolution,
-                _applyCts.Token);
+            try
+            {
+                var plan = await _resortService.ApplyAsync(request.IssueIds, request.DefaultConflictResolution);
 
-            return Ok(FormatPlan(plan));
+                return Ok(FormatPlan(plan));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(new { message = ex.Message });
+            }
         }
 
         [HttpPost("cancel")]
         public IActionResult Cancel()
         {
-            _applyCts?.Cancel();
+            _resortService.Cancel();
             return Ok(new { message = "Cancellation requested." });
         }
 
@@ -144,7 +148,9 @@ namespace RetroArr.Api.V3.Games
                 progress.Completed,
                 progress.Failed,
                 progress.CurrentOperation,
-                plan = plan != null ? FormatPlan(plan) : null
+                scanning = _resortService.Scanning,
+                // Counts only: the page polls it while a run goes, and a run has up to an operation per game
+                plan = plan != null ? new { plan.Id, plan.CreatedAt, plan.TotalCount, plan.AppliedCount, plan.FailedCount, plan.SkippedCount, plan.PendingCount, plan.IsComplete } : null
             });
         }
 
@@ -158,26 +164,18 @@ namespace RetroArr.Api.V3.Games
         [HttpPost("resume")]
         public async Task<IActionResult> Resume()
         {
-            var plan = _resortService.ActivePlan;
-            if (plan == null || plan.IsComplete)
-                return Ok(new { message = "No pending plan to resume." });
+            try
+            {
+                var result = await _resortService.ResumeAsync();
+                if (result == null)
+                    return Ok(new { message = "No pending plan to resume." });
 
-            var pendingIds = plan.Operations
-                .Where(o => o.Status == OperationStatus.Pending)
-                .Select(o => o.IssueId)
-                .Distinct()
-                .ToList();
-
-            if (pendingIds.Count == 0)
-                return Ok(new { message = "All operations already completed." });
-
-            _applyCts = new CancellationTokenSource();
-            var result = await _resortService.ApplyAsync(
-                pendingIds,
-                ConflictResolution.Skip,
-                _applyCts.Token);
-
-            return Ok(FormatPlan(result));
+                return Ok(FormatPlan(result));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(new { message = ex.Message });
+            }
         }
 
         [HttpPost("fix-platforms")]
@@ -227,21 +225,40 @@ namespace RetroArr.Api.V3.Games
             if (game == null)
                 return NotFound(new { message = $"Game {gameId} not found." });
 
-            var issues = await _resortService.ScanAsync(new ResortScanRequest { GameId = gameId });
-            // Allow renaming the game folder to fix a mangled/illegal name — the engine
-            // rewrites game.Path afterwards (UpdateGamePath). Only keep platform
-            // relocations (MoveGameFolder) out of a per-game "rename".
-            issues = issues.Where(i =>
-                i.ProposedAction != OperationType.MoveGameFolder).ToList();
-            if (issues.Count == 0)
-                return Ok(new { message = "No rename needed.", operations = Array.Empty<object>() });
-
-            var issueIds = request?.IssueIds ?? issues.Select(i => i.Id).ToList();
+            List<string> issueIds;
+            if (request?.IssueIds is { Count: > 0 } previewed)
+            {
+                // The ids of a preview: a scan now would give its issues new ones. Only this game's renames go.
+                var renames = _resortService.LastScanResults
+                    .Where(i => i.GameId == gameId && i.ProposedAction != OperationType.MoveGameFolder)
+                    .Select(i => i.Id).ToHashSet();
+                issueIds = previewed.Where(renames.Contains).ToList();
+                if (issueIds.Count == 0)
+                    return Conflict(new { message = "The preview is out of date. Preview again." });
+            }
+            else
+            {
+                var issues = await _resortService.ScanAsync(new ResortScanRequest { GameId = gameId });
+                // Allow renaming the game folder to fix a mangled/illegal name — the engine
+                // rewrites game.Path afterwards (UpdateGamePath). Only keep platform
+                // relocations (MoveGameFolder) out of a per-game "rename".
+                issues = issues.Where(i =>
+                    i.ProposedAction != OperationType.MoveGameFolder).ToList();
+                if (issues.Count == 0)
+                    return Ok(new { message = "No rename needed.", operations = Array.Empty<object>() });
+                issueIds = issues.Select(i => i.Id).ToList();
+            }
             var resolution = request?.DefaultConflictResolution ?? ConflictResolution.Skip;
 
-            _applyCts = new CancellationTokenSource();
-            var plan = await _resortService.ApplyAsync(issueIds, resolution, _applyCts.Token);
-            return Ok(FormatPlan(plan));
+            try
+            {
+                var plan = await _resortService.ApplyAsync(issueIds, resolution);
+                return Ok(FormatPlan(plan));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(new { message = ex.Message });
+            }
         }
 
         [HttpGet("game/{gameId}/supplementary/rename/preview")]
@@ -280,7 +297,15 @@ namespace RetroArr.Api.V3.Games
             if (game == null)
                 return NotFound(new { message = $"Game {gameId} not found." });
 
-            var result = await _resortService.ApplySupplementaryRenameAsync(gameId);
+            SupplementaryRenameResult result;
+            try
+            {
+                result = await _resortService.ApplySupplementaryRenameAsync(gameId);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Conflict(new { message = ex.Message });
+            }
             return Ok(new
             {
                 gameId,

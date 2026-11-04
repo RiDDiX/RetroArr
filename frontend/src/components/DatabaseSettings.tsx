@@ -170,10 +170,10 @@ const DatabaseSettings: React.FC<DatabaseSettingsProps> = () => {
         setMessage(null);
         try {
             const response = await settingsApi.repairDatabase({ healPlatformFromPath: healFromPath, mergeDuplicates });
-            setRepairResult(response.data);
-            setMessage({ type: 'success', text: 'Repair complete.' });
-            // Re-check so the report reflects the fixed state
+            // Re-check so the report reflects the fixed state; the check clears the last result and message
             await handleHealthCheck();
+            setRepairResult(response.data);
+            setMessage((current) => current ?? { type: 'success', text: 'Repair complete.' });
             loadStats();
         } catch (error: unknown) {
             setMessage({ type: 'error', text: getErrorMessage(error, 'Repair failed') });
@@ -287,7 +287,7 @@ const DatabaseSettings: React.FC<DatabaseSettingsProps> = () => {
                 <h4><FontAwesomeIcon icon={faHeartbeat} /> Check &amp; Repair</h4>
                 <p className="settings-description">
                     Scan for orphan platform references, NULL regions, dangling file rows,
-                    missing paths on disk, games whose folder suggests a different platform,
+                    games the last scan found missing, games whose folder suggests a different platform,
                     and duplicate game rows (cue/bin pairs that ended up as two entries,
                     title collisions on the same platform, repeat-matched IGDB ids).
                 </p>
@@ -328,7 +328,7 @@ const DatabaseSettings: React.FC<DatabaseSettingsProps> = () => {
                         <div className="stat-item"><span className="stat-label">NULL regions:</span><span className="stat-value">{healthReport.nullRegions}</span></div>
                         <div className="stat-item"><span className="stat-label">Dangling game files:</span><span className="stat-value">{healthReport.danglingGameFiles}</span></div>
                         <div className="stat-item"><span className="stat-label">Needs metadata review:</span><span className="stat-value">{healthReport.gamesNeedingReview}</span></div>
-                        <div className="stat-item"><span className="stat-label">Missing path on disk:</span><span className="stat-value">{healthReport.gamesWithMissingPath}</span></div>
+                        <div className="stat-item"><span className="stat-label">Missing at last scan:</span><span className="stat-value">{healthReport.gamesWithMissingPath}</span></div>
                         <div className="stat-item"><span className="stat-label">Path suggests different platform:</span><span className="stat-value">{healthReport.gamesWithMismatchedPath}</span></div>
                         <div className="stat-item"><span className="stat-label">Duplicate clusters:</span><span className="stat-value">{healthReport.duplicateClusterCount}</span></div>
                         <div className="stat-item"><span className="stat-label">Games in duplicates:</span><span className="stat-value">{healthReport.duplicateGames}</span></div>
@@ -398,6 +398,7 @@ const DatabaseSettings: React.FC<DatabaseSettingsProps> = () => {
                         {repairResult.orphansFixed} orphans flagged,{' '}
                         {repairResult.platformsHealed} platforms healed,{' '}
                         {repairResult.danglingGameFilesRemoved} dangling file rows removed,{' '}
+                        {repairResult.containerOrphansRemoved} container orphans removed,{' '}
                         {repairResult.duplicatesMerged} duplicate game rows merged.
                     </div>
                 )}

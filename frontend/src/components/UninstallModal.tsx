@@ -40,7 +40,8 @@ const UninstallModal: React.FC<UninstallModalProps> = ({
         if (!isOpen) return;
         let current = true;
         setPlan(null);
-        apiClient.get<DeletePlan>(`/game/${gameId}/delete-plan`)
+        // It checks every other entry's path on disk, which takes a while in a big library on cold disks
+        apiClient.get<DeletePlan>(`/game/${gameId}/delete-plan`, { timeout: 120000 })
             .then(res => { if (current) setPlan(res.data); })
             .catch(err => { if (current) setPlan({ paths: null, refused: getErrorMessage(err), downloads: [] }); });
         return () => { current = false; };

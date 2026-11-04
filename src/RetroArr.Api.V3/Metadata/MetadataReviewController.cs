@@ -30,16 +30,11 @@ namespace RetroArr.Api.V3.Metadata
         [HttpGet]
         public async Task<ActionResult<List<MetadataReviewItem>>> GetReviewQueue([FromQuery] string? platformFilter = null)
         {
-            var allGames = await _gameRepository.GetAllLightAsync();
-            var needsReview = allGames
-                .Where(g => g.NeedsMetadataReview && !g.MetadataConfirmedByUser)
+            var rows = await _gameRepository.GetReviewRowsAsync();
+            var needsReview = rows
                 .Select(g =>
                 {
-                    if (g.PlatformId > 0 && g.Platform == null)
-                    {
-                        g.Platform = PlatformDefinitions.AllPlatforms
-                            .FirstOrDefault(p => p.Id == g.PlatformId);
-                    }
+                    var platform = g.PlatformId > 0 ? PlatformDefinitions.PlatformDictionary.GetValueOrDefault(g.PlatformId) : null;
                     return new MetadataReviewItem
                     {
                         GameId = g.Id,
@@ -47,12 +42,12 @@ namespace RetroArr.Api.V3.Metadata
                         AlternativeTitle = g.AlternativeTitle,
                         Path = g.Path,
                         PlatformId = g.PlatformId,
-                        PlatformName = g.Platform?.Name ?? "Unknown",
-                        PlatformSlug = g.Platform?.Slug,
+                        PlatformName = platform?.Name ?? "Unknown",
+                        PlatformSlug = platform?.Slug,
                         MatchConfidence = g.MatchConfidence,
                         ReviewReason = g.MetadataReviewReason ?? "Unknown",
                         CurrentIgdbId = g.IgdbId,
-                        CoverUrl = g.Images?.CoverUrl,
+                        CoverUrl = g.CoverUrl,
                         Added = g.Added
                     };
                 })
@@ -214,9 +209,9 @@ namespace RetroArr.Api.V3.Metadata
             apply(game);
 
             // Guard: if the title changed, check for Title+PlatformId+Region collision. Another region of the
-            // title is a release of its own.
-            var allGames = await _gameRepository.GetAllLightAsync();
-            var collision = allGames.FirstOrDefault(g =>
+            // title is a release of its own. Both lie on the game's platform; the first by id, as the library is read.
+            var ofPlatform = (await _gameRepository.GetAllPagedAsync(1, int.MaxValue, game.PlatformId)).Items.OrderBy(g => g.Id).ToList();
+            var collision = ofPlatform.FirstOrDefault(g =>
                 g.Id != gameId &&
                 g.Title.Equals(game.Title, StringComparison.OrdinalIgnoreCase) &&
                 g.PlatformId == game.PlatformId &&
@@ -224,7 +219,7 @@ namespace RetroArr.Api.V3.Metadata
 
             // The id is another entry's on this platform (the other region of a release): one per platform, so it stays there
             var holder = game.IgdbId > 0
-                ? allGames.FirstOrDefault(g => g.Id != gameId && g.Id != collision?.Id && g.PlatformId == game.PlatformId && g.IgdbId == game.IgdbId)
+                ? ofPlatform.FirstOrDefault(g => g.Id != gameId && g.Id != collision?.Id && g.PlatformId == game.PlatformId && g.IgdbId == game.IgdbId)
                 : null;
             string? reason = null;
             if (holder != null)
@@ -249,7 +244,7 @@ namespace RetroArr.Api.V3.Metadata
 
                 // What hangs off the reviewed entry moves over, and the existing entry keeps a path whose content may
                 // still be there or takes the reviewed entry's
-                var survivor = await _mergeService.MergeIntoAsync(_gameRepository, game, collision.Id, allGames, c =>
+                var survivor = await _mergeService.MergeIntoAsync(_gameRepository, game, collision.Id, c =>
                 {
                     // Apply confirmed metadata to the surviving entry
                     if (game.IgdbId.HasValue) c.IgdbId = game.IgdbId;

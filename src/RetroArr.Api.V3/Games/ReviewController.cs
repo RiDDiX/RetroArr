@@ -115,10 +115,9 @@ namespace RetroArr.Api.V3.Games
             {
                 // A path whose content may still be there stays (the file may lie in it, its share may be offline); a
                 // game without a path or whose content is lost is the file now
-                var library = await _gameRepository.GetAllLightAsync();
                 var saved = await _gameRepository.UpdateFieldsAsync(game.Id, g =>
                 {
-                    if ((System.IO.File.Exists(file) || System.IO.Directory.Exists(file)) && (string.IsNullOrEmpty(g.Path) || _mergeService.Lost(g, library)))
+                    if ((System.IO.File.Exists(file) || System.IO.Directory.Exists(file)) && (string.IsNullOrEmpty(g.Path) || _mergeService.Lost(g)))
                         g.Path = file;
                     if (System.IO.File.Exists(file) && GameController.IsSubPath(file, g.Path ?? string.Empty))
                         g.ExecutablePath = file;

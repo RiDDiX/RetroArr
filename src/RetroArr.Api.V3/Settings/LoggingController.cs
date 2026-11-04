@@ -124,29 +124,29 @@ namespace RetroArr.Api.V3.Settings
             if (!files.Any())
                 return NotFound(new { error = "No log files found for the selected time range" });
 
-            using var memoryStream = new MemoryStream();
+            // Line by line, so memory stays at one line and the zip, not every log as one string. A redacted value
+            // never spans lines (the pattern stops at whitespace), and a line without '=' has none.
+            var memoryStream = new MemoryStream();
             using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Create, true))
             {
                 foreach (var file in files)
                 {
-                    var entry = archive.CreateEntry(file.Name);
-                    using var entryStream = entry.Open();
-                    var content = System.IO.File.ReadAllText(file.FullName);
-
-                    // Redact sensitive data
-                    if (settings.RedactTokens)
+                    var entry = archive.CreateEntry(file.Name, CompressionLevel.Fastest);
+                    using var writer = new StreamWriter(entry.Open());
+                    // the logger still writes to the current file
+                    using var reader = new StreamReader(new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete));
+                    string? line;
+                    while ((line = reader.ReadLine()) != null)
                     {
-                        content = LogRedactor.Redact(content);
+                        // Redact sensitive data
+                        writer.WriteLine(settings.RedactTokens && line.Contains('=') ? LogRedactor.Redact(line) : line);
                     }
-
-                    using var writer = new StreamWriter(entryStream);
-                    writer.Write(content);
                 }
             }
 
             memoryStream.Position = 0;
             var timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
-            return File(memoryStream.ToArray(), "application/zip", $"retroarr_logs_{timestamp}.zip");
+            return File(memoryStream, "application/zip", $"retroarr_logs_{timestamp}.zip");
         }
 
         [HttpPost("validate-directory")]

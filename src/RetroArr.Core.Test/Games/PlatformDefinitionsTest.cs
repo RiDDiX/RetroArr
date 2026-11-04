@@ -131,5 +131,26 @@ namespace RetroArr.Core.Test.Games
             Assert.That(PlatformDefinitions.UnknownPlatformId, Is.GreaterThan(0));
             Assert.That(PlatformDefinitions.PlatformDictionary.ContainsKey(PlatformDefinitions.UnknownPlatformId), Is.True);
         }
+
+        // Every name a platform answers to resolves to the first platform in the list that takes it, as the walk over
+        // MatchesFolderName did: a RetroBat "snes" folder stays SNES, not Super Famicom
+        [Test]
+        public void ResolvePlatformFromPath_EveryName_GivesTheFirstPlatformThatMatchesIt()
+        {
+            var names = PlatformDefinitions.AllPlatforms
+                .SelectMany(p => new[] { p.FolderName, p.Slug, p.RetroBatFolderName, p.BatoceraFolderName }.Concat(p.FolderAliases ?? new string[0]))
+                .Where(n => !string.IsNullOrEmpty(n))
+                .SelectMany(n => new[] { n!, n!.ToUpperInvariant() })
+                .Append("snes_archive")
+                .Distinct()
+                .ToList();
+
+            foreach (var name in names)
+            {
+                var expected = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.MatchesFolderName(name));
+                Assert.That(PlatformDefinitions.ResolvePlatformFromPath($"/library/{name}/Game.bin"), Is.SameAs(expected), name);
+            }
+            Assert.That(PlatformDefinitions.ResolvePlatformFromPath("/library/snes/Game.bin")!.Id, Is.EqualTo(41));
+        }
     }
 }

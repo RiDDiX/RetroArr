@@ -68,28 +68,15 @@ namespace RetroArr.Api.V3.Monitor
             RetroArr.Core.Games.PlatformService.SetMonitorNewItemsDefault(platformId, request.Monitored);
 
             int updated = 0;
-            int total;
             if (request.ApplyToExisting)
             {
-                var games = await _db.Games
-                    .Where(g => g.PlatformId == platformId)
-                    .ToListAsync(ct)
+                // One UPDATE: loading the platform's games and saving them row by row took tens of seconds on big platforms
+                updated = await _db.Games
+                    .Where(g => g.PlatformId == platformId && g.Monitored != request.Monitored)
+                    .ExecuteUpdateAsync(s => s.SetProperty(g => g.Monitored, request.Monitored), ct)
                     .ConfigureAwait(false);
-                total = games.Count;
-                foreach (var g in games)
-                {
-                    if (g.Monitored != request.Monitored)
-                    {
-                        g.Monitored = request.Monitored;
-                        updated++;
-                    }
-                }
-                if (updated > 0) await _db.SaveChangesAsync(ct).ConfigureAwait(false);
             }
-            else
-            {
-                total = await _db.Games.CountAsync(g => g.PlatformId == platformId, ct).ConfigureAwait(false);
-            }
+            var total = await _db.Games.CountAsync(g => g.PlatformId == platformId, ct).ConfigureAwait(false);
 
             return Ok(new { platformId, monitored = request.Monitored, updated, total });
         }

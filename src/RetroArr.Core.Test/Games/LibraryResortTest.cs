@@ -1011,5 +1011,309 @@ namespace RetroArr.Core.Test.Games
             Assert.That(await resort.ScanAsync(), Is.Empty);
             Assert.That(await resort.ScanAsync(new ResortScanRequest { GameId = 2 }), Is.Empty);
         }
+
+        // The rename on a game's page scans that game alone; what the Resort page shows of the others still applies
+        [Test]
+        public async Task Scan_OfOneGame_KeepsTheOtherIssuesOfTheLastScan()
+        {
+            var aw = Put(Path.Combine(_lib, "gba", "aw"), "Advance Wars.gba", "rom");
+            var mf = Put(Path.Combine(_lib, "gba", "mf"), "Metroid Fusion.gba", "rom");
+            var resort = await Resort(
+                new Game { Id = 1, Title = "Advance Wars", PlatformId = 52, Path = Path.GetDirectoryName(aw), Status = GameStatus.Downloaded },
+                new Game { Id = 2, Title = "Metroid Fusion", PlatformId = 52, Path = Path.GetDirectoryName(mf), Status = GameStatus.Downloaded });
+            var shown = await resort.ScanAsync();
+
+            await resort.ScanAsync(new ResortScanRequest { GameId = 1 });
+            var plan = await resort.ApplyAsync(shown.Where(i => i.GameId == 2).Select(i => i.Id).ToList(), ConflictResolution.Skip);
+
+            Assert.That(plan.Operations.Select(o => (o.GameId, o.Status)), Is.EqualTo(new[] { ((int?)2, OperationStatus.Applied) }));
+            Assert.That(File.Exists(Path.Combine(_lib, "gba", "Metroid Fusion", "Metroid Fusion.gba")), Is.True);
+        }
+
+        // The Resort page restores the last scan: what a run applied is no longer among its issues, the rest is
+        [Test]
+        public async Task Apply_DropsWhatItAppliedFromTheLastScan()
+        {
+            var aw = Put(Path.Combine(_lib, "gba", "aw"), "Advance Wars.gba", "rom");
+            var mf = Put(Path.Combine(_lib, "gba", "mf"), "Metroid Fusion.gba", "rom");
+            var resort = await Resort(
+                new Game { Id = 1, Title = "Advance Wars", PlatformId = 52, Path = Path.GetDirectoryName(aw), Status = GameStatus.Downloaded },
+                new Game { Id = 2, Title = "Metroid Fusion", PlatformId = 52, Path = Path.GetDirectoryName(mf), Status = GameStatus.Downloaded });
+            var shown = await resort.ScanAsync();
+
+            await resort.ApplyAsync(shown.Where(i => i.GameId == 2).Select(i => i.Id).ToList(), ConflictResolution.Skip);
+
+            Assert.That(resort.LastScanResults.Select(i => i.GameId), Is.EqualTo(new int?[] { 1 }));
+        }
+
+        // Only what lies in the folder holds it: "aw2" beside "aw" does not, the same folder or a file below it does
+        [TestCase("aw2/Other.gba", false)]
+        [TestCase("aw/Other.gba", true)]
+        [TestCase("aw/Saves/Other.gba", true)]
+        [TestCase("aw", true)]
+        public async Task Apply_FolderOfAnotherEntryNearby_IsMovedOnlyWhenItLiesIn(string otherPath, bool refused)
+        {
+            var folder = Path.Combine(_lib, "gba", "aw");
+            Put(folder, "Advance Wars.gba", "rom");
+            var other = Path.Combine(_lib, "gba", otherPath);
+            if (Path.HasExtension(other)) Put(Path.GetDirectoryName(other)!, Path.GetFileName(other), "other");
+            var resort = await Resort(
+                new Game { Id = 1, Title = "Advance Wars", PlatformId = 52, Path = folder, Status = GameStatus.Downloaded },
+                new Game { Id = 2, Title = "Other", PlatformId = 52, Path = other, Status = GameStatus.Downloaded });
+
+            var op = await ApplyAll(resort, 1);
+
+            Assert.That(op.Status, Is.EqualTo(refused ? OperationStatus.Failed : OperationStatus.Applied), op.ErrorMessage);
+            Assert.That(Directory.Exists(folder), Is.EqualTo(refused));
+        }
+
+        // A second run while one goes would move the same folders: it is refused, and the next one after it goes
+        [Test]
+        public async Task Apply_WhileARunGoes_IsRefused()
+        {
+            var (resort, _, target) = await GameInAMisnamedFolder();
+            var ids = (await resort.ScanAsync()).Select(i => i.Id).ToList();
+            string? second = null;
+            resort.RenameDirectory = (from, to) =>
+            {
+                if (second == null)
+                {
+                    second = "";
+                    try
+                    {
+                        resort.ApplyAsync(ids, ConflictResolution.Skip).GetAwaiter().GetResult();
+                        second = "ran";
+                    }
+                    catch (InvalidOperationException ex) { second = ex.Message; }
+                }
+                Directory.Move(from, to);
+            };
+
+            var op = (await resort.ApplyAsync(ids, ConflictResolution.Skip)).Operations.Single();
+
+            Assert.That(op.Status, Is.EqualTo(OperationStatus.Applied), op.ErrorMessage);
+            Assert.That(second, Is.EqualTo("A resort is already running."));
+            Assert.That(Directory.Exists(target), Is.True);
+            Assert.That((resort.Progress.IsRunning, resort.Progress.Completed), Is.EqualTo((false, 1)));
+        }
+
+        // The game's files are not renamed while a run may move its folder
+        [Test]
+        public async Task SupplementaryRename_WhileARunGoes_IsRefused()
+        {
+            var (resort, _, _) = await GameInAMisnamedFolder();
+            var ids = (await resort.ScanAsync()).Select(i => i.Id).ToList();
+            Exception? refused = null;
+            resort.RenameDirectory = (from, to) =>
+            {
+                refused = Assert.CatchAsync(() => resort.ApplySupplementaryRenameAsync(1));
+                Directory.Move(from, to);
+            };
+
+            await resort.ApplyAsync(ids, ConflictResolution.Skip);
+
+            Assert.That(refused?.Message, Is.EqualTo("A resort is already running."));
+        }
+
+        private RetroArr.Api.V3.Games.ResortController Controller(LibraryResortService resort) => new(resort, new SqliteGameRepository(new DbFactory(_db)));
+
+        // Each request gets a controller of its own: the cancel one stops the run another one started
+        [Test]
+        public async Task Cancel_FromItsOwnRequest_StopsTheRun()
+        {
+            Put(Path.Combine(_lib, "gba", "aw"), "Advance Wars.gba", "rom");
+            var mf = Path.GetDirectoryName(Put(Path.Combine(_lib, "gba", "mf"), "Metroid Fusion.gba", "rom"))!;
+            var resort = await Resort(
+                new Game { Id = 1, Title = "Advance Wars", PlatformId = 52, Path = Path.Combine(_lib, "gba", "aw"), Status = GameStatus.Downloaded },
+                new Game { Id = 2, Title = "Metroid Fusion", PlatformId = 52, Path = mf, Status = GameStatus.Downloaded });
+            var ids = (await resort.ScanAsync()).Select(i => i.Id).ToList();
+            resort.RenameDirectory = (from, to) =>
+            {
+                Controller(resort).Cancel();
+                Directory.Move(from, to);
+            };
+
+            await Controller(resort).Apply(new ResortApplyRequest { IssueIds = ids });
+
+            var ops = resort.ActivePlan!.Operations;
+            Assert.That(ops.Select(o => o.Status), Is.EquivalentTo(new[] { OperationStatus.Applied, OperationStatus.Skipped }));
+            Assert.That(ops.Single(o => o.Status == OperationStatus.Skipped).ErrorMessage, Is.EqualTo("Cancelled by user."));
+            Assert.That(Directory.GetDirectories(Path.Combine(_lib, "gba")), Has.Length.EqualTo(2));
+        }
+
+        // After a restart the scan is gone: the plan itself says what is left, and what it did stays in the history
+        [Test]
+        public async Task Resume_AfterARestart_RunsWhatThePlanLeft()
+        {
+            var (_, folder, target) = await GameInAMisnamedFolder();
+            var plan = new OperationPlan();
+            plan.Operations.Add(new StructureOperation { IssueId = "done", Type = OperationType.UpdateDbPath, Status = OperationStatus.Applied });
+            plan.Operations.Add(new StructureOperation
+            {
+                IssueId = "left", Type = OperationType.RenameGameFolder, SourcePath = folder, TargetPath = target, GameId = 1,
+                IssueType = nameof(IssueType.WrongGameFolderName)
+            });
+            File.WriteAllText(Path.Combine(new ConfigurationService(_root).GetConfigDirectory(), "resort", "active_plan.json"), System.Text.Json.JsonSerializer.Serialize(plan));
+            var restarted = Service(new SqliteGameRepository(new DbFactory(_db)));
+
+            await Controller(restarted).Resume();
+
+            Assert.That((Directory.Exists(folder), Directory.Exists(target)), Is.EqualTo((false, true)));
+            Assert.That(Row(1).Path, Is.EqualTo(target));
+            Assert.That(restarted.GetHistory().Select(p => p.TotalCount), Is.EquivalentTo(new[] { 1, 2 }));
+        }
+
+        // The page shows the last scan again when it is opened, maybe days later: an issue whose game has since moved,
+        // changed platform or whose missing folder is back is not applied as the scan saw it
+        [TestCase("back")]
+        [TestCase("repointed")]
+        [TestCase("reassigned")]
+        public async Task Apply_IssueOfAnEarlierScan_GameChangedSince_IsNotApplied(string change)
+        {
+            var folder = Path.Combine(_lib, "gba", "aw");
+            if (change != "back") Put(folder, "Advance Wars.gba", "rom");
+            var resort = await Resort(new Game { Id = 1, Title = "Advance Wars", PlatformId = 52, Path = folder, Status = GameStatus.Downloaded });
+            var ids = (await resort.ScanAsync()).Select(i => i.Id).ToList();
+            var chosen = Path.Combine(_lib, "gba", "aw-good");
+            using (var ctx = new RetroArrDbContext(_db))
+            {
+                var game = ctx.Games.Single(g => g.Id == 1);
+                if (change == "back") Put(folder, "Advance Wars.gba", "rom");
+                if (change == "repointed") game.Path = Path.GetDirectoryName(Put(chosen, "Advance Wars.gba", "good rom"));
+                if (change == "reassigned") game.PlatformId = 41;
+                ctx.SaveChanges();
+            }
+
+            await Controller(resort).Apply(new ResortApplyRequest { IssueIds = ids });
+
+            var op = resort.ActivePlan!.Operations.Single();
+            Assert.That((op.Status, op.ErrorMessage), Is.EqualTo((OperationStatus.Failed, "The game changed since the scan. Scan again.")));
+            Assert.That(Row(1).Path, Is.EqualTo(change == "repointed" ? chosen : folder));
+            Assert.That(Directory.Exists(folder), Is.True);
+        }
+
+        // A plan left before a restart: a game pointed elsewhere or reassigned since is left as it is; an operation done
+        // just before the restart (the plan is stored every 2 s) counts as done, not as failed
+        [TestCase("repointed")]
+        [TestCase("reassigned")]
+        [TestCase("done")]
+        public async Task Resume_GameChangedSince_IsLeft(string change)
+        {
+            var (_, folder, target) = await GameInAMisnamedFolder();
+            var chosen = Path.Combine(_lib, "gba", "aw-good");
+            using (var ctx = new RetroArrDbContext(_db))
+            {
+                var game = ctx.Games.Single(g => g.Id == 1);
+                if (change == "repointed") game.Path = Path.GetDirectoryName(Put(chosen, "Advance Wars.gba", "good rom"));
+                if (change == "reassigned") game.PlatformId = 41;
+                if (change == "done") { Directory.Move(folder, target); game.Path = target; }
+                ctx.SaveChanges();
+            }
+            var plan = new OperationPlan();
+            plan.Operations.Add(new StructureOperation
+            {
+                IssueId = "left", Type = OperationType.RenameGameFolder, SourcePath = folder, TargetPath = target, GameId = 1, PlatformId = 52,
+                IssueType = nameof(IssueType.WrongGameFolderName)
+            });
+            File.WriteAllText(Path.Combine(new ConfigurationService(_root).GetConfigDirectory(), "resort", "active_plan.json"), System.Text.Json.JsonSerializer.Serialize(plan));
+
+            var op = (await Service(new SqliteGameRepository(new DbFactory(_db))).ResumeAsync())!.Operations.Single();
+
+            Assert.That(op.Status, Is.EqualTo(change == "done" ? OperationStatus.Skipped : OperationStatus.Failed), op.ErrorMessage);
+            Assert.That((Directory.Exists(folder), Directory.Exists(target)), Is.EqualTo(change == "done" ? (false, true) : (true, false)));
+            Assert.That(Row(1).Path, Is.EqualTo(change switch { "repointed" => chosen, "done" => target, _ => folder }));
+        }
+
+        // Reassigned on the page: its issues are gone from the list the page restores too
+        [Test]
+        public async Task ReassignPlatform_DropsTheGamesIssues()
+        {
+            var (resort, _, _) = await GameInAMisnamedFolder();
+            await resort.ScanAsync();
+
+            await Controller(resort).ReassignPlatform(new ReassignPlatformRequest { GameId = 1, NewPlatformId = 41 });
+
+            Assert.That(resort.LastScanResults.Where(i => i.GameId == 1), Is.Empty);
+        }
+
+        // The rename on a game's page applies what its preview showed, of that game only
+        [Test]
+        public async Task RenameApply_WithTheIdsOfItsPreview_AppliesThoseOfTheGame()
+        {
+            Put(Path.Combine(_lib, "gba", "aw"), "Advance Wars.gba", "rom");
+            Put(Path.Combine(_lib, "gba", "mf"), "Metroid Fusion.gba", "rom");
+            var resort = await Resort(
+                new Game { Id = 1, Title = "Advance Wars", PlatformId = 52, Path = Path.Combine(_lib, "gba", "aw"), Status = GameStatus.Downloaded },
+                new Game { Id = 2, Title = "Metroid Fusion", PlatformId = 52, Path = Path.Combine(_lib, "gba", "mf"), Status = GameStatus.Downloaded });
+            var other = (await resort.ScanAsync()).Where(i => i.GameId == 2).Select(i => i.Id);
+            await Controller(resort).RenamePreview(1);
+            var previewed = resort.LastScanResults.Where(i => i.GameId == 1).Select(i => i.Id);
+
+            await Controller(resort).RenameApply(1, new ResortApplyRequest { IssueIds = previewed.Concat(other).ToList() });
+
+            Assert.That(Directory.GetDirectories(Path.Combine(_lib, "gba")).Select(Path.GetFileName), Is.EquivalentTo(new[] { "Advance Wars", "mf" }));
+        }
+
+        // Not left over: what a game takes along (tracks of its cue, discs of its playlist, its .sbi, the folder it lies in)
+        // and what the frontends keep beside the games. What is left can't be applied, only imported by a scan.
+        [Test]
+        public async Task Scan_Orphans_AreWhatNoGameTakesAlong()
+        {
+            var psx = Path.Combine(_lib, "psx");
+            var m3u = Put(psx, "FF7.m3u", "Disc1/FF7 (Disc 1).cue\nFF7 (Disc 2).cue\n");
+            Put(psx, "Disc1/FF7 (Disc 1).cue", "FILE \"FF7 (Disc 1).bin\" BINARY\n");
+            Put(psx, "Disc1/FF7 (Disc 1).bin");
+            Put(psx, "FF7 (Disc 2).cue", "FILE \"FF7 (Disc 2) (Track 1).bin\" BINARY\nFILE \"FF7 (Disc 2) (Track 2).bin\" BINARY\n");
+            Put(psx, "FF7 (Disc 2) (Track 1).bin");
+            Put(psx, "FF7 (Disc 2) (Track 2).bin");
+            var crash = Put(psx, "Crash.chd");
+            Put(psx, "Crash.sbi");
+            var tekken = Put(psx, "Tekken/Tekken 3.chd");
+            foreach (var media in new[] { "images/Crash.png", "videos/Crash.mp4", "manuals/Crash.pdf", "downloaded_images/Crash.png", "media/box2d/Crash.png", "gamelist.xml", "Crash-image.png" })
+                Put(psx, media);
+            Put(psx, "Unknown.chd");
+            Put(psx, "Loose/Loose.chd");
+            var resort = await Resort(
+                new Game { Id = 1, Title = "FF7", PlatformId = 20, Path = m3u, ExecutablePath = m3u, Status = GameStatus.Downloaded },
+                new Game { Id = 2, Title = "Crash", PlatformId = 20, Path = crash, Status = GameStatus.Downloaded },
+                new Game { Id = 3, Title = "Tekken 3", PlatformId = 20, Path = tekken, Status = GameStatus.Downloaded });
+
+            var orphans = (await resort.ScanAsync()).Where(i => i.IssueType == IssueType.OrphanedFile).ToList();
+            var plan = await resort.ApplyAsync(orphans.Select(i => i.Id).ToList(), ConflictResolution.Skip);
+
+            Assert.That(orphans.Select(i => Path.GetFileName(i.CurrentPath)), Is.EquivalentTo(new[] { "Loose", "Unknown.chd" }));
+            Assert.That(plan.Operations.Select(o => (o.Status, o.ErrorMessage)).Distinct(),
+                Is.EqualTo(new[] { (OperationStatus.Skipped, (string?)"Only reported: a library scan imports what no game is linked to.") }));
+            Assert.That(File.Exists(Path.Combine(psx, "Unknown.chd")) && Directory.Exists(Path.Combine(psx, "Loose")), Is.True);
+        }
+
+        // Each run keeps its plan in the history, two in the same second too
+        [Test]
+        public async Task History_TwoRunsInASecond_KeepsBoth()
+        {
+            var (resort, _, _) = await GameInAMisnamedFolder();
+
+            await ApplyAll(resort);
+            await resort.ApplyAsync(new List<string>(), ConflictResolution.Skip);
+
+            Assert.That(resort.GetHistory().Select(p => p.TotalCount), Is.EquivalentTo(new[] { 1, 0 }));
+        }
+
+        // A title the folder's platform has already stays where it is
+        [Test]
+        public async Task FixPlatforms_TitleTheFolderPlatformHas_IsLeft()
+        {
+            var gba = Put(Path.Combine(_lib, "gba"), "Advance Wars.gba");
+            var usa = Put(Path.Combine(_lib, "gba"), "Advance Wars (USA).gba");
+            var resort = await Resort(
+                new Game { Id = 1, Title = "Advance Wars", PlatformId = 52, Path = gba, Status = GameStatus.Downloaded },
+                new Game { Id = 2, Title = "advance wars", PlatformId = 20, Path = usa, Status = GameStatus.Downloaded },
+                new Game { Id = 3, Title = "Metroid Fusion", PlatformId = 20, Path = Put(Path.Combine(_lib, "gba"), "Metroid Fusion.gba"), Status = GameStatus.Downloaded });
+
+            var fixes = await resort.FixPlatformAssignmentsAsync();
+
+            Assert.That(fixes.Select(f => f.GameId), Is.EqualTo(new[] { 3 }));
+            Assert.That(Row(2).PlatformId, Is.EqualTo(20));
+        }
     }
 }

@@ -24,13 +24,18 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     loadDashboardData();
 
-    // Auto-refresh when library changes (game added/removed, download finished, scan complete)
+    // Auto-refresh when library changes (game added/removed, download finished, scan complete).
+    // Debounced like Library: a scan fires this per batch.
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     const handleLibraryUpdate = () => {
-      console.log('[Dashboard] Library update detected. Refreshing stats...');
-      loadDashboardData();
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(loadDashboardData, 2000);
     };
     window.addEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
-    return () => window.removeEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
+    return () => {
+      window.removeEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
+      if (debounceTimer) clearTimeout(debounceTimer);
+    };
   }, []);
 
   const loadDashboardData = async () => {

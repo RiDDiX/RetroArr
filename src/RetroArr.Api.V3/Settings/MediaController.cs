@@ -197,9 +197,16 @@ namespace RetroArr.Api.V3.Settings
         [HttpPost("heal-platforms")]
         public async Task<IActionResult> HealPlatforms()
         {
-            if (_scannerService.IsScanning)
+            (int, int, int)? result;
+            try { result = await _scannerService.HealPlatformsAsync(); }
+            catch (OperationCanceledException)
+            {
+                // Stopped from the scan banner, as it holds the scan slot
+                return Conflict(new { message = "Heal stopped - the rows fixed until then stay fixed." });
+            }
+            if (result == null)
                 return Conflict(new { message = "A scan is already running - heal will run at the end of it." });
-            var (healed, dupesDropped, mergedDuplicates) = await _scannerService.HealWrongPlatformsAsync();
+            var (healed, dupesDropped, mergedDuplicates) = result.Value;
             return Ok(new { healed, dupesDropped, mergedDuplicates });
         }
 
@@ -207,6 +214,7 @@ namespace RetroArr.Api.V3.Settings
 
         private static volatile bool _isRescanningMetadata;
         private static volatile bool _rescanCancellationRequested;
+        private static readonly object _rescanLock = new();
         public static bool IsRescanningMetadata => _isRescanningMetadata;
 
         private static int _metadataRescanTotal;
@@ -230,46 +238,45 @@ namespace RetroArr.Api.V3.Settings
         [HttpPost("metadata/rescan")]
         public IActionResult TriggerMetadataRescan([FromBody] MetadataRescanRequest? request = null)
         {
-            if (_isRescanningMetadata)
-            {
-                return Conflict(new { message = "A metadata rescan is already in progress." });
-            }
-
             var igdbSettings = _configService.LoadIgdbSettings();
-            if (!igdbSettings.IsConfigured)
+            // Claimed here, not in the background task, so a second click before it starts can't start a second run
+            lock (_rescanLock)
             {
-                return BadRequest(new
+                if (_isRescanningMetadata)
                 {
-                    success = false,
-                    errorCode = "IGDB_NOT_CONFIGURED",
-                    message = "IGDB credentials are required for metadata rescan."
-                });
+                    return Conflict(new { message = "A metadata rescan is already in progress." });
+                }
+
+                if (!igdbSettings.IsConfigured)
+                {
+                    return BadRequest(new
+                    {
+                        success = false,
+                        errorCode = "IGDB_NOT_CONFIGURED",
+                        message = "IGDB credentials are required for metadata rescan."
+                    });
+                }
+                _isRescanningMetadata = true;
             }
+            _rescanCancellationRequested = false;
+            _metadataRescanProgress = 0;
+            _metadataRescanUpdated = 0;
+            _metadataRescanCurrentGame = null;
+            _rescanStartedAt = DateTime.UtcNow;
 
             Task.Run(async () =>
             {
-                _isRescanningMetadata = true;
-                _rescanCancellationRequested = false;
-                _metadataRescanProgress = 0;
-                _metadataRescanUpdated = 0;
-                _metadataRescanCurrentGame = null;
-                _rescanStartedAt = DateTime.UtcNow;
                 try
                 {
-                    var allGames = await _gameRepository.GetAllAsync();
-                    IEnumerable<Game> targetGames = allGames;
-
-                    if (request?.PlatformId.HasValue == true)
-                    {
-                        targetGames = targetGames.Where(g => g.PlatformId == request.PlatformId.Value);
-                    }
+                    // Only the columns the selection reads: the run lasts hours to days on a big library
+                    IEnumerable<GameMetadataRow> targetGames = await _gameRepository.GetMetadataRowsAsync(request?.PlatformId);
 
                     if (request?.MissingOnly == true)
                     {
                         var preferredSourceOverride = request?.PreferredSource;
                         targetGames = targetGames.Where(g =>
                         {
-                            if (!g.IgdbId.HasValue || string.IsNullOrEmpty(g.Overview))
+                            if (g.Incomplete)
                                 return true;
 
                             var effectiveSrc = !string.IsNullOrEmpty(preferredSourceOverride)
@@ -315,12 +322,13 @@ namespace RetroArr.Api.V3.Settings
                             var variants = titleCleaner.GenerateSearchVariants(cleanTitle);
                             if (variants.Count == 0) variants.Add(cleanTitle);
 
-                            // Fix stored title if the cleaner improved it (e.g. stripped PS serial prefix)
+                            // Fix stored title if the cleaner improved it (e.g. stripped PS serial prefix), unless it was edited since
+                            Action<Game> clean = _ => { };
                             bool titleCleaned = false;
                             if (!cleanTitle.Equals(game.Title, StringComparison.Ordinal) && !string.IsNullOrEmpty(cleanTitle))
                             {
                                 _logger.Info($"[MetadataRescan] Title cleaned: '{game.Title}' → '{cleanTitle}'");
-                                game.Title = cleanTitle;
+                                clean = g => { if (g.Title == game.Title) g.Title = cleanTitle; };
                                 titleCleaned = true;
                             }
 
@@ -333,22 +341,19 @@ namespace RetroArr.Api.V3.Settings
                                 if (ssResults.Count > 0)
                                 {
                                     var best = ssResults.First();
-                                    ApplyMetadataToGame(game, best, "ScreenScraper");
-                                    await _gameRepository.UpdateAsync(game.Id, game);
-                                    try { await _localMediaExport.ExportMediaForGameAsync(game); } catch (Exception mex) { _logger.Error($"[MetadataRescan] Media export error: {mex.Message}"); }
-                                    _metadataRescanUpdated++;
+                                    await SaveMetadataAsync(game, g => { clean(g); ApplyMetadataToGame(g, best, "ScreenScraper"); });
                                     updated = true;
                                 }
 
                                 if (!updated)
                                 {
-                                    updated = await TryIgdbRescan(game, metadataService, variants, platformKey);
+                                    updated = await TryIgdbRescan(game, clean, metadataService, variants, platformKey);
                                 }
                             }
                             else
                             {
                                 // IGDB primary, ScreenScraper fallback
-                                updated = await TryIgdbRescan(game, metadataService, variants, platformKey);
+                                updated = await TryIgdbRescan(game, clean, metadataService, variants, platformKey);
 
                                 if (!updated)
                                 {
@@ -356,10 +361,7 @@ namespace RetroArr.Api.V3.Settings
                                     if (ssResults.Count > 0)
                                     {
                                         var best = ssResults.First();
-                                        ApplyMetadataToGame(game, best, "ScreenScraper");
-                                        await _gameRepository.UpdateAsync(game.Id, game);
-                                        try { await _localMediaExport.ExportMediaForGameAsync(game); } catch (Exception mex) { _logger.Error($"[MetadataRescan] Media export error: {mex.Message}"); }
-                                        _metadataRescanUpdated++;
+                                        await SaveMetadataAsync(game, g => { clean(g); ApplyMetadataToGame(g, best, "ScreenScraper"); });
                                     }
                                 }
                             }
@@ -367,7 +369,7 @@ namespace RetroArr.Api.V3.Settings
                             // Persist cleaned title even when no metadata was found
                             if (!updated && titleCleaned)
                             {
-                                await _gameRepository.UpdateAsync(game.Id, game);
+                                await _gameRepository.UpdateFieldsAsync(game.Id, clean);
                             }
 
                             await Task.Delay(300);
@@ -418,7 +420,29 @@ namespace RetroArr.Api.V3.Settings
             return Ok(new { message = "Cancellation requested." });
         }
 
-        private async Task<bool> TryIgdbRescan(Game game, GameMetadataService metadataService, List<string> variants, string? platformKey)
+        // The run reads the library once at its start and lasts hours to days, so each write goes to the row as it is
+        // now and sets only the metadata: a move, a missing flag or an edit made since then stays. A game renamed or
+        // matched by the user since then keeps that, not the match found for the title it had at the start.
+        private async Task SaveMetadataAsync(GameMetadataRow start, Action<Game> apply)
+        {
+            var applied = false;
+            var saved = await _gameRepository.UpdateFieldsAsync(start.Id, g =>
+            {
+                if (g.Title != start.Title || (g.MetadataConfirmedByUser && !start.MetadataConfirmedByUser)) return;
+                apply(g);
+                applied = true;
+            });
+            if (saved == null) return;
+            if (!applied)
+            {
+                _logger.Info($"[MetadataRescan] '{start.Title}' was renamed or matched during the run, left as it is.");
+                return;
+            }
+            try { await _localMediaExport.ExportMediaForGameAsync(saved); } catch (Exception mex) { _logger.Error($"[MetadataRescan] Media export error: {mex.Message}"); }
+            _metadataRescanUpdated++;
+        }
+
+        private async Task<bool> TryIgdbRescan(GameMetadataRow start, Action<Game> clean, GameMetadataService metadataService, List<string> variants, string? platformKey)
         {
             var searchResults = await metadataService.SearchGamesAsync(variants.First(), platformKey);
             if (searchResults.Count > 0)
@@ -429,23 +453,24 @@ namespace RetroArr.Api.V3.Settings
                     var fullMeta = await metadataService.GetGameMetadataAsync(best.IgdbId.Value);
                     if (fullMeta != null)
                     {
-                        game.IgdbId = fullMeta.IgdbId;
-                        game.Title = fullMeta.Title;
-                        game.Overview = fullMeta.Overview;
-                        game.Storyline = fullMeta.Storyline;
-                        game.Developer = fullMeta.Developer;
-                        game.Publisher = fullMeta.Publisher;
-                        game.Rating = fullMeta.Rating;
-                        game.RatingCount = fullMeta.RatingCount;
-                        game.Year = fullMeta.Year;
-                        game.ReleaseDate = fullMeta.ReleaseDate;
-                        game.Genres = fullMeta.Genres;
-                        game.Images = fullMeta.Images;
-                        game.NeedsMetadataReview = false;
-                        game.MetadataSource = "IGDB";
-                        await _gameRepository.UpdateAsync(game.Id, game);
-                        try { await _localMediaExport.ExportMediaForGameAsync(game); } catch (Exception mex) { _logger.Error($"[MetadataRescan] Media export error: {mex.Message}"); }
-                        _metadataRescanUpdated++;
+                        await SaveMetadataAsync(start, game =>
+                        {
+                            clean(game);
+                            game.IgdbId = fullMeta.IgdbId;
+                            game.Title = fullMeta.Title;
+                            game.Overview = fullMeta.Overview;
+                            game.Storyline = fullMeta.Storyline;
+                            game.Developer = fullMeta.Developer;
+                            game.Publisher = fullMeta.Publisher;
+                            game.Rating = fullMeta.Rating;
+                            game.RatingCount = fullMeta.RatingCount;
+                            game.Year = fullMeta.Year;
+                            game.ReleaseDate = fullMeta.ReleaseDate;
+                            game.Genres = fullMeta.Genres;
+                            game.Images = fullMeta.Images;
+                            game.NeedsMetadataReview = false;
+                            game.MetadataSource = "IGDB";
+                        });
                         return true;
                     }
                 }

@@ -183,6 +183,34 @@ namespace RetroArr.Core.Test.Games
                 .Concat(check.DownloadHistory.Select(r => r.GameId!.Value)), Is.EqualTo(new[] { 1, 1, 1, 1, 1, 1 }));
         }
 
+        // Only what still waits on a review, named after the built-in platform list; the filter takes its slug or name
+        [Test]
+        public async Task Queue_ListsWhatWaitsOnAReview()
+        {
+            using (var ctx = new RetroArrDbContext(_db))
+            {
+                ctx.Games.AddRange(
+                    new Game { Id = 1, Title = "Advnce Wars", PlatformId = Gba, NeedsMetadataReview = true, MetadataReviewReason = "Low confidence",
+                        MatchConfidence = 0.5, Images = new GameImages { CoverUrl = "/cover.jpg" } },
+                    new Game { Id = 2, Title = "Chrono Trigger", PlatformId = Snes, Path = "/snes/Chrono Trigger.sfc", NeedsMetadataReview = true },
+                    new Game { Id = 3, Title = "Advance Wars 2", PlatformId = Gba, NeedsMetadataReview = true, MetadataConfirmedByUser = true },
+                    new Game { Id = 4, Title = "Advance Wars", PlatformId = Gba });
+                await ctx.SaveChangesAsync();
+            }
+
+            async Task<System.Collections.Generic.List<MetadataReviewItem>> Queue(string? filter) =>
+                (System.Collections.Generic.List<MetadataReviewItem>)((OkObjectResult)(await Controller().GetReviewQueue(filter)).Result!).Value!;
+
+            Assert.That((await Queue(null)).Select(i => (i.GameId, i.Title, i.Path, i.PlatformName, i.PlatformSlug, i.ReviewReason, i.CoverUrl, i.MatchConfidence)),
+                Is.EquivalentTo(new[]
+                {
+                    (1, "Advnce Wars", (string?)null, "Game Boy Advance", "gba", "Low confidence", "/cover.jpg", (double?)0.5),
+                    (2, "Chrono Trigger", "/snes/Chrono Trigger.sfc", "Super Nintendo (SNES)", "snes", "Unknown", (string?)null, (double?)null)
+                }));
+            Assert.That((await Queue("SNES")).Select(i => i.GameId), Is.EqualTo(new[] { 2 }));
+            Assert.That((await Queue("Game Boy Advance")).Select(i => i.GameId), Is.EqualTo(new[] { 1 }));
+        }
+
         // The user monitors the entry and an import points it at its file after the review read it, right before the
         // review writes it: both stay
         [TestCase("confirm")]

@@ -70,6 +70,8 @@ namespace RetroArr.Core.Games
         public string SourcePath { get; set; } = string.Empty;
         public string TargetPath { get; set; } = string.Empty;
         public int? GameId { get; set; }
+        // 0 in plans stored before it was kept
+        public int PlatformId { get; set; }
         public string IssueType { get; set; } = string.Empty;
         public ConflictResolution? Conflict { get; set; }
         public OperationStatus Status { get; set; } = OperationStatus.Pending;

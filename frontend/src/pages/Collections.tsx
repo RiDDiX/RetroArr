@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { collectionsApi, Collection, getErrorMessage } from '../api/client';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
@@ -14,7 +13,6 @@ import { Modal } from '../components/ui';
 import './Collections.css';
 
 const Collections: React.FC = () => {
-  const navigate = useNavigate();
   const [collections, setCollections] = useState<Collection[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -28,9 +26,17 @@ const Collections: React.FC = () => {
 
   useEffect(() => {
     loadCollections();
-    const handleLibraryUpdate = () => { loadCollections(); };
+    // Debounced like Library: a scan fires this per batch
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const handleLibraryUpdate = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(loadCollections, 2000);
+    };
     window.addEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
-    return () => window.removeEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
+    return () => {
+      window.removeEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
+      if (debounceTimer) clearTimeout(debounceTimer);
+    };
   }, []);
 
   const loadCollections = async () => {
@@ -138,7 +144,8 @@ const Collections: React.FC = () => {
             key={collection.id} 
             className="collection-card"
             style={{ '--collection-color': collection.color } as React.CSSProperties}
-            onClick={() => navigate(`/collections/${collection.id}`)}
+            // There is no collection page: the card opens its edit dialog
+            onClick={() => openEditModal(collection)}
           >
             <div className="collection-cover">
               {collection.coverUrl ? (

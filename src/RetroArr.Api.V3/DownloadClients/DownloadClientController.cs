@@ -144,8 +144,6 @@ namespace RetroArr.Api.V3.DownloadClients
         public async Task<ActionResult<List<DownloadStatus>>> GetQueue()
         {
             var allDownloads = new List<DownloadStatus>();
-            // Pre-load games for GameId→Title resolution
-            List<RetroArr.Core.Games.Game>? allGames = null;
 
             foreach (var config in _clients.Where(c => c.Enable))
             {
@@ -199,23 +197,6 @@ namespace RetroArr.Api.V3.DownloadClients
                                 if (tracked.GameId.HasValue && !d.GameId.HasValue)
                                     d.GameId = tracked.GameId;
                             }
-
-                            // Resolve game title from DB if GameId is set
-                            if (d.GameId.HasValue)
-                            {
-                                allGames ??= await _gameRepository.GetAllAsync();
-                                var game = allGames.FirstOrDefault(g => g.Id == d.GameId.Value);
-                                if (game != null)
-                                {
-                                    d.GameTitle = game.Title;
-                                    // Also set platform from game if not already detected
-                                    if (string.IsNullOrEmpty(d.PlatformFolder) && game.PlatformId > 0)
-                                    {
-                                        var platform = RetroArr.Core.Games.PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.Id == game.PlatformId);
-                                        if (platform != null) d.PlatformFolder = platform.FolderName;
-                                    }
-                                }
-                            }
                         }
 
                         // Filter by configured category so only RetroArr-managed downloads are shown
@@ -233,6 +214,21 @@ namespace RetroArr.Api.V3.DownloadClients
                 catch (Exception ex)
                 {
                     _logger.Error($"Error fetching downloads for client {config.Name}: {ex.Message}");
+                }
+            }
+
+            // Resolve game titles from DB, in one query: a client lists every seeding torrent, NZBGet its whole history
+            var games = (await _gameRepository.GetListItemsAsync(allDownloads.Where(d => d.GameId.HasValue).Select(d => d.GameId!.Value).ToHashSet()))
+                .ToDictionary(g => g.Id);
+            foreach (var d in allDownloads)
+            {
+                if (!d.GameId.HasValue || !games.TryGetValue(d.GameId.Value, out var game)) continue;
+                d.GameTitle = game.Title;
+                // Also set platform from game if not already detected
+                if (string.IsNullOrEmpty(d.PlatformFolder) && game.PlatformId > 0)
+                {
+                    var platform = RetroArr.Core.Games.PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.Id == game.PlatformId);
+                    if (platform != null) d.PlatformFolder = platform.FolderName;
                 }
             }
 
@@ -952,7 +948,8 @@ namespace RetroArr.Api.V3.DownloadClients
                      (t.State == TrackedDownloadState.ImportPending || t.State == TrackedDownloadState.ImportBlocked)))
                 .ToList();
 
-            List<RetroArr.Core.Games.Game>? allGames = null;
+            var games = (await _gameRepository.GetListItemsAsync(tracked.Where(t => t.GameId.HasValue).Select(t => t.GameId!.Value).ToHashSet()))
+                .ToDictionary(g => g.Id);
             var unmapped = new List<object>();
             foreach (var t in tracked)
             {
@@ -960,9 +957,7 @@ namespace RetroArr.Api.V3.DownloadClients
                 string? gamePlatform = null;
                 if (t.GameId.HasValue)
                 {
-                    allGames ??= await _gameRepository.GetAllAsync();
-                    var game = allGames.FirstOrDefault(g => g.Id == t.GameId.Value);
-                    if (game != null)
+                    if (games.TryGetValue(t.GameId.Value, out var game))
                     {
                         gameTitle = game.Title;
                         var plat = RetroArr.Core.Games.PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.Id == game.PlatformId);

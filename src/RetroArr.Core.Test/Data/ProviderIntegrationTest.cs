@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
@@ -51,10 +52,12 @@ namespace RetroArr.Core.Test.Data
             int gameId;
             using (var ctx = new RetroArrDbContext(options))
             {
-                var game = new Game { Title = "Contra", PlatformId = 40, Region = "", Added = local, ReleaseDate = unspecified, Genres = { "Shooter" }, Overview = " " };
+                var game = new Game { Title = "Contra", PlatformId = 40, Region = "", Added = local, ReleaseDate = unspecified, Genres = { "Shooter" }, Overview = " ",
+                    NeedsMetadataReview = true, MetadataConfirmedByUser = true };
                 ctx.Games.Add(game);
                 // byte-wise like SQLite, not a case-insensitive collision
-                ctx.Games.Add(new Game { Title = "CONTRA", PlatformId = 40, Region = "", Added = local, Overview = "Run and gun" });
+                ctx.Games.Add(new Game { Title = "CONTRA", PlatformId = 40, Region = "", Added = local, Overview = "Run and gun",
+                    NeedsMetadataReview = true, Images = { CoverUrl = "/cover.jpg" } });
                 ctx.Tags.Add(new Tag { Name = "Favs", GameTags = { new GameTag { Game = game } } });
                 ctx.Collections.Add(new Collection { Name = "Run and gun", Color = "var(--ctp-sapphire)", CollectionGames = { new CollectionGame { Game = game } } });
                 await ctx.SaveChangesAsync();
@@ -76,6 +79,8 @@ namespace RetroArr.Core.Test.Data
             }
 
             var repository = new SqliteGameRepository(new PooledDbContextFactory<RetroArrDbContext>(options));
+            // The review queue reads the cover from the owned Images columns
+            Assert.That((await repository.GetReviewRowsAsync()).Select(r => (r.Title, r.CoverUrl)), Is.EqualTo(new[] { ("CONTRA", "/cover.jpg") }));
             var rows = await repository.GetProblemRowsAsync();
             // MariaDB pads on compare (" " = ''), so a blank description must still count as one
             Assert.That(rows.Where(r => !r.NoMetadata).Select(r => r.Title), Is.EquivalentTo(new[] { "Contra", "CONTRA" }));
@@ -86,6 +91,11 @@ namespace RetroArr.Core.Test.Data
 
             await repository.UpdateFieldsAsync(gameId, g => g.ProblemResolvedAt = DateTime.UtcNow);
             Assert.That((await repository.GetProblemRowsAsync()).Single(r => r.Id == gameId).ProblemResolvedAt, Is.Not.Null);
+            // A blank description is one for the metadata rescan's pick too; the download monitor reads only the missing games it asks for
+            await repository.UpdateFieldsAsync(gameId, g => { g.IgdbId = 1; g.MissingSince = DateTime.UtcNow; });
+            Assert.That((await repository.GetMetadataRowsAsync(40)).Select(r => (r.Title, r.Incomplete)),
+                Is.EqualTo(new[] { ("Contra", false), ("CONTRA", true), ("Contra Force", true) }));
+            Assert.That((await repository.GetMissingAsync(new[] { gameId, other.Id })).Select(g => g.Id), Is.EqualTo(new[] { gameId }));
             // The tag and collection rows go with the game
             Assert.That(await repository.DeleteManyAsync(new[] { gameId, other.Id, -1 }), Is.EquivalentTo(new[] { gameId, other.Id }));
             using (var ctx = new RetroArrDbContext(options))
@@ -93,6 +103,20 @@ namespace RetroArr.Core.Test.Data
                 Assert.That(ctx.Games.Select(g => g.Title), Is.EqualTo(new[] { "CONTRA" }));
                 Assert.That(ctx.GameTags.Count() + ctx.CollectionGames.Count(), Is.Zero);
             }
+
+            // Counted and cleared by the database
+            Assert.That(await repository.CountByPlatformAsync(), Is.EquivalentTo(new Dictionary<int, int> { [40] = 1 }));
+            await repository.DeleteAllAsync();
+            using (var ctx = new RetroArrDbContext(options))
+                Assert.That(ctx.Games.Count(), Is.Zero);
+
+            // Discarding a selection of the whole pool is one statement, as large as the pool
+            var discovered = new DiscoveredGameRepository(new PooledDbContextFactory<RetroArrDbContext>(options));
+            await discovered.AddAsync(new DiscoveredGame { Title = "Contra", Path = "/roms/Contra.nes" });
+            await discovered.AddAsync(new DiscoveredGame { Title = "Gradius", Path = "/roms/Gradius.nes" });
+            var pool = (await discovered.GetAllAsync()).Select(d => d.Id);
+            Assert.That(await discovered.DeleteManyAsync(pool.Concat(Enumerable.Range(1_000_000, 100_000))), Is.EqualTo(2));
+            Assert.That(await discovered.CountAsync(), Is.Zero);
         }
     }
 }

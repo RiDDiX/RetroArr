@@ -24,83 +24,86 @@ namespace RetroArr.Api.V3.Collections
         [HttpGet]
         public async Task<ActionResult<IEnumerable<object>>> GetAll()
         {
+            // Projected in SQL: including the member games loaded every column of each one
             var collections = await _context.Collections
-                .Include(c => c.CollectionGames)
-                    .ThenInclude(cg => cg.Game)
+                .AsNoTracking()
                 .OrderBy(c => c.SortOrder)
                 .ThenBy(c => c.Name)
+                .Select(c => new
+                {
+                    c.Id,
+                    c.Name,
+                    c.Description,
+                    c.Icon,
+                    c.Color,
+                    c.CoverUrl,
+                    c.SortOrder,
+                    c.IsSmartCollection,
+                    c.SmartRules,
+                    c.CreatedAt,
+                    c.UpdatedAt,
+                    GameCount = c.CollectionGames.Count,
+                    Games = c.CollectionGames
+                        .OrderBy(cg => cg.SortOrder)
+                        .Select(cg => new
+                        {
+                            cg.Game!.Id,
+                            cg.Game.Title,
+                            CoverUrl = cg.Game.Images.CoverUrl,
+                            cg.Game.Year,
+                            Platform = cg.Game.Platform!.Name,
+                            cg.AddedAt
+                        })
+                        .ToList()
+                })
                 .ToListAsync();
 
-            return Ok(collections.Select(c => new
-            {
-                c.Id,
-                c.Name,
-                c.Description,
-                c.Icon,
-                c.Color,
-                c.CoverUrl,
-                c.SortOrder,
-                c.IsSmartCollection,
-                c.SmartRules,
-                c.CreatedAt,
-                c.UpdatedAt,
-                GameCount = c.CollectionGames.Count,
-                Games = c.CollectionGames
-                    .OrderBy(cg => cg.SortOrder)
-                    .Select(cg => new
-                    {
-                        cg.Game!.Id,
-                        cg.Game.Title,
-                        CoverUrl = cg.Game.Images.CoverUrl,
-                        cg.Game.Year,
-                        Platform = cg.Game.Platform?.Name,
-                        cg.AddedAt
-                    })
-            }));
+            return Ok(collections);
         }
 
         [HttpGet("{id}")]
         public async Task<ActionResult<object>> GetById(int id)
         {
             var collection = await _context.Collections
-                .Include(c => c.CollectionGames)
-                    .ThenInclude(cg => cg.Game)
-                        .ThenInclude(g => g!.Platform)
-                .FirstOrDefaultAsync(c => c.Id == id);
+                .AsNoTracking()
+                .Where(c => c.Id == id)
+                .Select(c => new
+                {
+                    c.Id,
+                    c.Name,
+                    c.Description,
+                    c.Icon,
+                    c.Color,
+                    c.CoverUrl,
+                    c.SortOrder,
+                    c.IsSmartCollection,
+                    c.SmartRules,
+                    c.CreatedAt,
+                    c.UpdatedAt,
+                    GameCount = c.CollectionGames.Count,
+                    Games = c.CollectionGames
+                        .OrderBy(cg => cg.SortOrder)
+                        .Select(cg => new
+                        {
+                            cg.Game!.Id,
+                            cg.Game.Title,
+                            CoverUrl = cg.Game.Images.CoverUrl,
+                            BackgroundUrl = cg.Game.Images.BackgroundUrl,
+                            cg.Game.Year,
+                            cg.Game.Rating,
+                            Platform = cg.Game.Platform!.Name,
+                            cg.Game.Genres,
+                            cg.AddedAt,
+                            cg.SortOrder
+                        })
+                        .ToList()
+                })
+                .FirstOrDefaultAsync();
 
             if (collection == null)
                 return NotFound();
 
-            return Ok(new
-            {
-                collection.Id,
-                collection.Name,
-                collection.Description,
-                collection.Icon,
-                collection.Color,
-                collection.CoverUrl,
-                collection.SortOrder,
-                collection.IsSmartCollection,
-                collection.SmartRules,
-                collection.CreatedAt,
-                collection.UpdatedAt,
-                GameCount = collection.CollectionGames.Count,
-                Games = collection.CollectionGames
-                    .OrderBy(cg => cg.SortOrder)
-                    .Select(cg => new
-                    {
-                        cg.Game!.Id,
-                        cg.Game.Title,
-                        CoverUrl = cg.Game.Images.CoverUrl,
-                        BackgroundUrl = cg.Game.Images.BackgroundUrl,
-                        cg.Game.Year,
-                        cg.Game.Rating,
-                        Platform = cg.Game.Platform?.Name,
-                        cg.Game.Genres,
-                        cg.AddedAt,
-                        cg.SortOrder
-                    })
-            });
+            return Ok(collection);
         }
 
         [HttpPost]

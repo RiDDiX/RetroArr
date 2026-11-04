@@ -4,6 +4,8 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using RetroArr.Core.Data;
 using RetroArr.Core.Games;
 using RetroArr.Core.Linux;
 
@@ -14,17 +16,20 @@ namespace RetroArr.Api.V3.Linux
     public class LinuxExportController : ControllerBase
     {
         private readonly IGameRepository _gameRepository;
+        private readonly RetroArrDbContext _context;
         private readonly LutrisExportService _lutrisExport;
         private readonly SteamShortcutExportService _steamShortcutExport;
         private readonly DesktopEntryExportService _desktopEntryExport;
 
         public LinuxExportController(
             IGameRepository gameRepository,
+            RetroArrDbContext context,
             LutrisExportService lutrisExport,
             SteamShortcutExportService steamShortcutExport,
             DesktopEntryExportService desktopEntryExport)
         {
             _gameRepository = gameRepository;
+            _context = context;
             _lutrisExport = lutrisExport;
             _steamShortcutExport = steamShortcutExport;
             _desktopEntryExport = desktopEntryExport;
@@ -69,8 +74,10 @@ namespace RetroArr.Api.V3.Linux
         [HttpGet("steam-shortcuts")]
         public async Task<IActionResult> ExportAllSteamShortcuts()
         {
-            var games = await _gameRepository.GetAllAsync();
-            var withExe = games.Where(g => !string.IsNullOrEmpty(g.ExecutablePath)).ToList();
+            // Only the games with an executable, without their files: the whole library with files took seconds
+            var withExe = await _context.Games.AsNoTracking()
+                .Where(g => g.ExecutablePath != null && g.ExecutablePath.Length > 0)
+                .ToListAsync();
 
             var shortcuts = _steamShortcutExport.GenerateShortcuts(withExe);
             return Ok(new

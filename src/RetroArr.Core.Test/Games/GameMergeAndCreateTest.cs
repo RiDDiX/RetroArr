@@ -92,7 +92,7 @@ namespace RetroArr.Core.Test.Games
 
             // The IGDB id is another entry's on the platform
             Assert.ThrowsAsync<DuplicateGameException>(async () =>
-                await service.MergeIntoAsync(repo, (await repo.GetByIdAsync(2))!, 1, await repo.GetAllLightAsync(), t => t.IgdbId = 7));
+                await service.MergeIntoAsync(repo, (await repo.GetByIdAsync(2))!, 1, t => t.IgdbId = 7));
 
             using var check = new RetroArrDbContext(_db);
             var source = check.Games.AsNoTracking().Single(g => g.Id == 2);
@@ -127,7 +127,7 @@ namespace RetroArr.Core.Test.Games
             var repo = new CachedGameRepository(new SqliteGameRepository(new DbFactory(_db)), cache, new CacheSettings());
 
             var saved = await new DuplicateGameMergeService(new DbFactory(_db), _config)
-                .MergeIntoAsync(repo, (await repo.GetByIdAsync(2))!, 1, await repo.GetAllLightAsync());
+                .MergeIntoAsync(repo, (await repo.GetByIdAsync(2))!, 1);
 
             Assert.That(saved!.Path, Is.EqualTo(rom));
             Assert.That(cache.Removed, Is.SupersetOf(new[] { CacheKeys.GameDetail(1), CacheKeys.GameDetail(2), CacheKeys.GamesAll }));

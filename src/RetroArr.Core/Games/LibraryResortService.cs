@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -22,6 +23,11 @@ namespace RetroArr.Core.Games
         private List<Game> _lastScanLibrary = new();
         private OperationPlan? _activePlan;
         private ResortProgress _progress = new();
+        // Here, not in the controller: each request gets a controller of its own, the cancel one too
+        private CancellationTokenSource? _applyCts;
+        private int _scans;
+        private bool _scanned;
+        private int _renames;
         private readonly string _planPersistDir;
 
         private static readonly HashSet<string> ContainerExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -43,6 +49,12 @@ namespace RetroArr.Core.Games
             get { lock (_lock) { return _lastScanResults.ToList(); } }
         }
 
+        // A reassigned game's issues are gone from the list the page restores, as from the page
+        public void Forget(int gameId)
+        {
+            lock (_lock) { _lastScanResults = _lastScanResults.Where(i => i.GameId != gameId).ToList(); }
+        }
+
         public OperationPlan? ActivePlan
         {
             get { lock (_lock) { return _activePlan; } }
@@ -51,6 +63,20 @@ namespace RetroArr.Core.Games
         public ResortProgress Progress
         {
             get { lock (_lock) { return _progress; } }
+        }
+
+        // A scan of the library goes: the Resort page opened meanwhile waits for it rather than start another
+        public bool Scanning => Volatile.Read(ref _scans) > 0;
+
+        // The last scan results are of the library, not only of games whose rename was previewed since the start
+        public bool Scanned
+        {
+            get { lock (_lock) { return _scanned; } }
+        }
+
+        public void Cancel()
+        {
+            lock (_lock) { _applyCts?.Cancel(); }
         }
 
         // ── BATCH PLATFORM FIX ────────────────────────────────────────────
@@ -63,6 +89,7 @@ namespace RetroArr.Core.Games
                 return new();
 
             var allGames = await _gameRepository.GetAllLightAsync();
+            var byTitle = allGames.ToLookup(g => g.Title, StringComparer.OrdinalIgnoreCase);
             var allPlatforms = PlatformDefinitions.AllPlatforms;
             var fixes = new List<(int GameId, string Title, int OldPlatformId, int NewPlatformId, string NewPlatformName)>();
 
@@ -79,9 +106,8 @@ namespace RetroArr.Core.Games
                 if (detectedPlatform.Id != game.PlatformId)
                 {
                     // Check that changing platform won't violate the UNIQUE(Title, PlatformId) constraint
-                    bool wouldCollide = allGames.Any(g =>
+                    bool wouldCollide = byTitle[game.Title].Any(g =>
                         g.Id != game.Id &&
-                        g.Title.Equals(game.Title, StringComparison.OrdinalIgnoreCase) &&
                         g.PlatformId == detectedPlatform.Id);
                     if (wouldCollide) continue;
 
@@ -113,6 +139,14 @@ namespace RetroArr.Core.Games
 
         public async Task<List<StructureIssue>> ScanAsync(ResortScanRequest? request = null)
         {
+            if (request?.GameId != null) return await Scan(request);
+            Interlocked.Increment(ref _scans);
+            try { return await Scan(request); }
+            finally { Interlocked.Decrement(ref _scans); }
+        }
+
+        private async Task<List<StructureIssue>> Scan(ResortScanRequest? request)
+        {
             var settings = _configService.LoadMediaSettings();
             var libraryRoot = ResolveLibraryRoot(settings);
             if (string.IsNullOrEmpty(libraryRoot) || !Directory.Exists(libraryRoot))
@@ -122,6 +156,7 @@ namespace RetroArr.Core.Games
 
             var allGames = await _gameRepository.GetAllLightAsync();
             var library = allGames;
+            var byTitle = library.ToLookup(g => g.Title, StringComparer.OrdinalIgnoreCase);
             var issues = new List<StructureIssue>();
 
             // Filter by request
@@ -141,7 +176,7 @@ namespace RetroArr.Core.Games
                 var platform = allPlatforms.FirstOrDefault(p => p.Id == game.PlatformId);
                 if (platform == null) continue;
 
-                var expectedPath = ComputeExpectedGamePath(settings, libraryRoot, platform, game, library);
+                var expectedPath = ComputeExpectedGamePath(settings, libraryRoot, platform, game, byTitle);
 
                 // D7: Missing game folder
                 if (!string.IsNullOrEmpty(game.Path) && !Directory.Exists(game.Path) && !File.Exists(game.Path))
@@ -346,9 +381,11 @@ namespace RetroArr.Core.Games
             // Orphans are platform-wide noise that has nothing to do with the active game.
             if (request?.GameId.HasValue != true)
             {
-                var gamePaths = new HashSet<string>(
-                    allGames.Where(g => !string.IsNullOrEmpty(g.Path)).Select(g => NormalizePath(g.Path!)),
-                    PathComparer);
+                // Of every platform: a game may lie in another platform's folder
+                var places = Places(library);
+                var mainsIn = places.Paths.Distinct(PathComparer).ToLookup(p => Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(p)), PathComparer);
+                // "snes" is Super Nintendo's folder and Super Famicom's RetroBat one: read once
+                var looked = new HashSet<string>(PathComparer);
 
                 foreach (var platformDef in allPlatforms)
                 {
@@ -356,7 +393,7 @@ namespace RetroArr.Core.Games
                     var platformDir = Path.Combine(libraryRoot, effectiveFolder);
                     if (!Directory.Exists(platformDir)) continue;
 
-                    CheckOrphansInDir(platformDir, platformDef, gamePaths, issues, request);
+                    CheckOrphansInDir(platformDir, platformDef, places, mainsIn, looked, issues, request);
 
                     foreach (var altName in GetAllFolderNames(platformDef))
                     {
@@ -364,7 +401,7 @@ namespace RetroArr.Core.Games
                         var altDir = Path.Combine(libraryRoot, altName);
                         if (Directory.Exists(altDir))
                         {
-                            CheckOrphansInDir(altDir, platformDef, gamePaths, issues, request);
+                            CheckOrphansInDir(altDir, platformDef, places, mainsIn, looked, issues, request);
                         }
                     }
                 }
@@ -372,7 +409,11 @@ namespace RetroArr.Core.Games
 
             lock (_lock)
             {
-                _lastScanResults = issues;
+                // A scan of one game (the rename on its page) keeps the issues the Resort page shows of the others
+                _lastScanResults = request?.GameId is int gameId
+                    ? _lastScanResults.Where(i => i.GameId != gameId).Concat(issues).ToList()
+                    : issues;
+                _scanned |= request?.GameId == null;
                 _lastScanLibrary = library;
             }
 
@@ -388,19 +429,24 @@ namespace RetroArr.Core.Games
             {
                 library = _lastScanLibrary;
             }
-            return GeneratePreview(issueIds, defaultResolution, library);
+            return GeneratePreview(Selected(issueIds), defaultResolution, library);
         }
 
-        private OperationPlan GeneratePreview(List<string> issueIds, ConflictResolution defaultResolution, List<Game> library)
+        private List<StructureIssue> Selected(List<string> issueIds)
         {
-            List<StructureIssue> selectedIssues;
+            var wanted = issueIds.ToHashSet();
             lock (_lock)
             {
-                selectedIssues = _lastScanResults.Where(i => issueIds.Contains(i.Id)).ToList();
+                return _lastScanResults.Where(i => wanted.Contains(i.Id)).ToList();
             }
+        }
 
+        private static OperationPlan GeneratePreview(List<StructureIssue> selectedIssues, ConflictResolution defaultResolution, List<Game> library)
+        {
             var plan = new OperationPlan();
             var ownersByFolder = new Dictionary<string, Dictionary<string, HashSet<int>>>(PathComparer);
+            (string[] Paths, Game[] Games)? places = null;
+            Dictionary<int, Game>? byId = null;
 
             foreach (var issue in selectedIssues)
             {
@@ -408,7 +454,19 @@ namespace RetroArr.Core.Games
                 var companionFiles = new List<string>();
                 string? refused = null;
 
-                if (effectiveType == OperationType.MoveFile && File.Exists(issue.CurrentPath))
+                // The page and a resume bring back issues of an earlier scan: one whose game has since moved, changed
+                // platform, or whose missing path is back is not applied as the scan saw it
+                byId ??= library.ToDictionary(g => g.Id);
+                if (issue.GameId is int gameId && (!byId.TryGetValue(gameId, out var game)
+                    // already done (an interrupted run stores its plan every 2 s): the idempotency check below takes it
+                    || !(MediaScannerService.SamePath(game.Path, issue.CurrentPath) || (MediaScannerService.SamePath(game.Path, issue.ExpectedPath)
+                        && !Directory.Exists(issue.CurrentPath) && !File.Exists(issue.CurrentPath)))
+                    || (issue.PlatformId != 0 && game.PlatformId != issue.PlatformId)
+                    || (issue.IssueType == IssueType.MissingGameFolder && (Directory.Exists(issue.CurrentPath) || File.Exists(issue.CurrentPath)))))
+                {
+                    refused = "The game changed since the scan. Scan again.";
+                }
+                else if (effectiveType == OperationType.MoveFile && File.Exists(issue.CurrentPath))
                 {
                     // A set with a file another entry takes along (the bin of a leftover entry's cue) stays as it is:
                     // moved without that file, the rest would miss it
@@ -432,8 +490,8 @@ namespace RetroArr.Core.Games
                 else if (effectiveType is OperationType.MoveGameFolder or OperationType.RenameGameFolder && Directory.Exists(issue.CurrentPath))
                 {
                     // A folder another entry lies in too ("snes/Collection") stays: moved, that entry would go missing
-                    var other = library.FirstOrDefault(g => g.Id != issue.GameId
-                        && new[] { g.Path, g.ExecutablePath }.Any(p => !string.IsNullOrEmpty(p) && IsPathWithinRoot(p, issue.CurrentPath)));
+                    places ??= Places(library);
+                    var other = EntryIn(places.Value, issue.CurrentPath, issue.GameId);
                     if (other != null)
                         refused = $"Refused: {other.Title} lies in this folder too.";
                 }
@@ -445,6 +503,7 @@ namespace RetroArr.Core.Games
                     SourcePath = issue.CurrentPath,
                     TargetPath = issue.ExpectedPath,
                     GameId = issue.GameId,
+                    PlatformId = issue.PlatformId,
                     IssueType = issue.IssueType.ToString(),
                     CompanionFiles = companionFiles
                 };
@@ -476,67 +535,120 @@ namespace RetroArr.Core.Games
 
         // ── APPLY ───────────────────────────────────────────────────────
 
-        public async Task<OperationPlan> ApplyAsync(
+        public Task<OperationPlan> ApplyAsync(
             List<string> issueIds,
             ConflictResolution defaultResolution,
             CancellationToken ct = default)
         {
-            var plan = GeneratePreview(issueIds, defaultResolution, await _gameRepository.GetAllLightAsync());
+            return RunAsync(Selected(issueIds), defaultResolution, ct);
+        }
+
+        // What an interrupted run left, from its plan: after a restart the scan it came from is gone. Each operation is
+        // previewed again against the library as it is now, as the run would have done.
+        public async Task<OperationPlan?> ResumeAsync()
+        {
+            List<StructureIssue> left;
+            lock (_lock)
+            {
+                if (_activePlan == null || _activePlan.IsComplete) return null;
+                if (_progress.IsRunning) throw new InvalidOperationException("A resort is already running.");
+                left = _activePlan.Operations.Where(o => o.Status == OperationStatus.Pending).Select(o => new StructureIssue
+                {
+                    Id = o.IssueId,
+                    GameId = o.GameId,
+                    PlatformId = o.PlatformId,
+                    IssueType = Enum.TryParse(o.IssueType, out IssueType type) ? type : default,
+                    CurrentPath = o.SourcePath,
+                    ExpectedPath = o.TargetPath,
+                    ProposedAction = o.Type == OperationType.MoveFileSet ? OperationType.MoveFile : o.Type
+                }).ToList();
+            }
+            return await RunAsync(left, ConflictResolution.Skip, default);
+        }
+
+        private async Task<OperationPlan> RunAsync(List<StructureIssue> issues, ConflictResolution defaultResolution, CancellationToken ct)
+        {
+            var plan = GeneratePreview(issues, defaultResolution, await _gameRepository.GetAllLightAsync());
+            OperationPlan? interrupted;
 
             lock (_lock)
             {
+                // A second run would move the same folders and write over this one's plan
+                if (_progress.IsRunning) throw new InvalidOperationException("A resort is already running.");
+                if (_renames > 0) throw new InvalidOperationException("Files of a game are being renamed. Try again in a moment.");
+                // What an interrupted run did and left goes to the history, not lost under this plan
+                interrupted = _activePlan is { IsComplete: false } ? _activePlan : null;
                 _activePlan = plan;
                 _progress = new ResortProgress
                 {
                     IsRunning = true,
                     Total = plan.TotalCount
                 };
+                _applyCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                ct = _applyCts.Token;
             }
 
-            PersistPlan(plan);
-
-            var bulkSettings = _configService.LoadMediaSettings();
-            var bulkLibraryRoot = ResolveLibraryRoot(bulkSettings);
-
-            foreach (var op in plan.Operations)
+            try
             {
-                if (ct.IsCancellationRequested)
-                {
-                    op.Status = OperationStatus.Skipped;
-                    op.ErrorMessage = "Cancelled by user.";
-                    continue;
-                }
-
-                lock (_lock)
-                {
-                    _progress.CurrentOperation = $"{op.Type}: {Path.GetFileName(op.SourcePath)}";
-                }
-
-                try
-                {
-                    await ExecuteOperation(op, bulkLibraryRoot);
-                }
-                catch (Exception ex)
-                {
-                    op.Status = OperationStatus.Failed;
-                    op.ErrorMessage = ex.Message;
-                    _logger.Error($"[Resort] Operation failed: {op.Type} {op.SourcePath} -> {ex.Message}");
-                }
-
-                op.CompletedAt = DateTime.UtcNow;
+                if (interrupted != null) ArchivePlan(interrupted);
                 PersistPlan(plan);
+                // The whole plan is written each time, so not after every one of many thousand operations
+                var persisted = Stopwatch.StartNew();
 
-                lock (_lock)
+                var bulkSettings = _configService.LoadMediaSettings();
+                var bulkLibraryRoot = ResolveLibraryRoot(bulkSettings);
+
+                foreach (var op in plan.Operations)
                 {
-                    _progress.Completed = plan.AppliedCount + plan.SkippedCount + plan.FailedCount;
-                    _progress.Failed = plan.FailedCount;
+                    if (ct.IsCancellationRequested)
+                    {
+                        op.Status = OperationStatus.Skipped;
+                        op.ErrorMessage = "Cancelled by user.";
+                        continue;
+                    }
+
+                    lock (_lock)
+                    {
+                        _progress.CurrentOperation = $"{op.Type}: {Path.GetFileName(op.SourcePath)}";
+                    }
+
+                    try
+                    {
+                        await ExecuteOperation(op, bulkLibraryRoot);
+                    }
+                    catch (Exception ex)
+                    {
+                        op.Status = OperationStatus.Failed;
+                        op.ErrorMessage = ex.Message;
+                        _logger.Error($"[Resort] Operation failed: {op.Type} {op.SourcePath} -> {ex.Message}");
+                    }
+
+                    op.CompletedAt = DateTime.UtcNow;
+                    if (persisted.ElapsedMilliseconds >= 2000)
+                    {
+                        PersistPlan(plan);
+                        persisted.Restart();
+                    }
+
+                    lock (_lock)
+                    {
+                        _progress.Completed++;
+                        if (op.Status == OperationStatus.Failed) _progress.Failed++;
+                    }
                 }
             }
-
-            lock (_lock)
+            finally
             {
-                _progress.IsRunning = false;
-                _progress.CurrentOperation = null;
+                lock (_lock)
+                {
+                    _progress.IsRunning = false;
+                    _progress.CurrentOperation = null;
+                    _applyCts?.Dispose();
+                    _applyCts = null;
+                    // The Resort page restores this list: what was applied is no longer open
+                    var applied = plan.Operations.Where(o => o.Status == OperationStatus.Applied).Select(o => o.IssueId).ToHashSet();
+                    _lastScanResults = _lastScanResults.Where(i => !applied.Contains(i.Id)).ToList();
+                }
             }
 
             ArchivePlan(plan);
@@ -546,13 +658,14 @@ namespace RetroArr.Core.Games
 
         // ── HISTORY ─────────────────────────────────────────────────────
 
-        public List<OperationPlan> GetHistory()
+        // The latest plans only: there is one for every run, each with up to an operation per game
+        public List<OperationPlan> GetHistory(int limit = 20)
         {
             var historyDir = Path.Combine(_planPersistDir, "history");
             if (!Directory.Exists(historyDir)) return new List<OperationPlan>();
 
             var plans = new List<OperationPlan>();
-            foreach (var file in Directory.GetFiles(historyDir, "*.json").OrderByDescending(f => f))
+            foreach (var file in Directory.GetFiles(historyDir, "*.json").OrderByDescending(f => f).Take(limit))
             {
                 try
                 {
@@ -678,6 +791,11 @@ namespace RetroArr.Core.Games
                     op.Status = OperationStatus.Applied;
                     break;
 
+                case OperationType.LinkOrphan:
+                    op.Status = OperationStatus.Skipped;
+                    op.ErrorMessage = "Only reported: a library scan imports what no game is linked to.";
+                    break;
+
                 default:
                     op.Status = OperationStatus.Skipped;
                     op.ErrorMessage = $"Unsupported operation type: {op.Type}";
@@ -694,10 +812,10 @@ namespace RetroArr.Core.Games
             {
                 foreach (var main in new[] { game.Path, game.ExecutablePath })
                 {
-                    if (string.IsNullOrEmpty(main) || !File.Exists(main)) continue;
+                    if (string.IsNullOrEmpty(main)) continue;
                     var listsFromAbove = Path.GetExtension(main).ToLowerInvariant() is ".m3u" or ".cue" or ".gdi"
                         && IsPathWithinRoot(folder, Path.GetDirectoryName(Path.GetFullPath(main))!);
-                    if (!IsPathWithinRoot(main, folder) && !listsFromAbove) continue;
+                    if ((!IsPathWithinRoot(main, folder) && !listsFromAbove) || !File.Exists(main)) continue;
                     foreach (var file in FileSetResolver.Resolve(Path.GetFullPath(main)).AllFiles)
                     {
                         var key = Path.GetFullPath(file);
@@ -707,6 +825,45 @@ namespace RetroArr.Core.Games
                 }
             }
             return owners;
+        }
+
+        // Every entry's main places as full paths, sorted, so the ones in a folder are one run
+        private static (string[] Paths, Game[] Games) Places(IEnumerable<Game> library)
+        {
+            var places = library.SelectMany(g => new[] { g.Path, g.ExecutablePath }.Select(p => (Path: FullPath(p), Game: g)))
+                .Where(p => p.Path != null).ToList();
+            var paths = places.Select(p => p.Path!).ToArray();
+            var games = places.Select(p => p.Game).ToArray();
+            Array.Sort(paths, games, PathComparer);
+            return (paths, games);
+        }
+
+        // An entry other than the given one whose path is the folder or lies below it
+        private static Game? EntryIn((string[] Paths, Game[] Games) places, string folder, int? except)
+        {
+            var root = FullPath(folder)?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (root == null) return null;
+            // The first path not sorted before the folder
+            int i = 0, end = places.Paths.Length;
+            while (i < end)
+            {
+                var mid = (i + end) / 2;
+                if (PathComparer.Compare(places.Paths[mid], root) < 0) i = mid + 1; else end = mid;
+            }
+            for (; i < places.Paths.Length && places.Paths[i].StartsWith(root, PathComparison); i++)
+            {
+                var path = places.Paths[i];
+                if ((path.Length == root.Length || path[root.Length] == Path.DirectorySeparatorChar) && places.Games[i].Id != except)
+                    return places.Games[i];
+            }
+            return null;
+        }
+
+        private static string? FullPath(string? path)
+        {
+            if (string.IsNullOrEmpty(path)) return null;
+            try { return Path.GetFullPath(path); }
+            catch { return null; }
         }
 
         // Companions keep their place beside the primary file (Disc1\ of a playlist); one outside its folder
@@ -826,13 +983,13 @@ namespace RetroArr.Core.Games
         // A second region of a title goes to "{Title} ({Region})" while another game of the title holds "{Title}",
         // as the import puts it
         private static string ComputeExpectedGamePath(
-            MediaSettings settings, string libraryRoot, Platform platform, Game game, IEnumerable<Game> library)
+            MediaSettings settings, string libraryRoot, Platform platform, Game game, ILookup<string, Game> byTitle)
         {
             var effectiveFolder = platform.GetEffectiveFolderName(settings.FolderNamingMode);
             var year = game.Year > 0 ? game.Year : (int?)null;
             var expected = settings.ResolveDestinationPath(libraryRoot, effectiveFolder, game.Title, year);
-            if (!string.IsNullOrWhiteSpace(game.Region) && library.Any(g => g.Id != game.Id && g.PlatformId == game.PlatformId
-                    && string.Equals(g.Title, game.Title, StringComparison.OrdinalIgnoreCase) && MediaScannerService.SamePath(g.Path, expected)))
+            if (!string.IsNullOrWhiteSpace(game.Region) && byTitle[game.Title].Any(g => g.Id != game.Id && g.PlatformId == game.PlatformId
+                    && MediaScannerService.SamePath(g.Path, expected)))
                 expected = settings.ResolveDestinationPath(libraryRoot, effectiveFolder, $"{game.Title} ({game.Region})", year);
             return expected;
         }
@@ -919,60 +1076,65 @@ namespace RetroArr.Core.Games
                 yield return platform.BatoceraFolderName;
         }
 
-        private void CheckOrphansInDir(
+        private static void CheckOrphansInDir(
             string platformDir,
             Platform platform,
-            HashSet<string> gamePaths,
+            (string[] Paths, Game[] Games) places,
+            ILookup<string?, string> mainsIn,
+            HashSet<string> looked,
             List<StructureIssue> issues,
             ResortScanRequest? request)
         {
             if (request?.PlatformId.HasValue == true && request.PlatformId.Value != platform.Id)
                 return;
+            var dir = FullPath(platformDir);
+            if (dir == null || !looked.Add(dir)) return;
 
             try
             {
-                foreach (var entry in Directory.GetDirectories(platformDir))
+                // What no game is or lies in, and that is no media, metadata or update folder (images/, gamelist.xml)
+                var loose = Directory.GetDirectories(platformDir).Select(e => (Path: e, IsFolder: true))
+                    .Concat(Directory.GetFiles(platformDir).Select(e => (Path: e, IsFolder: false)))
+                    .Where(e => !MediaScannerService.IsNoGame(e.Path, e.IsFolder, platform) && EntryIn(places, e.Path, null) == null)
+                    .ToList();
+                if (loose.Count == 0) return;
+
+                // Nor what a game lying here takes along: files named as it (the bin of its cue, its .sbi), the tracks of
+                // its cue and the discs of its playlist (Disc1/). Only descriptors are read, and only when it matters.
+                var mains = mainsIn[dir].ToList();
+                var stems = mains.Select(Path.GetFileNameWithoutExtension).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                loose.RemoveAll(e => !e.IsFolder && stems.Contains(Path.GetFileNameWithoutExtension(e.Path)));
+                if (loose.Count > 0)
                 {
-                    var normalized = NormalizePath(entry);
-                    if (!gamePaths.Contains(normalized))
+                    var taken = new HashSet<string>(PathComparer);
+                    foreach (var main in mains.Where(m => Path.GetExtension(m).ToLowerInvariant() is ".cue" or ".gdi" or ".m3u"))
                     {
-                        issues.Add(new StructureIssue
+                        foreach (var file in FileSetResolver.Resolve(main).CompanionFiles)
                         {
-                            GameId = null,
-                            GameTitle = Path.GetFileName(entry),
-                            PlatformId = platform.Id,
-                            PlatformName = platform.Name,
-                            IssueType = IssueType.OrphanedFile,
-                            RuleFailed = "",
-                            Description = $"Folder exists in '{platform.Name}' library but is not linked to any game.",
-                            CurrentPath = entry,
-                            ExpectedPath = string.Empty,
-                            CurrentFolder = Path.GetFileName(platformDir),
-                            ProposedAction = OperationType.LinkOrphan
-                        });
+                            var rest = IsPathWithinRoot(file, dir) ? Path.GetRelativePath(dir, file) : null;
+                            if (!string.IsNullOrEmpty(rest) && rest != ".")
+                                taken.Add(Path.Combine(dir, rest.Split(Path.DirectorySeparatorChar)[0]));
+                        }
                     }
+                    loose.RemoveAll(e => taken.Contains(FullPath(e.Path)!));
                 }
 
-                foreach (var file in Directory.GetFiles(platformDir))
+                foreach (var (entry, isFolder) in loose)
                 {
-                    var normalized = NormalizePath(file);
-                    if (!gamePaths.Contains(normalized))
+                    issues.Add(new StructureIssue
                     {
-                        issues.Add(new StructureIssue
-                        {
-                            GameId = null,
-                            GameTitle = Path.GetFileNameWithoutExtension(file),
-                            CurrentFolder = Path.GetFileName(platformDir),
-                            PlatformId = platform.Id,
-                            PlatformName = platform.Name,
-                            IssueType = IssueType.OrphanedFile,
-                            RuleFailed = "",
-                            Description = $"File exists in '{platform.Name}' library but is not linked to any game.",
-                            CurrentPath = file,
-                            ExpectedPath = string.Empty,
-                            ProposedAction = OperationType.LinkOrphan
-                        });
-                    }
+                        GameId = null,
+                        GameTitle = isFolder ? Path.GetFileName(entry) : Path.GetFileNameWithoutExtension(entry),
+                        PlatformId = platform.Id,
+                        PlatformName = platform.Name,
+                        IssueType = IssueType.OrphanedFile,
+                        RuleFailed = "",
+                        Description = $"{(isFolder ? "Folder" : "File")} exists in '{platform.Name}' library but is not linked to any game.",
+                        CurrentPath = entry,
+                        ExpectedPath = string.Empty,
+                        CurrentFolder = Path.GetFileName(platformDir),
+                        ProposedAction = OperationType.LinkOrphan
+                    });
                 }
             }
             catch (UnauthorizedAccessException) { }
@@ -1023,7 +1185,7 @@ namespace RetroArr.Core.Games
             {
                 var historyDir = Path.Combine(_planPersistDir, "history");
                 Directory.CreateDirectory(historyDir);
-                var archivePath = Path.Combine(historyDir, $"plan_{plan.CreatedAt:yyyyMMdd_HHmmss}.json");
+                var archivePath = Path.Combine(historyDir, $"plan_{plan.CreatedAt:yyyyMMdd_HHmmss}_{plan.Id}.json");
                 var json = JsonSerializer.Serialize(plan, new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(archivePath, json);
 
@@ -1167,6 +1329,18 @@ namespace RetroArr.Core.Games
         }
 
         public async Task<SupplementaryRenameResult> ApplySupplementaryRenameAsync(int gameId)
+        {
+            lock (_lock)
+            {
+                // The run may be moving the game's folder right now
+                if (_progress.IsRunning) throw new InvalidOperationException("A resort is already running.");
+                _renames++;
+            }
+            try { return await RenameSupplementary(gameId); }
+            finally { lock (_lock) { _renames--; } }
+        }
+
+        private async Task<SupplementaryRenameResult> RenameSupplementary(int gameId)
         {
             var ops = await PreviewSupplementaryRenameAsync(gameId);
             var result = new SupplementaryRenameResult();

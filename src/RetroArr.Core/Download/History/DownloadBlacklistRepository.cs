@@ -50,7 +50,7 @@ namespace RetroArr.Core.Download.History
         public async Task<List<DownloadBlacklistEntry>> GetAllAsync(string? query = null)
         {
             using var context = await _contextFactory.CreateDbContextAsync();
-            IQueryable<DownloadBlacklistEntry> q = context.DownloadBlacklist
+            IQueryable<DownloadBlacklistEntry> q = context.DownloadBlacklist.AsNoTracking()
                 .OrderByDescending(b => b.BlacklistedAt);
 
             if (!string.IsNullOrWhiteSpace(query))

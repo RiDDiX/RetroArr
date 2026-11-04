@@ -99,8 +99,8 @@ const mapAndImportBody = async (mapFileType, mapGameId = 7, mapFileTouched = tru
   const calls = [];
   const run = vm.runInNewContext(`${js}\nhandleMapAndImport`, {
     mapModal: { title: 'Patch Quest v1.0.3', downloadClientId: 1, downloadId: 'abc' }, mapPlatform: 'windows', mapGameId, mapFileType, mapFileTouched,
-    API_BASE: '/api/v3/downloadclient', encodeURIComponent,
-    fetch: async (url, init) => { calls.push({ url, body: init && init.body ? JSON.parse(init.body) : null }); return {}; },
+    apiClient: { post: async (url, body) => { calls.push({ url, body }); return {}; } }, importDownload: async () => {},
+    setFileError: () => {}, showFileError: e => { throw e; },
     setMapModal: () => {}, setMapPlatform: () => {}, setMapGameId: () => {}, setMapFileType: () => {}, setMapGameSearch: () => {},
     fetchUnmapped: () => {}, fetchCounts: () => {},
   });

@@ -20,14 +20,23 @@ const fmtBytes = (b: number) =>
   : b < 1024 ** 3 ? `${(b / 1024 / 1024).toFixed(1)} MB`
   : `${(b / 1024 ** 3).toFixed(2)} GB`;
 
+// Thousands of rows at once freeze the page for many seconds
+const PAGE_SIZE = 200;
+// A restore to another volume copies the whole game back and emptying deletes every file: as long as the payload takes
+const NO_TIMEOUT = { timeout: 0 };
+
 export default function Trash() {
   const [entries, setEntries] = useState<TrashEntry[]>([]);
-  const [busy, setBusy] = useState(false);
+  // Kept apart so a reload on a library event does not free the buttons while a restore or purge still runs
+  const [loading, setLoading] = useState(false);
+  const [acting, setActing] = useState(false);
+  const busy = loading || acting;
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [shown, setShown] = useState(PAGE_SIZE);
 
   const load = useCallback(async () => {
-    setBusy(true);
+    setLoading(true);
     setError(null);
     try {
       const resp = await apiClient.get<TrashEntry[]>('/trash');
@@ -35,58 +44,66 @@ export default function Trash() {
     } catch (e) {
       setError(getErrorMessage(e, 'Could not load trash.'));
     } finally {
-      setBusy(false);
+      setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     load();
-    const handleLibraryUpdate = () => { load(); };
+    // A scan fires this per batch; reload once it settles
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const handleLibraryUpdate = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(load, 2000);
+    };
     window.addEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
-    return () => window.removeEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
+    return () => {
+      window.removeEventListener('LIBRARY_UPDATED_EVENT', handleLibraryUpdate);
+      if (debounceTimer) clearTimeout(debounceTimer);
+    };
   }, [load]);
 
   const restore = async (id: string) => {
-    setBusy(true);
+    setActing(true);
     setError(null);
     setNotice(null);
     try {
-      await apiClient.post(`/trash/${id}/restore`);
+      await apiClient.post(`/trash/${id}/restore`, undefined, NO_TIMEOUT);
       setNotice(t('trashRestored') || 'Restored to the original path.');
       await load();
     } catch (e) {
       setError(getErrorMessage(e, 'Restore failed.'));
     } finally {
-      setBusy(false);
+      setActing(false);
     }
   };
 
   const purgeOne = async (id: string) => {
     if (!window.confirm(t('trashConfirmPurgeOne') || 'Delete this entry permanently? This cannot be undone.')) return;
-    setBusy(true);
+    setActing(true);
     setError(null);
     try {
-      await apiClient.delete(`/trash/${id}`);
+      await apiClient.delete(`/trash/${id}`, NO_TIMEOUT);
       await load();
     } catch (e) {
       setError(getErrorMessage(e, 'Delete failed.'));
     } finally {
-      setBusy(false);
+      setActing(false);
     }
   };
 
   const purgeAll = async () => {
     if (!window.confirm(t('trashConfirmPurgeAll') || 'Permanently delete EVERYTHING in the trash? This cannot be undone.')) return;
-    setBusy(true);
+    setActing(true);
     setError(null);
     try {
-      const resp = await apiClient.delete<{ purged: number }>('/trash');
+      const resp = await apiClient.delete<{ purged: number }>('/trash', NO_TIMEOUT);
       setNotice(`${resp.data?.purged ?? 0} ${t('trashPurged') || 'entries purged.'}`);
       await load();
     } catch (e) {
       setError(getErrorMessage(e, 'Empty-trash failed.'));
     } finally {
-      setBusy(false);
+      setActing(false);
     }
   };
 
@@ -132,7 +149,7 @@ export default function Trash() {
             </tr>
           </thead>
           <tbody>
-            {entries.map((e) => (
+            {entries.slice(0, shown).map((e) => (
               <tr key={e.id}>
                 <td>
                   <div className="trash-table__title">{e.gameTitle || '(no title)'}</div>
@@ -155,6 +172,11 @@ export default function Trash() {
             ))}
           </tbody>
         </table>
+      )}
+      {entries.length > shown && (
+        <button className="retro-btn retro-btn--secondary" style={{ display: 'block', margin: '1rem auto' }} onClick={() => setShown(n => n + PAGE_SIZE)}>
+          Show more ({entries.length - shown} left)
+        </button>
       )}
     </div>
   );

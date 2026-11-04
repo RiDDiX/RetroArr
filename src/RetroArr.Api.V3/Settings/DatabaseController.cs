@@ -20,17 +20,20 @@ namespace RetroArr.Api.V3.Settings
         private readonly IDbContextFactory<RetroArrDbContext> _contextFactory;
         private readonly DatabaseMigrationService _migrationService;
         private readonly DuplicateGameMergeService _mergeService;
+        private readonly ReviewItemService _reviewItems;
 
         public DatabaseController(
             ConfigurationService configService,
             IDbContextFactory<RetroArrDbContext> contextFactory,
             DatabaseMigrationService migrationService,
-            DuplicateGameMergeService mergeService)
+            DuplicateGameMergeService mergeService,
+            ReviewItemService reviewItems)
         {
             _configService = configService;
             _contextFactory = contextFactory;
             _migrationService = migrationService;
             _mergeService = mergeService;
+            _reviewItems = reviewItems;
         }
 
         [HttpGet]
@@ -160,7 +163,7 @@ namespace RetroArr.Api.V3.Settings
 
                 var knownPlatformIds = PlatformDefinitions.PlatformDictionary.Keys.ToHashSet();
                 var games = await context.Games
-                    .Select(g => new { g.Id, g.Title, g.PlatformId, g.Path, g.Region, g.NeedsMetadataReview, g.IgdbId })
+                    .Select(g => new { g.Id, g.Title, g.PlatformId, g.Path, g.Region, g.NeedsMetadataReview, g.IgdbId, g.MissingSince })
                     .ToListAsync();
 
                 foreach (var g in games)
@@ -171,7 +174,9 @@ namespace RetroArr.Api.V3.Settings
                         report.NullRegions++;
                     if (g.NeedsMetadataReview)
                         report.GamesNeedingReview++;
-                    if (!string.IsNullOrEmpty(g.Path) && !Directory.Exists(g.Path) && !System.IO.File.Exists(g.Path))
+                    // What the last library scan found, as on the Problems page: a stat of every path takes minutes
+                    // on spinning disks, and counts a whole unmounted share as missing
+                    if (!string.IsNullOrEmpty(g.Path) && g.MissingSince != null)
                         report.GamesWithMissingPath++;
 
                     if (!string.IsNullOrEmpty(g.Path))
@@ -212,7 +217,9 @@ namespace RetroArr.Api.V3.Settings
                     Title = g.Title,
                     PlatformId = g.PlatformId,
                     Path = g.Path,
-                    IgdbId = g.IgdbId
+                    IgdbId = g.IgdbId,
+                    // as the merge reads them: regional releases are not duplicates
+                    Region = g.Region
                 });
                 var clusters = DuplicateGameDetector.Detect(probes);
                 report.DuplicateClusterCount = clusters.Count;
@@ -251,7 +258,7 @@ namespace RetroArr.Api.V3.Settings
                 // A platform change below must not put a second row of a title and region, or of an IGDB id, on a
                 // platform (unique indexes; case ignored, as some databases do). Such a row stays where it is, and the
                 // duplicate merge takes it as a row of the platform it belongs to.
-                var placed = await context.Games.Select(g => new { g.Title, g.PlatformId, g.Region, g.IgdbId }).ToListAsync();
+                var placed = await context.Games.Select(g => new { g.Id, g.Title, g.PlatformId, g.Region, g.IgdbId, g.Path }).ToListAsync();
                 var titles = placed.Select(g => TitleKey(g.Title, g.PlatformId, g.Region)).ToHashSet();
                 var igdbIds = placed.Where(g => g.IgdbId != null).Select(g => (g.IgdbId!.Value, g.PlatformId)).ToHashSet();
                 var waiting = new Dictionary<int, int>();
@@ -282,19 +289,30 @@ namespace RetroArr.Api.V3.Settings
                         g.MetadataReviewReason = "Original platform could not be resolved. Please reassign.";
                 }
 
+                // 3. and 4. work on the columns read above: tracking every game of a big library took most of the
+                // repair. Only the rows that change are loaded as entities.
+                var pathRows = placed.Where(g => !string.IsNullOrEmpty(g.Path)).ToList();
+
                 // 3. Path-based platform heal (opt-in)
                 if (request.HealPlatformFromPath)
                 {
-                    var candidates = await context.Games
-                        .Where(g => g.Path != null && g.Path != "")
-                        .ToListAsync();
-
-                    foreach (var g in candidates)
+                    // an orphan as step 2 left it
+                    var orphanById = orphans.ToDictionary(g => g.Id);
+                    var healed = new Dictionary<int, int>();
+                    foreach (var row in pathRows)
                     {
-                        var suggested = PlatformDefinitions.ResolvePlatformFromPath(g.Path);
-                        if (suggested != null && suggested.Id != g.PlatformId && knownPlatformIds.Contains(suggested.Id) && Move(g, suggested.Id))
+                        var orphan = orphanById.GetValueOrDefault(row.Id);
+                        var suggested = PlatformDefinitions.ResolvePlatformFromPath(row.Path);
+                        if (suggested != null && suggested.Id != (orphan?.PlatformId ?? row.PlatformId) && knownPlatformIds.Contains(suggested.Id)
+                            && Move(orphan ?? new Game { Id = row.Id, Title = row.Title, Region = row.Region, IgdbId = row.IgdbId }, suggested.Id))
+                        {
                             result.PlatformsHealed++;
+                            healed[row.Id] = suggested.Id;
+                        }
                     }
+                    var healedIds = healed.Keys.ToList();
+                    foreach (var g in await context.Games.Where(g => healedIds.Contains(g.Id)).ToListAsync())
+                        g.PlatformId = healed[g.Id];
                 }
 
                 // 4. Container orphans: rows pointing into .psvita / .ps4 etc. Only below a library root: a folder above
@@ -302,24 +320,21 @@ namespace RetroArr.Api.V3.Settings
                 if (request.PruneContainerOrphans)
                 {
                     var roots = LibraryPaths.Roots(_configService.LoadMediaSettings());
-                    var pathRows = await context.Games
-                        .Where(g => g.Path != null && g.Path != "")
-                        .ToListAsync();
-                    var orphanRows = pathRows
+                    var orphanIds = pathRows
                         .Where(g => TitleCleanerService.IsContainerOrphanPath(LibraryPaths.BelowRoot(g.Path, roots)))
+                        .Select(g => g.Id)
                         .ToList();
-                    if (orphanRows.Count > 0)
+                    if (orphanIds.Count > 0)
                     {
+                        var orphanRows = await context.Games.Where(g => orphanIds.Contains(g.Id)).ToListAsync();
                         context.Games.RemoveRange(orphanRows);
                         result.ContainerOrphansRemoved = orphanRows.Count;
                     }
                 }
 
                 // 5. Dangling GameFiles: remove rows whose GameId no longer exists
-                var gameIds = await context.Games.Select(g => g.Id).ToListAsync();
-                var gameIdSet = gameIds.ToHashSet();
                 var dangling = await context.GameFiles
-                    .Where(f => !gameIdSet.Contains(f.GameId))
+                    .Where(f => !context.Games.Any(g => g.Id == f.GameId))
                     .ToListAsync();
                 context.GameFiles.RemoveRange(dangling);
                 result.DanglingGameFilesRemoved = dangling.Count;
@@ -337,7 +352,6 @@ namespace RetroArr.Api.V3.Settings
                     // what is left of untagged duplicates can take '' now
                     using var merged = await _contextFactory.CreateDbContextAsync();
                     result.RegionsCanonicalised += await CanonicaliseRegionsAsync(merged);
-                    await merged.SaveChangesAsync();
                 }
 
                 return Ok(result);
@@ -352,21 +366,23 @@ namespace RetroArr.Api.V3.Settings
             (title.ToUpperInvariant(), platformId, (region ?? string.Empty).ToUpperInvariant());
 
         // '' where two untagged rows of a title on a platform would collide (unique index; case ignored, as some
-        // databases do)
+        // databases do). Written at once, in one UPDATE: a scan leaves a third of a library untagged.
         private static async Task<int> CanonicaliseRegionsAsync(RetroArrDbContext context)
         {
             var untagged = await context.Games.Where(g => g.Region == null || g.Region == "")
-                .Select(g => new { g.Title, g.PlatformId })
+                .Select(g => new { g.Id, g.Title, g.PlatformId, g.Region })
                 .ToListAsync();
             var twice = untagged.GroupBy(g => (g.Title.ToUpperInvariant(), g.PlatformId))
                 .Where(x => x.Count() > 1)
                 .Select(x => x.Key)
                 .ToHashSet();
-            var rows = (await context.Games.Where(g => g.Region == null).ToListAsync())
-                .Where(g => !twice.Contains((g.Title.ToUpperInvariant(), g.PlatformId)))
+            var ids = untagged
+                .Where(g => g.Region == null && !twice.Contains((g.Title.ToUpperInvariant(), g.PlatformId)))
+                .Select(g => g.Id)
                 .ToList();
-            foreach (var g in rows) g.Region = string.Empty;
-            return rows.Count;
+            if (ids.Count == 0) return 0;
+            return await context.Games.Where(g => ids.Contains(g.Id))
+                .ExecuteUpdateAsync(s => s.SetProperty(g => g.Region, string.Empty));
         }
 
         [HttpPost("reset/challenge")]
@@ -413,21 +429,17 @@ namespace RetroArr.Api.V3.Settings
             try
             {
                 using var context = await _contextFactory.CreateDbContextAsync();
-                context.GameFiles.RemoveRange(context.GameFiles);
-                context.GameTags.RemoveRange(context.GameTags);
-                context.CollectionGames.RemoveRange(context.CollectionGames);
-                context.GameReviews.RemoveRange(context.GameReviews);
-                context.Collections.RemoveRange(context.Collections);
-                context.Games.RemoveRange(context.Games);
-                await context.SaveChangesAsync();
+                // One DELETE per table: RemoveRange loaded and deleted every row one by one
+                await WipeAsync(context,
+                    () => context.GameFiles.ExecuteDeleteAsync(),
+                    () => context.GameTags.ExecuteDeleteAsync(),
+                    () => context.CollectionGames.ExecuteDeleteAsync(),
+                    () => context.GameReviews.ExecuteDeleteAsync(),
+                    () => context.Collections.ExecuteDeleteAsync(),
+                    () => context.Games.ExecuteDeleteAsync());
 
-                // review_items.json lives outside the DB
-                var reviewItemsPath = Path.Combine(_configService.GetConfigDirectory(), "review_items.json");
-                if (System.IO.File.Exists(reviewItemsPath))
-                {
-                    try { System.IO.File.Delete(reviewItemsPath); }
-                    catch { /* best effort */ }
-                }
+                // review_items.json lives outside the DB, and its service holds the items in memory
+                _reviewItems.Clear();
 
                 return Ok(new { message = "Library wiped. Run a Media Scan to rebuild." });
             }
@@ -448,9 +460,9 @@ namespace RetroArr.Api.V3.Settings
             try
             {
                 using var context = await _contextFactory.CreateDbContextAsync();
-                context.DownloadHistory.RemoveRange(context.DownloadHistory);
-                context.DownloadBlacklist.RemoveRange(context.DownloadBlacklist);
-                await context.SaveChangesAsync();
+                await WipeAsync(context,
+                    () => context.DownloadHistory.ExecuteDeleteAsync(),
+                    () => context.DownloadBlacklist.ExecuteDeleteAsync());
                 return Ok(new { message = "Download history and blacklist cleared." });
             }
             catch (Exception ex)
@@ -458,6 +470,16 @@ namespace RetroArr.Api.V3.Settings
                 return BadRequest(new { error = ex.Message });
             }
         }
+
+        // All or nothing, as the one SaveChanges was. PostgreSQL and MariaDB retry on failure, which takes a
+        // transaction only inside the strategy.
+        private static Task WipeAsync(RetroArrDbContext context, params Func<Task<int>>[] deletes) =>
+            context.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+            {
+                await using var transaction = await context.Database.BeginTransactionAsync();
+                foreach (var delete in deletes) await delete();
+                await transaction.CommitAsync();
+            });
 
         private static bool TryConsumeChallenge(string? token, string expectedKind)
         {

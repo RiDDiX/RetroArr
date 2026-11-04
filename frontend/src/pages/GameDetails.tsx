@@ -903,7 +903,8 @@ const GameDetails: React.FC = () => {
     )) return;
     setConflictBusy(true);
     try {
-      await apiClient.post(`/game/${game.id}/merge-into/${conflict.otherGameId}`);
+      // The merge can re-check the whole library's content on disk first
+      await apiClient.post(`/game/${game.id}/merge-into/${conflict.otherGameId}`, undefined, { timeout: 600000 });
       setNotification({ message: t('conflictMerged') || 'Merged.', type: 'success' });
       setConflict(null);
       navigate(`/game/${conflict.otherGameId}`);
@@ -996,9 +997,10 @@ const GameDetails: React.FC = () => {
     if (!id) return;
     try {
       setNotification({ message: t('deletingGame') || 'Deleting...', type: 'info' });
-      // The server moves nothing when what would go differs from what the dialog showed
+      // The server moves nothing when what would go differs from what the dialog showed. A trash on
+      // another disk copies the whole game, so the request may take minutes
       await apiClient.delete(`/game/${id}?deleteFiles=${deleteLibraryFiles}&deleteDownloadFiles=${deleteDownloadFiles}`,
-        { data: { paths: plan.paths ?? [], downloads: plan.downloads } });
+        { data: { paths: plan.paths ?? [], downloads: plan.downloads }, timeout: 600000 });
       setNotification({ message: t('gameDeleted') || 'Game Deleted', type: 'success' });
       // Redirect to library after short delay
       setTimeout(() => {
@@ -2221,7 +2223,7 @@ const GameDetails: React.FC = () => {
                             setFileCounts(filesRes.data.counts || { main: 0, patches: 0, dlc: 0 });
                           } catch (err) {
                             console.error('Supplementary rename apply error:', err);
-                            setNotification({ message: 'Failed to apply rename', type: 'error' });
+                            setNotification({ message: getErrorMessage(err, 'Failed to apply rename'), type: 'error' });
                           } finally {
                             setSupRenameApplying(false);
                           }
@@ -2369,7 +2371,7 @@ const GameDetails: React.FC = () => {
                           setGameFilesTotalSize(filesRes.data.totalSize || '');
                         } catch (err) {
                           console.error('Rename apply error:', err);
-                          setNotification({ message: 'Failed to apply rename', type: 'error' });
+                          setNotification({ message: getErrorMessage(err, 'Failed to apply rename'), type: 'error' });
                         } finally {
                           setRenameApplying(false);
                         }

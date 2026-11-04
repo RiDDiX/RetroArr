@@ -50,7 +50,8 @@ const newCalls = () => ({ alerts: [], polls: [], cleared: 0, spinner: [], busy: 
         startScan: async () => { if (failure) throw failure; },
         getScanStatus: async () => ({ data: { isScanning: calls.busy } }),
       },
-      loadPagedGames: () => { calls.reloads++; }, loadPlatformCounts: () => {}, loadPlatforms: () => {},
+      scanPollRef: { current: null },
+      loadPagedGamesRef: { current: () => { calls.reloads++; } }, loadPlatformCountsRef: { current: () => {} }, loadPlatforms: () => {},
     }));
     await scan('snes');
     return calls;
@@ -109,6 +110,7 @@ const newCalls = () => ({ alerts: [], polls: [], cleared: 0, spinner: [], busy: 
       setInfo: v => { calls.info.push(v); },
       setError: v => { calls.errors.push(v); },
       loadList: async () => { calls.reloads++; },
+      follow: { current: undefined },
     }));
     await fn();
     return calls;
@@ -124,6 +126,29 @@ const newCalls = () => ({ alerts: [], polls: [], cleared: 0, spinner: [], busy: 
   const pageFailed = await discoverScan(refused);
   assert(pageFailed.errors.includes('The folder does not exist.') && pageFailed.spinner[pageFailed.spinner.length - 1] === false,
     'any other failure stays an error and stops the spinner');
+
+  // The list refresh during a scan waits longer the longer a load takes, and stops with the scan
+  const refreshEffect = discover.match(/useEffect\(\(\) => (\{\n    if \(!scanning\) return;[\s\S]*?\n  \}), \[scanning, loadList\]\);/);
+  assert(refreshEffect, 'Discover scan refresh not found');
+  const clock = { now: 0, load: 3000 };
+  const timers = [];
+  let loads = 0;
+  const effect = vm.runInNewContext(`${js(`const effect = () => ${refreshEffect[1]};`)}\neffect`, {
+    scanning: true, Date: { now: () => clock.now },
+    loadList: async () => { loads++; clock.now += clock.load; },
+    setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimeout: () => {},
+  });
+  const stopRefresh = effect();
+  assert(timers.length === 1 && timers[0].ms === 2000, 'the first refresh comes after 2 s');
+  await timers[0].fn();
+  assert(loads === 1 && timers.length === 2 && timers[1].ms === 30000, `a 3 s load must wait 30 s for the next one, got ${timers[1] && timers[1].ms}`);
+  clock.load = 50;
+  await timers[1].fn();
+  assert(timers[2].ms === 2000, 'a quick load keeps the 2 s refresh');
+  const inFlight = timers[2].fn();
+  stopRefresh();
+  await inFlight;
+  assert(timers.length === 3, 'a load still running when the scan ends must not start another one');
 
   console.log('scan-running: ok');
 })().catch(e => { console.error(e.message); process.exit(1); });
