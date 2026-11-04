@@ -1019,6 +1019,23 @@ namespace RetroArr.Core.Test.Games
             Assert.That(await resort.ScanAsync(), Is.Empty);
         }
 
+        // A folder that differs from the expected name in case alone is renamed to it, not given a " (2)" suffix
+        [Test]
+        public async Task Apply_FolderNamedInOtherCase_IsRenamedToTheTitlesCase()
+        {
+            var folder = Directory.CreateDirectory(Path.Combine(_lib, "snes", "super mario world")).FullName;
+            File.WriteAllText(Path.Combine(folder, "Super Mario World.sfc"), "rom");
+            var resort = await Resort(new Game { Id = 1, Title = "Super Mario World", PlatformId = 41, Path = folder, Status = GameStatus.Downloaded });
+
+            var issue = (await resort.ScanAsync()).Single();
+            var op = await ApplyAll(resort);
+
+            Assert.That(issue.IssueType, Is.EqualTo(IssueType.WrongGameFolderName));
+            Assert.That(op.Status, Is.EqualTo(OperationStatus.Applied), op.ErrorMessage);
+            Assert.That(Directory.GetDirectories(Path.Combine(_lib, "snes")).Select(Path.GetFileName), Is.EqualTo(new[] { "Super Mario World" }));
+            Assert.That(Row(1).Path, Is.EqualTo(Path.Combine(_lib, "snes", "Super Mario World")));
+        }
+
         // The import puts a second region of a title beside the first, in "{Title} ({Region})"
         [Test]
         public async Task Scan_SecondRegionBesideTheFirst_IsNoIssue()

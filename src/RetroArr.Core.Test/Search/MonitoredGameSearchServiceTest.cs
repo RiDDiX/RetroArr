@@ -687,5 +687,31 @@ namespace RetroArr.Core.Test.Search
             Assert.That(result.ProviderErrors[0], Does.Contain("refused").IgnoreCase);
             Assert.That(result.Scored.Select(s => s.Release.Title), Is.EqualTo(new[] { "Halo 3 (USA) P2P" }));
         }
+
+        // A source that is not the usual object (a bare array, a scalar) is empty, not an error; the source cache is keyed by URL
+        [TestCase("[]")]
+        [TestCase("\"not a source\"")]
+        public async Task HydraSource_WithoutADownloadsObject_ReturnsNothing(string body)
+        {
+            using var hydra = new FakeServer(body);
+            using var http = new System.Net.Http.HttpClient();
+            var indexer = new RetroArr.Core.Indexers.HydraIndexer(http, "hydra", $"http://127.0.0.1:{hydra.Port}/");
+
+            var results = await indexer.SearchAsync("Halo 3");
+
+            Assert.That(results, Is.Empty);
+        }
+
+        [Test]
+        public void DirectDownloadLink_IsRejected()
+        {
+            var release = new RetroArr.Core.Prowlarr.SearchResult { Title = "Halo 3 (USA)", Protocol = "http" };
+            var game = new Game { Id = 1, Title = "Halo 3", PlatformId = 31 };
+
+            var scored = new ReleaseScorer().Score(release, game, new MonitorSettings());
+
+            Assert.That(scored.Decision, Is.EqualTo(ReleaseDecision.Reject));
+            Assert.That(scored.Reason, Does.Contain("direct download"));
+        }
     }
 }

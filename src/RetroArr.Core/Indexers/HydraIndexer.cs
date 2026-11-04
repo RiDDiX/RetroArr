@@ -1,16 +1,20 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading.Tasks;
 using System.Text.Json;
 using System.Linq;
 using RetroArr.Core.Prowlarr; // Reuse SearchResult model
+using RetroArr.Core.Search;
 
 namespace RetroArr.Core.Indexers
 {
     public class HydraIndexer
     {
         private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(Logging.AppLoggerService.ReleaseSearch);
+        // A source is a static list: a sweep downloads it once, not once per game
+        private static readonly ConcurrentDictionary<string, (DateTime Fetched, JsonElement Root)> _sources = new();
         private readonly HttpClient _httpClient;
         private readonly string _name;
         private readonly string _url;
@@ -26,25 +30,28 @@ namespace RetroArr.Core.Indexers
         {
             try
             {
-               _logger.Info($"[Hydra] Fetching source: {_url}");
-               var json = await _httpClient.GetStringAsync(_url);
-               
+               if (!_sources.TryGetValue(_url, out var source) || DateTime.UtcNow - source.Fetched > TimeSpan.FromHours(1))
+               {
+                   _logger.Info($"[Hydra] Fetching source: {_url}");
+                   var json = await _httpClient.GetStringAsync(_url);
+                   using JsonDocument doc = JsonDocument.Parse(json);
+                   source = (DateTime.UtcNow, doc.RootElement.Clone());
+                   _sources[_url] = source;
+               }
+
                // Hydra format: "downloads": [ { "title": "...", "uris": ["magnet:..."], "fileSize": "..." } ]
                // Or simple list of objects.
                // Based on previous analysis of https://hydralinks.pages.dev/sources/fitgirl.json:
                // { "downloads": [ ... ] }
 
-               using (JsonDocument doc = JsonDocument.Parse(json))
+               var root = source.Root;
+               if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("downloads", out var downloads))
                {
-                   var root = doc.RootElement;
-                   if (root.TryGetProperty("downloads", out var downloads))
-                   {
-                       return ParseDownloads(downloads, query);
-                   }
-                   else if (root.ValueKind == JsonValueKind.Array)
-                   {
-                       return ParseDownloads(root, query);
-                   }
+                   return ParseDownloads(downloads, query);
+               }
+               else if (root.ValueKind == JsonValueKind.Array)
+               {
+                   return ParseDownloads(root, query);
                }
                
                return new List<SearchResult>();
@@ -59,7 +66,7 @@ namespace RetroArr.Core.Indexers
         private List<SearchResult> ParseDownloads(JsonElement items, string query)
         {
             var results = new List<SearchResult>();
-            var normalizedQuery = query.ToLowerInvariant();
+            var normalizedQuery = MonitoredGameSearchService.BuildQuery(query).ToLowerInvariant();
 
             foreach (var item in items.EnumerateArray())
             {
@@ -67,7 +74,7 @@ namespace RetroArr.Core.Indexers
                 if (string.IsNullOrWhiteSpace(title)) continue;
 
                 // Client-side filtering because JSON sources are static lists
-                if (!title.ToLowerInvariant().Contains(normalizedQuery)) continue;
+                if (!MonitoredGameSearchService.BuildQuery(title).ToLowerInvariant().Contains(normalizedQuery)) continue;
 
                 var uris = item.TryGetProperty("uris", out var u) ? u : default;
                 var uploadDate = item.TryGetProperty("uploadDate", out var d) ? d.GetString() : null;
@@ -94,7 +101,7 @@ namespace RetroArr.Core.Indexers
                 results.Add(new SearchResult
                 {
                     Title = title,
-                    Guid = magnet ?? downloadUrl ?? Guid.NewGuid().ToString(),
+                    Guid = !string.IsNullOrEmpty(magnet) ? magnet : !string.IsNullOrEmpty(downloadUrl) ? downloadUrl : Guid.NewGuid().ToString(),
                     Size = sizeBytes,
                     IndexerName = _name,
                     Protocol = !string.IsNullOrEmpty(magnet) ? "torrent" : "http",

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using RetroArr.Core.Configuration;
+using RetroArr.Core.IO;
 
 namespace RetroArr.Core.Games
 {
@@ -135,7 +136,7 @@ namespace RetroArr.Core.Games
         }
 
         private static Task WriteSidecarAsync(string entryDir, TrashEntry entry) =>
-            File.WriteAllTextAsync(Path.Combine(entryDir, "meta.json"), JsonSerializer.Serialize(entry, new JsonSerializerOptions { WriteIndented = true }));
+            AtomicFile.WriteAllTextAsync(Path.Combine(entryDir, "meta.json"), JsonSerializer.Serialize(entry, new JsonSerializerOptions { WriteIndented = true }));
 
         public List<TrashEntry> List()
         {

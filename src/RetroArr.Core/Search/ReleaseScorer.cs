@@ -75,6 +75,11 @@ namespace RetroArr.Core.Search
                     return Reject(scored, $"insufficient seeders ({release.EffectiveSeeders} < {settings.MinSeedersTorrent})");
                 }
             }
+            // A direct link (Hydra) has no seeders to check, and a torrent client cannot take it
+            else if (string.Equals(release.Protocol, "http", StringComparison.OrdinalIgnoreCase))
+            {
+                return Reject(scored, "direct download link, not sent to a download client");
+            }
 
             // Title similarity: anchor on game title plus alternative title.
             // ComputeSimilarity is forgiving enough to handle the raw release

@@ -34,6 +34,7 @@ namespace RetroArr.Core.Games
         public string Title { get; set; } = string.Empty;
         public string? Path { get; set; }
         public int PlatformId { get; set; }
+        public string? Region { get; set; }
         public DateTime? MissingSince { get; set; }
         public DateTime? ProblemResolvedAt { get; set; }
         // No IGDB id and no description

@@ -508,8 +508,8 @@ namespace RetroArr.Core.Games
                     op.ErrorMessage = refused;
                 }
 
-                // Conflict detection
-                if (!string.IsNullOrEmpty(op.TargetPath) && op.SourcePath != op.TargetPath)
+                // Conflict detection: a target that differs only in case is checked when it is applied
+                if (!string.IsNullOrEmpty(op.TargetPath) && !string.Equals(op.SourcePath, op.TargetPath, StringComparison.OrdinalIgnoreCase))
                 {
                     bool targetExists = Directory.Exists(op.TargetPath) || File.Exists(op.TargetPath);
                     if (targetExists)
@@ -736,8 +736,11 @@ namespace RetroArr.Core.Games
                 return;
             }
 
-            // Handle conflict: a target that is there is never replaced
-            if (targetExists)
+            // Handle conflict: a target that is there is never replaced. One that differs only in case is the
+            // source itself where the file system ignores case; MoveDirectory tells the two apart.
+            bool caseOnly = !string.Equals(op.SourcePath, op.TargetPath, StringComparison.Ordinal)
+                && string.Equals(op.SourcePath, op.TargetPath, StringComparison.OrdinalIgnoreCase);
+            if (targetExists && !caseOnly)
             {
                 if (op.Conflict != ConflictResolution.RenameSuffix)
                 {
@@ -911,6 +914,26 @@ namespace RetroArr.Core.Games
         {
             var targetParent = Path.GetDirectoryName(target);
             if (targetParent != null) Directory.CreateDirectory(targetParent);
+
+            // Only the case changes and the target is found: through a temporary name, and when the target is
+            // still there with the source gone it is another folder, so the source goes back
+            if (string.Equals(source, target, StringComparison.OrdinalIgnoreCase) && Directory.Exists(target))
+            {
+                var temp = target + ".tmp-case";
+                RenameDirectory(source, temp);
+                try
+                {
+                    if (Directory.Exists(target)) throw new IOException($"Target already exists: {target}");
+                    RenameDirectory(temp, target);
+                }
+                catch
+                {
+                    RenameDirectory(temp, source);
+                    throw;
+                }
+                _logger.Info($"[Resort] Renamed directory: {source} -> {target}");
+                return;
+            }
 
             // Same volume: instant rename
             try
@@ -1395,12 +1418,12 @@ namespace RetroArr.Core.Games
         // ── Platform comparison ─────────────────────────────────────────
 
         private static readonly StringComparison PathComparison =
-            Environment.OSVersion.Platform == PlatformID.Win32NT
+            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
                 ? StringComparison.OrdinalIgnoreCase
                 : StringComparison.Ordinal;
 
         private static readonly StringComparer PathComparer =
-            Environment.OSVersion.Platform == PlatformID.Win32NT
+            OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
                 ? StringComparer.OrdinalIgnoreCase
                 : StringComparer.Ordinal;
     }

@@ -665,6 +665,111 @@ namespace RetroArr.Core.Test.Download
             }
         }
 
+        // A file that cannot land leaves the game incomplete: the import fails, keeps the source and adds no game
+        [Test]
+        public async Task GenericImport_FileThatFailsToCopy_FailsTheImportAndAddsNoGame()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "retroarr_pdfail_" + Path.GetRandomFileName());
+            using var connection = new SqliteConnection("DataSource=:memory:");
+            connection.Open();
+            try
+            {
+                var library = SetUpLibrary(root, new MediaSettings { UseDestinationPattern = false });
+                var dbOptions = SqliteDb(connection);
+                var processor = new PostDownloadProcessor(new ConfigurationService(root), new FileMoverService(),
+                    new SqliteGameRepository(new DbFactory(dbOptions)), new FakeIgdb("Advance Wars", 0), new ArchiveService(), new TitleCleanerService());
+                var release = Directory.CreateDirectory(Path.Combine(root, "downloads", "Advance.Wars-GRP")).FullName;
+                File.WriteAllText(Path.Combine(release, "Advance Wars.gba"), "one");
+                File.WriteAllText(Path.Combine(release, "Golden Sun.gba"), "two");
+                // The mover never replaces anything, so a folder where the file belongs refuses it
+                Directory.CreateDirectory(Path.Combine(library, "Golden Sun.gba"));
+
+                var result = await processor.ProcessCompletedDownloadAsync(new DownloadStatus
+                {
+                    Id = "x", Name = "Advance Wars", PlatformFolder = "gba", DownloadPath = release, State = DownloadState.Completed
+                });
+
+                Assert.That(result.Success, Is.False);
+                using var check = new RetroArrDbContext(dbOptions);
+                Assert.That(check.Games.Count(), Is.EqualTo(0));
+                Assert.That(File.Exists(Path.Combine(release, "Golden Sun.gba")), Is.True, "the source must stay for a retry");
+            }
+            finally
+            {
+                Directory.Delete(root, true);
+            }
+        }
+
+        // Master System, Game Gear and PC Engine releases are single ROMs with their own extension
+        [TestCase("Wonder Boy (Europe).sms", "mastersystem")]
+        [TestCase("Wonder Boy (Europe).gg", "gamegear")]
+        [TestCase("Wonder Boy (Europe).pce", "pcengine")]
+        public async Task GenericImport_RomOfAnyExtension_IsImported(string file, string platform)
+        {
+            var root = Path.Combine(Path.GetTempPath(), "retroarr_pdext_" + Path.GetRandomFileName());
+            try
+            {
+                var library = SetUpLibrary(root, new MediaSettings { UseDestinationPattern = false });
+                var dbOptions = new DbContextOptionsBuilder<RetroArrDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+                var processor = new PostDownloadProcessor(new ConfigurationService(root), new FileMoverService(),
+                    new SqliteGameRepository(new DbFactory(dbOptions)), new FakeIgdb("Wonder Boy", 0), new ArchiveService(), new TitleCleanerService());
+                var release = Directory.CreateDirectory(Path.Combine(root, "downloads", "Wonder.Boy-GRP")).FullName;
+                File.WriteAllText(Path.Combine(release, file), "rom");
+
+                var result = await processor.ProcessCompletedDownloadAsync(new DownloadStatus
+                {
+                    Id = "x", Name = "Wonder Boy", PlatformFolder = platform, DownloadPath = release, State = DownloadState.Completed
+                });
+
+                Assert.That(result.Success, Is.True, result.Reason);
+                Assert.That(Directory.GetFiles(library, "*" + Path.GetExtension(file), SearchOption.AllDirectories), Has.Length.EqualTo(1));
+            }
+            finally
+            {
+                Directory.Delete(root, true);
+            }
+        }
+
+        // The grab stores the native folder name ("segacd"); with RetroBat's naming the game lives under "megacd"
+        [Test]
+        public async Task GameTargetedImport_NativeFolderNameOfTheGamesPlatform_UsesTheGamesFolderUnderRetroBatNaming()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "retroarr_pdretrobat_" + Path.GetRandomFileName());
+            try
+            {
+                Directory.CreateDirectory(Path.Combine(root, "config"));
+                var config = new ConfigurationService(root);
+                var library = Directory.CreateDirectory(Path.Combine(root, "library", "megacd", "Sonic CD")).FullName;
+                config.SaveMediaSettings(new MediaSettings { FolderPath = Path.Combine(root, "library"), FolderNamingMode = "retrobat" });
+                config.SavePostDownloadSettings(new PostDownloadSettings { EnableAutoMove = true });
+                var dbOptions = new DbContextOptionsBuilder<RetroArrDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+                using (var ctx = new RetroArrDbContext(dbOptions))
+                {
+                    ctx.Games.Add(new Game { Id = 1, Title = "Sonic CD", PlatformId = 63, Path = library });
+                    await ctx.SaveChangesAsync();
+                }
+                var processor = new PostDownloadProcessor(config, new FileMoverService(),
+                    new SqliteGameRepository(new DbFactory(dbOptions)), null!, new ArchiveService(), new TitleCleanerService());
+                var file = Path.Combine(Directory.CreateDirectory(Path.Combine(root, "downloads")).FullName, "Sonic CD.chd");
+                File.WriteAllText(file, "cd");
+
+                var result = await processor.ProcessCompletedDownloadAsync(new DownloadStatus
+                {
+                    Id = "x", Name = "Sonic CD", DownloadPath = file, GameId = 1, PlatformFolder = "segacd", State = DownloadState.Completed
+                });
+
+                Assert.That(result.Success, Is.True, result.Reason);
+                Assert.That(Directory.GetFiles(library).Select(Path.GetFileName), Is.EqualTo(new[] { "Sonic CD.chd" }));
+                Assert.That(Directory.Exists(Path.Combine(root, "library", "segacd")), Is.False);
+                using var check = new RetroArrDbContext(dbOptions);
+                Assert.That(check.Games.Count(), Is.EqualTo(1), "a second game was created");
+            }
+            finally
+            {
+                Directory.Delete(root, true);
+            }
+        }
+
         // Each game's path is its file, the one it runs from, and the content check finds it
         private static void AssertPathsAreFiles(DbContextOptions<RetroArrDbContext> dbOptions, string library, params string[] files)
         {

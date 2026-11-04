@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Web;
 using System.Diagnostics.CodeAnalysis;
@@ -24,7 +25,8 @@ namespace RetroArr.Core.Jackett
     public class JackettClient
     {
         private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(Logging.AppLoggerService.ReleaseSearch);
-        private readonly HttpClient _httpClient;
+        // One for all instances: a client per search leaves its sockets behind
+        private static readonly HttpClient _httpClient = new HttpClient();
         private readonly string _apiKey;
         private readonly string _baseUrl;
 
@@ -32,10 +34,9 @@ namespace RetroArr.Core.Jackett
         {
             _baseUrl = baseUrl.TrimEnd('/');
             _apiKey = apiKey;
-            _httpClient = new HttpClient();
         }
 
-        public async Task<List<JackettResult>> SearchAsync(string query, int[]? categories = null)
+        public async Task<List<JackettResult>> SearchAsync(string query, int[]? categories = null, CancellationToken ct = default)
         {
             // Jackett API: /api/v2.0/indexers/all/results?apikey=...&Query=...&Category=...
             var uriBuilder = new UriBuilder($"{_baseUrl}/api/v2.0/indexers/all/results");
@@ -54,10 +55,10 @@ namespace RetroArr.Core.Jackett
             
             try
             {
-                var response = await _httpClient.GetAsync(uriBuilder.Uri);
+                var response = await _httpClient.GetAsync(uriBuilder.Uri, ct);
                 response.EnsureSuccessStatusCode();
 
-                var content = await response.Content.ReadAsStringAsync();
+                var content = await response.Content.ReadAsStringAsync(ct);
                 var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
                 var root = JsonSerializer.Deserialize<JackettSearchResponse>(content, options);
 

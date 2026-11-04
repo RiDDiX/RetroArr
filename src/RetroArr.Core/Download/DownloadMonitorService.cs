@@ -63,13 +63,18 @@ namespace RetroArr.Core.Download
                     {
                         // Phase 1: Refresh tracked downloads from all clients
                         var seenDownloadIds = new HashSet<(int, string)>();
+                        var allRefreshed = true;
                         foreach (var clientConfig in enabledClients)
                         {
-                            await RefreshClientDownloadsAsync(clientConfig, seenDownloadIds);
+                            allRefreshed &= await RefreshClientDownloadsAsync(clientConfig, seenDownloadIds);
                         }
 
-                        // Phase 1.5: Reconcile - remove stale entries no longer in any client
-                        _trackedDownloadService.ReconcileWithClientIds(seenDownloadIds);
+                        // Phase 1.5: Reconcile - remove stale entries no longer in any client. A client that could not be
+                        // polled reports none, which would drop all of its entries.
+                        if (allRefreshed)
+                            _trackedDownloadService.ReconcileWithClientIds(seenDownloadIds);
+                        else
+                            _logger.LogInformation("[DownloadMonitor] Skipping reconcile, not every download client could be polled.");
 
                         // Phase 2: Process tracked downloads (Check + Import)
                         if (settings.EnableAutoMove)
@@ -94,10 +99,10 @@ namespace RetroArr.Core.Download
         /// <summary>
         /// Phase 1: Poll a download client and update tracked downloads.
         /// </summary>
-        internal async Task RefreshClientDownloadsAsync(DownloadClient config, HashSet<(int, string)> seenDownloadIds)
+        internal async Task<bool> RefreshClientDownloadsAsync(DownloadClient config, HashSet<(int, string)> seenDownloadIds)
         {
             IDownloadClient? client = CreateClient(config);
-            if (client == null) return;
+            if (client == null) return true;
 
             try
             {
@@ -121,10 +126,12 @@ namespace RetroArr.Core.Download
                     // Track the download (creates or updates) with the platform, game and subfolder its grab was sent with
                     _trackedDownloadService.TrackDownload(download, config.Id, config.Name, _platformTracker);
                 }
+                return true;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[DownloadMonitor] Error refreshing {Name} ({Implementation})", config.Name, config.Implementation);
+                return false;
             }
         }
 
@@ -161,7 +168,8 @@ namespace RetroArr.Core.Download
                     // Import: Process downloads that are ready
                     if (tracked.State == TrackedDownloadState.ImportPending)
                     {
-                        _importStatus.MarkImporting(tracked.DownloadClientId, tracked.DownloadId);
+                        // A manual import of it is running
+                        if (!_importStatus.MarkImporting(tracked.DownloadClientId, tracked.DownloadId)) continue;
                         try
                         {
                             await _completedDownloadService.ImportAsync(tracked);

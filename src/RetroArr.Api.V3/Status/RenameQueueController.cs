@@ -2,7 +2,6 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
-using RetroArr.Core.Download;
 using RetroArr.Core.Games;
 
 namespace RetroArr.Api.V3.Status
@@ -11,55 +10,11 @@ namespace RetroArr.Api.V3.Status
     [Route("api/v3/rename")]
     public class RenameQueueController : ControllerBase
     {
-        private readonly RenameQueueService _renameQueue;
         private readonly InstallerScannerService _installerScanner;
 
-        public RenameQueueController(RenameQueueService renameQueue, InstallerScannerService installerScanner)
+        public RenameQueueController(InstallerScannerService installerScanner)
         {
-            _renameQueue = renameQueue;
             _installerScanner = installerScanner;
-        }
-
-        [HttpGet("pending")]
-        public IActionResult GetPendingRenames()
-        {
-            var pending = _renameQueue.PendingRenames;
-            return Ok(new
-            {
-                count = pending.Count,
-                items = pending.Select(p => new
-                {
-                    p.Id,
-                    p.OriginalName,
-                    p.SuggestedName,
-                    p.ExpectedGameTitle,
-                    p.Platform,
-                    confidence = Math.Round(p.Confidence * 100, 1),
-                    p.DateAdded
-                })
-            });
-        }
-
-        [HttpPost("approve/{id}")]
-        public IActionResult ApproveRename(string id, [FromBody] ApproveRenameRequest? request)
-        {
-            var success = _renameQueue.ApproveRename(id, request?.CustomName);
-            if (success)
-            {
-                return Ok(new { success = true, message = "File renamed" });
-            }
-            return BadRequest(new { success = false, message = "Failed to rename file" });
-        }
-
-        [HttpPost("reject/{id}")]
-        public IActionResult RejectRename(string id)
-        {
-            var success = _renameQueue.RejectRename(id);
-            if (success)
-            {
-                return Ok(new { success = true, message = "Rename rejected, original name kept" });
-            }
-            return BadRequest(new { success = false, message = "Pending rename not found" });
         }
 
         [HttpGet("installers")]
@@ -114,10 +69,5 @@ namespace RetroArr.Api.V3.Status
             }
             return $"{len:0.##} {sizes[order]}";
         }
-    }
-
-    public class ApproveRenameRequest
-    {
-        public string? CustomName { get; set; }
     }
 }

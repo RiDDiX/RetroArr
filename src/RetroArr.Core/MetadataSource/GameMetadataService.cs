@@ -255,7 +255,7 @@ namespace RetroArr.Core.MetadataSource
             {
                 try
                 {
-                    var results = await _igdbClient.SearchGamesAsync(variant, igdbPlatformId, lang, serial);
+                    var results = await SearchRetryingAsync(variant, igdbPlatformId, lang, serial);
                     if (results.Count > 0)
                     {
                         _logger.Info($"[Metadata] Variant '{variant}' (platform={igdbPlatformId}) returned {results.Count} results.");
@@ -275,7 +275,7 @@ namespace RetroArr.Core.MetadataSource
                 {
                     try
                     {
-                        var results = await _igdbClient.SearchGamesAsync(variant, null, lang, serial);
+                        var results = await SearchRetryingAsync(variant, null, lang, serial);
                         if (results.Count > 0)
                         {
                             _logger.Info($"[Metadata] Variant '{variant}' (no platform filter) returned {results.Count} results.");
@@ -290,6 +290,22 @@ namespace RetroArr.Core.MetadataSource
             }
 
             return new List<IgdbGame>();
+        }
+
+        // A rate limited variant is tried again after 0.5, 1 and 2 s; the fourth 429 goes to the caller
+        private async Task<List<IgdbGame>> SearchRetryingAsync(string variant, int? platformId, string? lang, string? serial)
+        {
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    return await _igdbClient.SearchGamesAsync(variant, platformId, lang, serial);
+                }
+                catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests && attempt < 3)
+                {
+                    await Task.Delay(500 << attempt);
+                }
+            }
         }
 
         /// <summary>

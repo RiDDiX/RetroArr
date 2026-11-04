@@ -75,6 +75,8 @@ namespace RetroArr.Core.MetadataSource.Igdb
             // If lang provided, request localized names (not fully supported by IGDB API in search directly, post-filtering needed)
             // Note: IGDB doesn't have a simple "lang" parameter for search. We fetch data and filter logic in Service.
             
+            // A quote in a title ends the search string early and IGDB answers 400
+            query = query.Replace("\\", "\\\\").Replace("\"", "\\\"");
             string body;
             
             if (serial != null)

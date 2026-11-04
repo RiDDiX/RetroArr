@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -30,7 +31,12 @@ namespace RetroArr.Core.Prowlarr
     public class ProwlarrClient
     {
         private static readonly NLog.Logger _logger = NLog.LogManager.GetLogger(Logging.AppLoggerService.ReleaseSearch);
-        private readonly HttpClient _httpClient;
+        // One for all instances: a client per search leaves its sockets behind
+        private static readonly HttpClient _httpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(120) // Increased timeout for slow indexers
+        };
+        private readonly Uri _baseUrl;
         private readonly string _apiKey;
         private static readonly JsonSerializerOptions _jsonOptions = new()
         {
@@ -41,17 +47,13 @@ namespace RetroArr.Core.Prowlarr
 
         public ProwlarrClient(string baseUrl, string apiKey)
         {
-            _httpClient = new HttpClient 
-            { 
-                BaseAddress = new Uri(baseUrl),
-                Timeout = TimeSpan.FromSeconds(120) // Increased timeout for slow indexers
-            };
+            _baseUrl = new Uri(baseUrl);
             _apiKey = apiKey;
         }
 
         public async Task<List<ProwlarrIndexer>> GetIndexersAsync()
         {
-            var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/indexer");
+            var request = new HttpRequestMessage(HttpMethod.Get, new Uri(_baseUrl, "/api/v1/indexer"));
             request.Headers.Add("X-Api-Key", _apiKey);
 
             var response = await _httpClient.SendAsync(request);
@@ -61,7 +63,7 @@ namespace RetroArr.Core.Prowlarr
             return JsonSerializer.Deserialize<List<ProwlarrIndexer>>(content, _jsonOptions) ?? new List<ProwlarrIndexer>();
         }
 
-        public async Task<List<SearchResult>> SearchAsync(string query, int[]? indexerIds = null, int[]? categories = null)
+        public async Task<List<SearchResult>> SearchAsync(string query, int[]? indexerIds = null, int[]? categories = null, CancellationToken ct = default)
         {
             _logger.Info($"[Prowlarr] SearchAsync called with query='{query}', categories={string.Join(",", categories ?? Array.Empty<int>())}");
 
@@ -77,7 +79,7 @@ namespace RetroArr.Core.Prowlarr
             
             _logger.Info($"[Prowlarr] Search URL: {fullUrl}");
             
-            using var request = new HttpRequestMessage(HttpMethod.Get, fullUrl);
+            using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(_baseUrl, fullUrl));
             request.Headers.Add("X-Api-Key", _apiKey);
 
             _logger.Info($"[Prowlarr] Sending request to Prowlarr (timeout: 120s)...");
@@ -86,7 +88,7 @@ namespace RetroArr.Core.Prowlarr
             HttpResponseMessage response;
             try 
             {
-                response = await _httpClient.SendAsync(request);
+                response = await _httpClient.SendAsync(request, ct);
                 stopwatch.Stop();
                 _logger.Info($"[Prowlarr] Response Status: {response.StatusCode} (took {stopwatch.ElapsedMilliseconds}ms)");
             }
@@ -94,18 +96,18 @@ namespace RetroArr.Core.Prowlarr
             {
                 stopwatch.Stop();
                 _logger.Info($"[Prowlarr] Request timed out after {stopwatch.ElapsedMilliseconds}ms");
-                throw new TimeoutException($"Prowlarr search timed out after {stopwatch.ElapsedMilliseconds}ms. Check if Prowlarr is running and accessible at {_httpClient.BaseAddress}", ex);
+                throw new TimeoutException($"Prowlarr search timed out after {stopwatch.ElapsedMilliseconds}ms. Check if Prowlarr is running and accessible at {_baseUrl}", ex);
             }
             catch (HttpRequestException ex)
             {
                 stopwatch.Stop();
                 _logger.Error($"[Prowlarr] HTTP error after {stopwatch.ElapsedMilliseconds}ms: {ex.Message}");
-                throw new Exception($"Failed to connect to Prowlarr at {_httpClient.BaseAddress}: {ex.Message}", ex);
+                throw new Exception($"Failed to connect to Prowlarr at {_baseUrl}: {ex.Message}", ex);
             }
             
             response.EnsureSuccessStatusCode();
 
-            var content = await response.Content.ReadAsStringAsync();
+            var content = await response.Content.ReadAsStringAsync(ct);
             
             // Always log response preview for debugging
             var preview = content.Length > 500 ? content.Substring(0, 500) + "..." : content;
@@ -294,7 +296,7 @@ namespace RetroArr.Core.Prowlarr
         {
             try
             {
-                using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/health");
+                using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(_baseUrl, "/api/v1/health"));
                 request.Headers.Add("X-Api-Key", _apiKey);
 
                 var response = await _httpClient.SendAsync(request);
@@ -310,7 +312,7 @@ namespace RetroArr.Core.Prowlarr
         {
             try
             {
-                using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/indexer");
+                using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(_baseUrl, "/api/v1/indexer"));
                 request.Headers.Add("X-Api-Key", _apiKey);
 
                 var response = await _httpClient.SendAsync(request);

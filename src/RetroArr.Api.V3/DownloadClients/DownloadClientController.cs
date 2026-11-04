@@ -363,39 +363,41 @@ namespace RetroArr.Api.V3.DownloadClients
                 // mapping made for this download
                 var tracked = _trackedDownloadService.TrackDownload(download, clientId, config.Name ?? config.Implementation, _platformTracker);
 
-                // Force state to ImportPending for manual import
-                tracked.ClearWarnings();
-                tracked.State = TrackedDownloadState.ImportPending;
-
-                // Phase 1: Check (validates path, applies remote mapping, blacklist, unmapped)
-                await _completedDownloadService.CheckAsync(tracked, config);
-
-                // If Check blocked import, return the reason
-                if (tracked.State == TrackedDownloadState.ImportBlocked)
-                {
-                    var reason = tracked.StatusMessages.Count > 0 ? string.Join("; ", tracked.StatusMessages) : "Import blocked (unknown reason)";
-                    return BadRequest(new { message = reason });
-                }
-
-                // Phase 2: Import
-                _importStatus.MarkImporting(tracked.DownloadClientId, tracked.DownloadId);
+                // Claimed before the state changes, so the monitor doesn't import it at the same time
+                if (!_importStatus.MarkImporting(tracked.DownloadClientId, tracked.DownloadId))
+                    return Conflict(new { error = "Import already running." });
                 try
                 {
+                    // Force state to ImportPending for manual import
+                    tracked.ClearWarnings();
+                    tracked.State = TrackedDownloadState.ImportPending;
+
+                    // Phase 1: Check (validates path, applies remote mapping, blacklist, unmapped)
+                    await _completedDownloadService.CheckAsync(tracked, config);
+
+                    // If Check blocked import, return the reason
+                    if (tracked.State == TrackedDownloadState.ImportBlocked)
+                    {
+                        var reason = tracked.StatusMessages.Count > 0 ? string.Join("; ", tracked.StatusMessages) : "Import blocked (unknown reason)";
+                        return BadRequest(new { message = reason });
+                    }
+
+                    // Phase 2: Import
                     await _completedDownloadService.ImportAsync(tracked);
+
+                    if (tracked.State == TrackedDownloadState.Imported)
+                    {
+                        return Ok(new { message = $"Imported: {tracked.Title}" });
+                    }
+                    else
+                    {
+                        var reason = tracked.StatusMessages.Count > 0 ? string.Join("; ", tracked.StatusMessages) : "Import did not finish";
+                        return BadRequest(new { message = reason });
+                    }
                 }
                 finally
                 {
                     _importStatus.MarkFinished(tracked.DownloadClientId, tracked.DownloadId);
-                }
-
-                if (tracked.State == TrackedDownloadState.Imported)
-                {
-                    return Ok(new { message = $"Imported: {tracked.Title}" });
-                }
-                else
-                {
-                    var reason = tracked.StatusMessages.Count > 0 ? string.Join("; ", tracked.StatusMessages) : "Import did not finish";
-                    return BadRequest(new { message = reason });
                 }
             }
             catch (Exception ex)

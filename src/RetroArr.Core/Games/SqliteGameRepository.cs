@@ -43,6 +43,7 @@ namespace RetroArr.Core.Games
                     Title = g.Title,
                     Path = g.Path,
                     PlatformId = g.PlatformId,
+                    Region = g.Region,
                     MissingSince = g.MissingSince,
                     ProblemResolvedAt = g.ProblemResolvedAt,
                     NoMetadata = g.IgdbId == null && (g.Overview == null || g.Overview.Length == 0)

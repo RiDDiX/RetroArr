@@ -1471,6 +1471,8 @@ namespace RetroArr.Core.Games
             return x.Equals(y, StringComparison.OrdinalIgnoreCase);
         }
 
+        private static string RegionKey(string? r) => string.IsNullOrWhiteSpace(r) ? string.Empty : r.Trim().ToLowerInvariant();
+
         private bool IsBinaryExecutable(string filePath)
         {
             try
@@ -2373,7 +2375,9 @@ namespace RetroArr.Core.Games
                         var rival = existingGames.FirstOrDefault(g =>
                             g.Id != existingByPath.Id &&
                             g.Title.Equals(existingByPath.Title, StringComparison.OrdinalIgnoreCase) &&
-                            g.PlatformId == correctPlatform.Id);
+                            g.PlatformId == correctPlatform.Id &&
+                            // the region the backfill below gives the row when it has none
+                            SameRegion(g.Region, string.IsNullOrEmpty(existingByPath.Region) ? region : existingByPath.Region));
 
                         if (rival == null)
                         {
@@ -3963,10 +3967,10 @@ namespace RetroArr.Core.Games
             int healed = 0;
             int dupesDropped = prunedOrphans;
 
-            var live = new Dictionary<(string, int), HashSet<int>>();
+            var live = new Dictionary<(string, int, string), HashSet<int>>();
             foreach (var g in all)
             {
-                var key = (g.Title?.ToLowerInvariant() ?? string.Empty, g.PlatformId);
+                var key = (g.Title?.ToLowerInvariant() ?? string.Empty, g.PlatformId, RegionKey(g.Region));
                 if (!live.TryGetValue(key, out var set)) { set = new HashSet<int>(); live[key] = set; }
                 set.Add(g.Id);
             }
@@ -3988,7 +3992,8 @@ namespace RetroArr.Core.Games
                 if (!pathExists) continue;
 
                 var titleKey = g.Title?.ToLowerInvariant() ?? string.Empty;
-                var hasLiveCollision = live.TryGetValue((titleKey, pathPlatform.Id), out var set)
+                var regionKey = RegionKey(g.Region);
+                var hasLiveCollision = live.TryGetValue((titleKey, pathPlatform.Id, regionKey), out var set)
                     && set.Any(id => id != g.Id);
 
                 if (!hasLiveCollision)
@@ -3999,9 +4004,9 @@ namespace RetroArr.Core.Games
                         if (await _gameRepository.UpdateFieldsAsync(g.Id, x => x.PlatformId = pathPlatform.Id) != null)
                         {
                             healed++;
-                            if (live.TryGetValue((titleKey, g.PlatformId), out var oldSet)) oldSet.Remove(g.Id);
-                            if (!live.TryGetValue((titleKey, pathPlatform.Id), out var newSet))
-                            { newSet = new HashSet<int>(); live[(titleKey, pathPlatform.Id)] = newSet; }
+                            if (live.TryGetValue((titleKey, g.PlatformId, regionKey), out var oldSet)) oldSet.Remove(g.Id);
+                            if (!live.TryGetValue((titleKey, pathPlatform.Id, regionKey), out var newSet))
+                            { newSet = new HashSet<int>(); live[(titleKey, pathPlatform.Id, regionKey)] = newSet; }
                             newSet.Add(g.Id);
                         }
                     }
@@ -4015,7 +4020,7 @@ namespace RetroArr.Core.Games
                         await _gameRepository.DeleteAsync(g.Id);
                         dupesDropped++;
                         dropped.Add(g.Id);
-                        if (live.TryGetValue((titleKey, g.PlatformId), out var oldSet)) oldSet.Remove(g.Id);
+                        if (live.TryGetValue((titleKey, g.PlatformId, regionKey), out var oldSet)) oldSet.Remove(g.Id);
                     }
                     catch (Exception ex) { Log($"[Heal] Delete failed id={g.Id}: {ex.Message}", LogLevel.Warning); }
                 }

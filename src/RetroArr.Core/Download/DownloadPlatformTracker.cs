@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Web;
 using System.Diagnostics.CodeAnalysis;
+using RetroArr.Core.IO;
 
 namespace RetroArr.Core.Download
 {
@@ -183,7 +184,7 @@ namespace RetroArr.Core.Download
             try
             {
                 var json = JsonSerializer.Serialize(_entries, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(_trackingFile, json);
+                AtomicFile.WriteAllText(_trackingFile, json);
             }
             catch (Exception ex)
             {

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using RetroArr.Core.Configuration;
+using RetroArr.Core.IO;
 
 namespace RetroArr.Core.Games
 {
@@ -160,7 +161,7 @@ namespace RetroArr.Core.Games
             try
             {
                 var json = JsonSerializer.Serialize(_items, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(_storePath, json);
+                AtomicFile.WriteAllText(_storePath, json);
             }
             catch (Exception ex)
             {

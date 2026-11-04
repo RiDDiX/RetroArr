@@ -6,10 +6,7 @@ namespace RetroArr.Core.Download
     {
         private readonly ConcurrentDictionary<(int, string), bool> _importingDownloads = new ConcurrentDictionary<(int, string), bool>();
 
-        public void MarkImporting(int clientId, string id)
-        {
-            _importingDownloads.TryAdd((clientId, id), true);
-        }
+        public bool MarkImporting(int clientId, string id) => _importingDownloads.TryAdd((clientId, id), true);
 
         public void MarkFinished(int clientId, string id)
         {

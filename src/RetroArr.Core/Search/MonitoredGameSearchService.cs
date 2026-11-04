@@ -86,7 +86,7 @@ namespace RetroArr.Core.Search
             var result = new MonitorSearchResult { GameId = gameId, GameTitle = game.Title };
 
             // Build the query: game title plus platform tag helps narrow the hit-rate.
-            var query = BuildQuery(game);
+            var query = BuildQuery(game.Title);
             if (string.IsNullOrWhiteSpace(query))
             {
                 result.Error = "could not build search query";
@@ -272,10 +272,11 @@ namespace RetroArr.Core.Search
 
         // ---- Internals ----
 
-        private static string BuildQuery(Game game)
+        // Hydra matches its titles against the query with the same stripping
+        internal static string BuildQuery(string? title)
         {
             // Strip punctuation that breaks Newznab queries, like SearchController does.
-            var raw = game.Title ?? string.Empty;
+            var raw = title ?? string.Empty;
             var sanitized = System.Text.RegularExpressions.Regex.Replace(raw, @"[:\(\)\[\]\{\}""'™®©\p{Pd}]", " ");
             sanitized = System.Text.RegularExpressions.Regex.Replace(sanitized, @"\s{2,}", " ").Trim();
             return sanitized;
@@ -337,17 +338,19 @@ namespace RetroArr.Core.Search
             var hydraConfigs = _config.LoadHydraIndexers().Where(h => h.Enabled).ToList();
 
             var tasks = new List<(string Name, Task<List<SearchResult>> Task)>();
+            // Cancelled once the results are read, so a search still running at the deadline stops
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
             if (prowlarr.IsConfigured && prowlarr.Enabled)
             {
                 var client = new ProwlarrClient(prowlarr.Url, prowlarr.ApiKey);
-                tasks.Add(("Prowlarr", client.SearchAsync(query, indexerIds: null, categories: null)));
+                tasks.Add(("Prowlarr", client.SearchAsync(query, indexerIds: null, categories: null, ct: deadline.Token)));
             }
 
             if (jackett.IsConfigured && jackett.Enabled)
             {
                 var jClient = new JackettClient(jackett.Url, jackett.ApiKey);
-                tasks.Add(("Jackett", jClient.SearchAsync(query, categories: null).ContinueWith(t =>
+                tasks.Add(("Jackett", jClient.SearchAsync(query, categories: null, ct: deadline.Token).ContinueWith(t =>
                 {
                     if (t.IsFaulted) throw t.Exception!.InnerException ?? t.Exception;
                     if (t.Result == null) return new List<SearchResult>();
@@ -405,6 +408,7 @@ namespace RetroArr.Core.Search
                 }
             }
 
+            deadline.Cancel();
             return results;
         }
 

@@ -245,6 +245,9 @@ namespace RetroArr.Core.Download
             ".rom", ".img"
         };
 
+        // What a game-targeted import takes for a game file: any file with an extension that is not an extra
+        private static bool IsGameFile(string path) => !FileRenamer.IsExtra(path) && Path.HasExtension(path);
+
         // extracted: what extraction added to the download. A file imported where it lies is the library's now and is taken out.
         private async System.Threading.Tasks.Task<PostDownloadResult> AutoMoveToLibrary(DownloadStatus download, HashSet<string>? keep, HashSet<string>? extracted = null)
         {
@@ -319,7 +322,7 @@ namespace RetroArr.Core.Download
             if (isDirectory)
             {
                 var files = GetImportFiles(download.DownloadPath!, keep);
-                bool hasGameFile = files.Any(f => ValidExtensions.Contains(Path.GetExtension(f).ToLower()));
+                bool hasGameFile = files.Any(IsGameFile);
 
                 if (!hasGameFile)
                 {
@@ -328,7 +331,7 @@ namespace RetroArr.Core.Download
                     if (appBundles.Length == 0)
                     {
                         _logger.Info($"[PostDownload] No valid game files found in {download.DownloadPath}");
-                        return PostDownloadResult.Fail($"No valid game files found in '{download.DownloadPath}'. Supported formats: {string.Join(", ", ValidExtensions)}");
+                        return PostDownloadResult.Fail($"No valid game files found in '{download.DownloadPath}', only extras such as nfo, text or image files.");
                     }
                     _logger.Info($"[PostDownload] Found {appBundles.Length} .app bundle(s) in {download.DownloadPath}");
                 }
@@ -369,9 +372,17 @@ namespace RetroArr.Core.Download
                     }
                 }
 
+                KeepImported(extracted, landed);
+                // Anything that failed to import only exists in the download folder, and the game is not whole without it
+                if (failedCount > 0)
+                {
+                    _logger.Warn($"[PostDownload] {failedCount} file(s) failed to import, keeping source: {download.DownloadPath}");
+                    return PostDownloadResult.Fail($"{failedCount} file(s) failed to import into '{gameFolder}', the source stays for a retry.");
+                }
+
                 // The game runs the best game file that landed, picked as a game-targeted import picks it: not the first one
                 // listed with setup or install in its name
-                var candidates = landed.Where(p => ValidExtensions.Contains(Path.GetExtension(p).ToLowerInvariant())).ToList();
+                var candidates = landed.Where(IsGameFile).ToList();
                 if (candidates.Count > 0)
                 {
                     var primary = PickPrimary(candidates, gameFolder, platform);
@@ -379,15 +390,9 @@ namespace RetroArr.Core.Download
                         IsInstallerPick(primary, platform, candidates));
                 }
 
-                KeepImported(extracted, landed);
-                // Anything that failed to import only exists in the download folder
-                if (failedCount == 0 && !sourceInLibrary)
+                if (!sourceInLibrary)
                 {
                     DeleteSource(download.DownloadPath, keep);
-                }
-                else
-                {
-                    _logger.Warn($"[PostDownload] {failedCount} file(s) failed to import, keeping source: {download.DownloadPath}");
                 }
 
                 return PostDownloadResult.Ok(gameFolder);
@@ -395,7 +400,7 @@ namespace RetroArr.Core.Download
             else if (File.Exists(download.DownloadPath))
             {
                 var file = download.DownloadPath!;
-                if (ValidExtensions.Contains(Path.GetExtension(file).ToLower()))
+                if (IsGameFile(file))
                 {
                     // For single files, we put them directly in the container or maybe nest?
                     var destPath = Path.Combine(gameFolder, Path.GetFileName(file));
@@ -445,56 +450,55 @@ namespace RetroArr.Core.Download
                 ? null
                 : download.PlatformFolder;
 
+            // Grabs store the native folder name ("segacd"), the game's folder may be RetroBat's or Batocera's ("megacd"),
+            // so the platforms are compared, the game's own first: a folder name can belong to more than one
+            var downloadPlatformDef = gamePlatform != null && gamePlatform.MatchesFolderName(downloadPlatformFolder ?? "")
+                ? gamePlatform
+                : PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.MatchesFolderName(downloadPlatformFolder ?? ""));
+
             // If download platform differs from game platform, look for a matching game entry on that platform
-            if (!string.IsNullOrEmpty(downloadPlatformFolder) &&
-                !string.Equals(downloadPlatformFolder, gamePlatformFolder, StringComparison.OrdinalIgnoreCase))
+            if (downloadPlatformDef != null && downloadPlatformDef.Id != game.PlatformId)
             {
-                var downloadPlatformDef = PlatformDefinitions.AllPlatforms.FirstOrDefault(p =>
-                    p.MatchesFolderName(downloadPlatformFolder));
+                // Try to find an existing game entry with the same title on the download's platform
+                var match = (await _gameRepository.GetAllPagedAsync(1, int.MaxValue, downloadPlatformDef.Id)).Items
+                    .Where(g => g.PlatformId == downloadPlatformDef.Id && string.Equals(g.Title, game.Title, StringComparison.OrdinalIgnoreCase)).MinBy(g => g.Id);
+                var platformGame = match == null ? null : await _gameRepository.GetByIdAsync(match.Id);
 
-                if (downloadPlatformDef != null)
+                if (platformGame != null)
                 {
-                    // Try to find an existing game entry with the same title on the download's platform
-                    var match = (await _gameRepository.GetAllPagedAsync(1, int.MaxValue, downloadPlatformDef.Id)).Items
-                        .Where(g => g.PlatformId == downloadPlatformDef.Id && string.Equals(g.Title, game.Title, StringComparison.OrdinalIgnoreCase)).MinBy(g => g.Id);
-                    var platformGame = match == null ? null : await _gameRepository.GetByIdAsync(match.Id);
-
-                    if (platformGame != null)
+                    _logger.Info($"[PostDownload] Multi-platform: found existing '{game.Title}' entry for {downloadPlatformFolder} (ID: {platformGame.Id})");
+                    game = platformGame;
+                    gamePlatform = downloadPlatformDef;
+                    gamePlatformFolder = downloadPlatformDef.GetEffectiveFolderName(folderMode);
+                }
+                else
+                {
+                    // Create a new game entry for the download's platform
+                    var newGame = new Games.Game
                     {
-                        _logger.Info($"[PostDownload] Multi-platform: found existing '{game.Title}' entry for {downloadPlatformFolder} (ID: {platformGame.Id})");
-                        game = platformGame;
-                        gamePlatform = downloadPlatformDef;
-                        gamePlatformFolder = downloadPlatformFolder;
-                    }
-                    else
-                    {
-                        // Create a new game entry for the download's platform
-                        var newGame = new Games.Game
+                        Title = game.Title,
+                        AlternativeTitle = game.AlternativeTitle,
+                        PlatformId = downloadPlatformDef.Id,
+                        Year = game.Year,
+                        Overview = game.Overview,
+                        Images = new Games.GameImages
                         {
-                            Title = game.Title,
-                            AlternativeTitle = game.AlternativeTitle,
-                            PlatformId = downloadPlatformDef.Id,
-                            Year = game.Year,
-                            Overview = game.Overview,
-                            Images = new Games.GameImages
-                            {
-                                CoverUrl = game.Images?.CoverUrl,
-                                CoverLargeUrl = game.Images?.CoverLargeUrl,
-                                BackgroundUrl = game.Images?.BackgroundUrl,
-                                BannerUrl = game.Images?.BannerUrl,
-                            },
-                            Rating = game.Rating,
-                            IgdbId = game.IgdbId,
-                            Status = game.Status,
-                            IsExternal = false,
-                            Added = DateTime.UtcNow,
-                        };
-                        var saved = await _gameRepository.AddAsync(newGame);
-                        _logger.Info($"[PostDownload] Multi-platform: created new '{game.Title}' entry for {downloadPlatformFolder} (ID: {saved.Id})");
-                        game = saved;
-                        gamePlatform = downloadPlatformDef;
-                        gamePlatformFolder = downloadPlatformFolder;
-                    }
+                            CoverUrl = game.Images?.CoverUrl,
+                            CoverLargeUrl = game.Images?.CoverLargeUrl,
+                            BackgroundUrl = game.Images?.BackgroundUrl,
+                            BannerUrl = game.Images?.BannerUrl,
+                        },
+                        Rating = game.Rating,
+                        IgdbId = game.IgdbId,
+                        Status = game.Status,
+                        IsExternal = false,
+                        Added = DateTime.UtcNow,
+                    };
+                    var saved = await _gameRepository.AddAsync(newGame);
+                    _logger.Info($"[PostDownload] Multi-platform: created new '{game.Title}' entry for {downloadPlatformFolder} (ID: {saved.Id})");
+                    game = saved;
+                    gamePlatform = downloadPlatformDef;
+                    gamePlatformFolder = downloadPlatformDef.GetEffectiveFolderName(folderMode);
                 }
             }
 
@@ -505,7 +509,7 @@ namespace RetroArr.Core.Download
                 // An import of the same game may have finished while this one waited. Its writes drop the
                 // game's cached detail.
                 game = await _gameRepository.GetByIdAsync(game.Id) ?? game;
-                return await ImportIntoGameFolderAsync(download, mediaSettings, libraryRoot, keep, extracted, game, gamePlatform, downloadPlatformFolder ?? gamePlatformFolder ?? "windows");
+                return await ImportIntoGameFolderAsync(download, mediaSettings, libraryRoot, keep, extracted, game, gamePlatform, downloadPlatformDef?.GetEffectiveFolderName(folderMode) ?? downloadPlatformFolder ?? gamePlatformFolder ?? "windows");
             }
             finally
             {
@@ -1104,7 +1108,7 @@ namespace RetroArr.Core.Download
             if (renaming && !inGameFolder && !FileRenamer.IsRomsetPlatform(platform) && !FileRenamer.IsSoftwarePlatform(platform))
             {
                 // a README without an extension is no more a game file than readme.txt
-                var mains = files.Where(f => !FileRenamer.IsExtra(f) && Path.HasExtension(f)).ToList();
+                var mains = files.Where(IsGameFile).ToList();
                 if (mains.Count == 1 && SamePath(Path.GetDirectoryName(mains[0])!, dl))
                 {
                     var main = mains[0];

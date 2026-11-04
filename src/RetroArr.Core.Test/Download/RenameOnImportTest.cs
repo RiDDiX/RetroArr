@@ -1693,8 +1693,8 @@ namespace RetroArr.Core.Test.Download
             Assert.That(FileRenamer.Applies(ps1, Rename("")), Is.False);
         }
 
-        // Both extensions of a tarball count everywhere a name is built: an extra named like it follows its rename, one in a
-        // disc set keeps them, and so does the rename queue
+        // Both extensions of a tarball count everywhere a name is built: an extra named like it follows its rename, and one in a
+        // disc set keeps them
         [Test]
         public void Tarball_KeepsBothExtensions_InEveryName()
         {
@@ -1705,12 +1705,6 @@ namespace RetroArr.Core.Test.Download
                 ("bonus.tar.gz", Encoding.ASCII.GetBytes("tar")));
             var planned = FileRenamer.PlanDiscRelease(set, Directory.GetFiles(set), (name, disc) => "Wipeout");
             Assert.That(planned!.Select(p => p.Name), Is.EquivalentTo(new[] { "Wipeout.cue", "Wipeout.bin", "Wipeout.tar.gz" }));
-
-            var file = Path.Combine(Downloads, "Hades (USA).tar.gz");
-            File.WriteAllText(file, "tar");
-            var renamed = new RenameQueueService(new ConfigurationService(_root)).ProcessFile(file, "Hades", null);
-            Assert.That(renamed.NewName, Is.EqualTo("Hades.tar.gz"));
-            Assert.That(File.Exists(Path.Combine(Downloads, "Hades.tar.gz")), Is.True);
         }
 
         [Test]

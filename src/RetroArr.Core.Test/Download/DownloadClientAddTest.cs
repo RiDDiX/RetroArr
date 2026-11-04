@@ -221,6 +221,32 @@ namespace RetroArr.Core.Test.Download
             Assert.That(mine.GameId, Is.Null);
         }
 
+        // A client that cannot be polled reports no downloads: that is no sign they are gone, so the monitor keeps them
+        [Test]
+        public async Task Monitor_ClientThatCannotBePolled_KeepsItsTrackedDownloads()
+        {
+            var probe = new TcpListener(IPAddress.Loopback, 0);
+            probe.Start();
+            var deadPort = ((IPEndPoint)probe.LocalEndpoint).Port;
+            probe.Stop();
+            var config = new ConfigurationService(_root);
+            config.SaveDownloadClients(new List<DownloadClient> { new() { Id = 1, Name = "tr", Implementation = "Transmission", Host = "127.0.0.1", Port = deadPort, Enable = true } });
+            config.SavePostDownloadSettings(new PostDownloadSettings { EnableAutoMove = false, MonitorIntervalSeconds = 60 });
+            var trackedDownloads = new TrackedDownloadService(Path.Combine(_root, "config"));
+            var tracker = new DownloadPlatformTracker(Path.Combine(_root, "config"));
+            trackedDownloads.TrackDownload(new DownloadStatus { Id = "abc", Name = "Halo 3 (USA)", State = DownloadState.Downloading }, 1, "tr", tracker);
+            using var monitor = new DownloadMonitorService(config, trackedDownloads, null!, tracker, new ImportStatusService(), NullLogger<DownloadMonitorService>.Instance);
+
+            Assert.That(await monitor.RefreshClientDownloadsAsync(config.LoadDownloadClients().Single(), new HashSet<(int, string)>()), Is.False);
+
+            // One full cycle: the first pass runs at once, then the monitor sleeps for the interval
+            await monitor.StartAsync(default);
+            await Task.Delay(1500);
+            await monitor.StopAsync(default);
+
+            Assert.That(trackedDownloads.Find(1, "abc"), Is.Not.Null, "the entry was reconciled away");
+        }
+
         // Answers every Transmission call with the one torrent it holds
         private sealed class OneTorrent : IDisposable
         {

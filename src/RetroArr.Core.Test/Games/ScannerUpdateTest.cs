@@ -528,6 +528,24 @@ namespace RetroArr.Core.Test.Games
             Assert.That(Row(1).Monitored, Is.False);
         }
 
+        // Another region of a title already on the right platform is no duplicate: both rows stay, the wrong one is healed
+        [Test]
+        public async Task PlatformHeal_OtherRegionOfATitleOnThePlatform_IsHealedNotDropped()
+        {
+            var europe = Folder("gba", "Advance Wars (Europe)");
+            Put(europe, "Advance Wars (Europe).gba");
+            var usa = Folder("gba", "Advance Wars");
+            Put(usa, "Advance Wars.gba");
+            await Seed(
+                new Game { Id = 1, Title = "Advance Wars", Region = "Europe", PlatformId = Ps3, Path = europe, Status = GameStatus.Downloaded, Monitored = true },
+                new Game { Id = 2, Title = "Advance Wars", Region = "USA", PlatformId = Gba, Path = usa, Status = GameStatus.Downloaded, Monitored = true });
+
+            await Scanner(new FakeIgdb()).HealWrongPlatformsAsync();
+
+            Assert.That(Row(1).PlatformId, Is.EqualTo(Gba));
+            Assert.That(Row(2).PlatformId, Is.EqualTo(Gba));
+        }
+
         // A second heal while one runs (a retry after the page gave up) is refused instead of healing the same rows again
         [Test]
         public async Task PlatformHeal_WhileOneRuns_Is409()
