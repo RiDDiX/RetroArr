@@ -50,6 +50,14 @@ namespace RetroArr.Core.Test.Games
         [TestCase("psvita", 26)]
         [TestCase("mame", 100)]
         [TestCase("sega32x", 64)]
+        [TestCase("vita", 26)]
+        [TestCase("32x", 64)]
+        [TestCase("gc", 43)]
+        [TestCase("atarijaguar", 83)]
+        [TestCase("n3ds", 54)]
+        [TestCase("msx2+", 166)]
+        [TestCase("loopy", 144)]
+        [TestCase("odyssey2", 137)]
         public void BatoceraRetroBatFolderName_ResolvesToCorrectPlatformId(string folderName, int expectedId)
         {
             var platform = PlatformDefinitions.AllPlatforms.FirstOrDefault(p => p.MatchesFolderName(folderName));

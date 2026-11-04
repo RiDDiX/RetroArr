@@ -57,7 +57,7 @@ namespace RetroArr.Core.Test.Indexers
         [TestCase("Wii Party (Europe) WBFS", 1000, "wii")]
         [TestCase("Beat Saber PS4 PS5 compatible", 1000, "ps4")]
         [TestCase("Sonic the Hedgehog Sega Genesis", 1000, "megadrive")]
-        [TestCase("La Dolce Vita PlayStation Vita", 1020, "vita")]
+        [TestCase("La Dolce Vita PlayStation Vita", 1020, "psvita")]
         // Remakes, ports and compatibility notes name the platform they came from
         [TestCase("Crash Bandicoot N Sane Trilogy PS1 Remake", 1180, "ps4")]
         [TestCase("Chrono Trigger DS (SNES port)", 1010, "nds")]

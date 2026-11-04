@@ -31,7 +31,7 @@ namespace RetroArr.Core.Indexers
             { 1070, ("Xbox 360", "xbox360") },
             { 1080, ("PlayStation 3", "ps3") },
             { 1110, ("Nintendo 3DS", "3ds") },
-            { 1120, ("PS Vita", "vita") },
+            { 1120, ("PS Vita", "psvita") },
             { 1130, ("Wii U", "wiiu") },
             { 1140, ("Xbox One", "xboxone") },
             { 1180, ("PlayStation 4", "ps4") },
@@ -61,7 +61,7 @@ namespace RetroArr.Core.Indexers
             (new Regex(@"\b(PS3|PlayStation\s*3)\b", RegexOptions.IgnoreCase), "PlayStation 3", "ps3"),
             (new Regex(@"\b(PS2|PlayStation\s*2)\b", RegexOptions.IgnoreCase), "PlayStation 2", "ps2"),
             (new Regex(@"\b(PSP|PlayStation\s*Portable)\b", RegexOptions.IgnoreCase), "PSP", "psp"),
-            (new Regex(@"\b(PlayStation\s*Vita|PSVita|PS\s*Vita|Vita)\b", RegexOptions.IgnoreCase), "PS Vita", "vita"),
+            (new Regex(@"\b(PlayStation\s*Vita|PSVita|PS\s*Vita|Vita)\b", RegexOptions.IgnoreCase), "PS Vita", "psvita"),
             (new Regex(@"\b(PSX|PS1|PlayStation(?!\s*[2-5]))\b", RegexOptions.IgnoreCase), "PlayStation 1", "psx"),
             
             // Microsoft

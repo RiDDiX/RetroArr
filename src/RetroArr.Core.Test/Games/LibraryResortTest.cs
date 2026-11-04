@@ -359,7 +359,7 @@ namespace RetroArr.Core.Test.Games
             }
         }
 
-        // ── All 12 compatibility platforms produce different paths ─────
+        // ── All compatibility platforms produce different paths ─────
 
         [Test]
         public void AllMismatchedPlatforms_ProduceDifferentPaths_InRetroBatMode()
@@ -369,7 +369,7 @@ namespace RetroArr.Core.Test.Games
                          && !p.RetroBatFolderName.Equals(p.FolderName, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
-            Assert.That(mismatched.Count, Is.GreaterThanOrEqualTo(12));
+            Assert.That(mismatched.Count, Is.GreaterThanOrEqualTo(9));
 
             foreach (var platform in mismatched)
             {
@@ -996,6 +996,27 @@ namespace RetroArr.Core.Test.Games
             Assert.That(Directory.GetFiles(Path.Combine(folder, "Patches")), Is.EqualTo(new[] { update }));
             Assert.That(File.ReadAllText(update), Is.EqualTo("update"));
             Assert.That(StoredPaths(1), Is.EqualTo(new[] { "Patches/Bayonetta 2 Update v1.2.0.nsp" }));
+        }
+
+        [Test]
+        public async Task Scan_VitaContainerFolder_KeepsTheContainerSuffix()
+        {
+            var folder = Directory.CreateDirectory(Path.Combine(_lib, "psvita", "Odin Sphere Leifthrasir.psvita")).FullName;
+            var resort = await Resort(new Game { Id = 1, Title = "Odin Sphere: Leifthrasir", PlatformId = 26, Path = folder, Status = GameStatus.Downloaded });
+
+            var issue = (await resort.ScanAsync()).Single();
+
+            Assert.That(issue.IssueType, Is.EqualTo(IssueType.WrongGameFolderName));
+            Assert.That(issue.ExpectedPath, Does.EndWith("Odin Sphere - Leifthrasir.psvita"));
+        }
+
+        [Test]
+        public async Task Scan_VitaContainerFolder_AlreadyNamed_IsNoIssue()
+        {
+            var folder = Directory.CreateDirectory(Path.Combine(_lib, "psvita", "Odin Sphere - Leifthrasir.psvita")).FullName;
+            var resort = await Resort(new Game { Id = 1, Title = "Odin Sphere: Leifthrasir", PlatformId = 26, Path = folder, Status = GameStatus.Downloaded });
+
+            Assert.That(await resort.ScanAsync(), Is.Empty);
         }
 
         // The import puts a second region of a title beside the first, in "{Title} ({Region})"

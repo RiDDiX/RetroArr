@@ -230,8 +230,8 @@ namespace RetroArr.Core.Test.Games
         [Test]
         public void GetEffectiveFolderName_BatoceraMode_ReturnsOverride()
         {
-            var platform = new Platform { FolderName = "vita", RetroBatFolderName = "psvita", BatoceraFolderName = "psvita" };
-            Assert.That(platform.GetEffectiveFolderName("batocera"), Is.EqualTo("psvita"));
+            var platform = new Platform { FolderName = "amiga", RetroBatFolderName = "amiga500", BatoceraFolderName = "amiga500" };
+            Assert.That(platform.GetEffectiveFolderName("batocera"), Is.EqualTo("amiga500"));
         }
 
         [Test]
@@ -289,13 +289,10 @@ namespace RetroArr.Core.Test.Games
             var expectedOverrides = new Dictionary<int, (string retrobat, string? batocera)>
             {
                 { 4, ("amiga500", "amiga500") },
-                { 5, ("amigacd32", "amigacd32") },
                 { 7, ("c20", "c20") },
                 { 9, ("msx1", "msx1") },
-                { 26, ("psvita", "psvita") },
                 { 49, ("snes", "snes") },
                 { 63, ("megacd", null) },
-                { 64, ("sega32x", "sega32x") },
                 { 100, ("mame", "mame") },
                 { 110, ("wswan", "wswan") },
                 { 111, ("wswanc", "wswanc") },
@@ -318,7 +315,7 @@ namespace RetroArr.Core.Test.Games
         [Test]
         public void MatchingPlatforms_DontHaveOverrides()
         {
-            var matchingIds = new[] { 20, 21, 22, 40, 41, 42, 43, 44, 45, 50, 51, 52, 53, 54, 61, 62, 66, 67 };
+            var matchingIds = new[] { 5, 26, 64, 20, 21, 22, 40, 41, 42, 43, 44, 45, 50, 51, 52, 53, 54, 61, 62, 66, 67 };
             foreach (var id in matchingIds)
             {
                 var plat = PlatformDefinitions.AllPlatforms.First(p => p.Id == id);
@@ -367,12 +364,12 @@ namespace RetroArr.Core.Test.Games
             Assert.That(matched2, Is.Not.Null);
             Assert.That(matched2!.Id, Is.EqualTo(100));
 
-            // Simulate matching "psvita" folder from RetroBat/Batocera library
+            // Simulate matching "psvita" folder, the native name since Vita has no override
             var matched3 = allPlatforms.FirstOrDefault(p => p.MatchesFolderName("psvita"));
             Assert.That(matched3, Is.Not.Null);
             Assert.That(matched3!.Id, Is.EqualTo(26));
 
-            // Simulate matching "vita" folder from native library
+            // "vita" is the slug and still matches
             var matched4 = allPlatforms.FirstOrDefault(p => p.MatchesFolderName("vita"));
             Assert.That(matched4, Is.Not.Null);
             Assert.That(matched4!.Id, Is.EqualTo(26));

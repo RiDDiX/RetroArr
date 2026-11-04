@@ -30,11 +30,6 @@ namespace RetroArr.Core.Games
         private int _renames;
         private readonly string _planPersistDir;
 
-        private static readonly HashSet<string> ContainerExtensions = new(StringComparer.OrdinalIgnoreCase)
-        {
-            ".ps3", ".ps3dir", ".psn", ".ps4"
-        };
-
         public LibraryResortService(IGameRepository gameRepository, ConfigurationService configService)
         {
             _gameRepository = gameRepository;
@@ -241,7 +236,7 @@ namespace RetroArr.Core.Games
                     // preserve the container extension in the expected path.
                     var currentFolderName = Path.GetFileName(currentPath.TrimEnd(Path.DirectorySeparatorChar));
                     var containerExt = Path.GetExtension(currentFolderName);
-                    if (!string.IsNullOrEmpty(containerExt) && ContainerExtensions.Contains(containerExt))
+                    if (TitleCleanerService.IsContainerExtension(containerExt))
                     {
                         var expectedTitle = Path.GetFileName(NormalizePath(expectedPath).TrimEnd(Path.DirectorySeparatorChar));
                         // Strip trailing platform suffix that matches the container ext
@@ -338,12 +333,12 @@ namespace RetroArr.Core.Games
                         var currentBase = currentGameFolder;
                         var expectedBase = expectedGameFolder;
                         var currentContainerExt = Path.GetExtension(currentGameFolder);
-                        if (!string.IsNullOrEmpty(currentContainerExt) && ContainerExtensions.Contains(currentContainerExt))
+                        if (TitleCleanerService.IsContainerExtension(currentContainerExt))
                         {
                             currentBase = Path.GetFileNameWithoutExtension(currentGameFolder);
                         }
                         var expectedContainerExt = Path.GetExtension(expectedGameFolder);
-                        if (!string.IsNullOrEmpty(expectedContainerExt) && ContainerExtensions.Contains(expectedContainerExt))
+                        if (TitleCleanerService.IsContainerExtension(expectedContainerExt))
                         {
                             expectedBase = Path.GetFileNameWithoutExtension(expectedGameFolder);
                             // Also strip trailing platform suffix from expected base

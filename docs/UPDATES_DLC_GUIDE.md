@@ -34,7 +34,7 @@ For general scanning logic (blacklists, scoring, clustering), see [Scanner Logic
 | PlayStation 4 | `ps4` | `.pkg`, `.ps4` (folder) | Yes | Yes | Serial (`CUSAXXXXX`) |
 | PlayStation 5 | `ps5` | `.pkg` | Yes | Yes | Serial (`PPSAXXXXX`) |
 | PlayStation 3 | `ps3` | `.iso`, `.pkg`, `.bin`, `.psn`, `.squashfs`, `.m3u`, `.ps3` | Yes | Yes | Serial (`BLES`/`BLUS`/`NPUB`/etc.) |
-| PlayStation Vita | `vita` | `.vpk`, `.mai`, `.psvita`, `.zip` | Yes | Yes | Serial (`PCSA`/`PCSE`/`PCSG`/`PCSB`) |
+| PlayStation Vita | `psvita` | `.vpk`, `.mai`, `.psvita`, `.zip` | Yes | Yes | Serial (`PCSA`/`PCSE`/`PCSG`/`PCSB`) |
 | PlayStation Portable | `psp` | `.iso`, `.cso`, `.pbp`, `.chd` | Some | Some | Serial (`ULES`/`ULUS`/`UCES`/`UCUS`) |
 | Nintendo 3DS | `3ds` | `.3ds`, `.cia` | Yes | Yes | TitleID prefix-based |
 | Nintendo Wii U | `wiiu` | `.wud`, `.wux`, `.rpx`, `.wua` | Yes | Yes | TitleID prefix-based |
@@ -295,7 +295,7 @@ PS Vita uses region-specific serial prefixes:
 ### Folder Structure
 
 ```
-/media/vita/
+/media/psvita/
 ├── Persona 4 Golden [PCSE00120].vpk          ← base
 ├── Persona 4 Golden Update [PCSE00120].vpk    ← update (keyword: Update)
 └── Persona 4 Golden DLC [PCSE00120].vpk       ← DLC (keyword: DLC)
