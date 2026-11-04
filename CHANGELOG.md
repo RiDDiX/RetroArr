@@ -1,3 +1,8 @@
+## v1.0.234 (2026-11-04)
+
+### Changes
+- fix large library performance: resort, sync, scan and page loads (331a607)
+
 ## v1.0.233 (2026-11-01)
 
 ### Changes
