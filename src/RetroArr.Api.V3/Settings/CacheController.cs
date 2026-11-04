@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using RetroArr.Core.Cache;
 using RetroArr.Core.Configuration;
 using System;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace RetroArr.Api.V3.Settings
@@ -19,6 +20,21 @@ namespace RetroArr.Api.V3.Settings
             _cacheService = cacheService;
         }
 
+        // The Redis password never goes back to the browser. The form gets a placeholder in its
+        // place and sends it back unchanged when the password wasn't edited.
+        private const string MaskedPlaceholder = "••••••••";
+        private static readonly Regex RedisPassword = new(@"(?<=(^|,)\s*password\s*=)[^,]+", RegexOptions.IgnoreCase);
+        private const string AddressChangedMessage = "The Redis address changed, re-enter the password.";
+
+        // The placeholder only stands for the stored password while the rest of the connection is
+        // unchanged, or any host could collect it. Null when it was sent for another address.
+        private string? WithStoredPassword(string connectionString)
+        {
+            if (!connectionString.Contains(MaskedPlaceholder, StringComparison.Ordinal)) return connectionString;
+            var stored = _configService.LoadCacheSettings().ConnectionString ?? string.Empty;
+            return RedisPassword.Replace(connectionString, "") == RedisPassword.Replace(stored, "") ? stored : null;
+        }
+
         [HttpGet]
         public ActionResult<CacheSettingsResponse> GetSettings()
         {
@@ -26,7 +42,7 @@ namespace RetroArr.Api.V3.Settings
             return Ok(new CacheSettingsResponse
             {
                 Enabled = settings.Enabled,
-                ConnectionString = settings.ConnectionString,
+                ConnectionString = RedisPassword.Replace(settings.ConnectionString ?? string.Empty, MaskedPlaceholder),
                 LibraryListTtlSeconds = settings.LibraryListTtlSeconds,
                 GameDetailTtlSeconds = settings.GameDetailTtlSeconds,
                 MetadataTtlSeconds = settings.MetadataTtlSeconds,
@@ -41,10 +57,14 @@ namespace RetroArr.Api.V3.Settings
         {
             try
             {
+                var connectionString = WithStoredPassword(request.ConnectionString ?? "localhost:6379");
+                if (connectionString == null)
+                    return BadRequest(new { error = AddressChangedMessage });
+
                 var settings = new CacheSettings
                 {
                     Enabled = request.Enabled,
-                    ConnectionString = request.ConnectionString ?? "localhost:6379",
+                    ConnectionString = connectionString,
                     LibraryListTtlSeconds = request.LibraryListTtlSeconds ?? 60,
                     GameDetailTtlSeconds = request.GameDetailTtlSeconds ?? 120,
                     MetadataTtlSeconds = request.MetadataTtlSeconds ?? 3600,
@@ -70,14 +90,15 @@ namespace RetroArr.Api.V3.Settings
         {
             try
             {
-                var connectionString = request.ConnectionString ?? "localhost:6379";
-                using var testRedis = StackExchange.Redis.ConnectionMultiplexer.Connect(
-                    new StackExchange.Redis.ConfigurationOptions
-                    {
-                        EndPoints = { connectionString },
-                        ConnectTimeout = 5000,
-                        AbortOnConnectFail = false
-                    });
+                var connectionString = WithStoredPassword(request.ConnectionString ?? "localhost:6379");
+                if (connectionString == null)
+                    return Ok(new { success = false, message = AddressChangedMessage });
+
+                // The whole string, so password, ssl and the rest are tested too, not just the endpoint
+                var options = StackExchange.Redis.ConfigurationOptions.Parse(connectionString);
+                options.ConnectTimeout = 5000;
+                options.AbortOnConnectFail = false;
+                using var testRedis = StackExchange.Redis.ConnectionMultiplexer.Connect(options);
 
                 if (testRedis.IsConnected)
                 {

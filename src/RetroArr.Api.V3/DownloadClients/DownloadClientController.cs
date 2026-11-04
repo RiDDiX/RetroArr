@@ -92,11 +92,16 @@ namespace RetroArr.Api.V3.DownloadClients
             {
                 return NotFound();
             }
+            if (SendsStoredSecretElsewhere(existingClient, client.Password, client.ApiKey, client.Host, client.Port, client.UrlBase, client.UseSsl))
+            {
+                return BadRequest(new { message = AddressChangedMessage });
+            }
 
             existingClient.Name = client.Name;
             existingClient.Implementation = client.Implementation;
             existingClient.Host = client.Host;
             existingClient.Port = client.Port;
+            existingClient.UseSsl = client.UseSsl;
             existingClient.Username = client.Username;
             existingClient.Password = KeepSecret(client.Password, existingClient.Password);
             existingClient.Category = client.Category;
@@ -125,6 +130,15 @@ namespace RetroArr.Api.V3.DownloadClients
         }
 
         public static string? KeepSecret(string? sent, string? stored) => sent == SecretPlaceholder ? stored : sent;
+
+        private const string AddressChangedMessage = "The address changed, re-enter the password or API key.";
+
+        // The placeholders only stand for the stored secrets while they still go to the stored
+        // address, or any host could collect them
+        private static bool SendsStoredSecretElsewhere(DownloadClient stored, string? password, string? apiKey, string host, int port, string? urlBase, bool useSsl) =>
+            (password == SecretPlaceholder || apiKey == SecretPlaceholder)
+            && !(string.Equals(stored.Host, host, StringComparison.OrdinalIgnoreCase) && stored.Port == port
+                && (stored.UrlBase ?? "") == (urlBase ?? "") && stored.UseSsl == useSsl);
 
         [HttpDelete("{id}")]
         public ActionResult Delete(int id)
@@ -168,7 +182,7 @@ namespace RetroArr.Api.V3.DownloadClients
                     }
                     else if (config.Implementation.Equals("Deluge", StringComparison.OrdinalIgnoreCase))
                     {
-                        client = new DelugeClient(config.Host, config.Port, config.Password ?? "", config.UseSsl, config.Category);
+                        client = new DelugeClient(config.Host, config.Port, config.Password ?? "", config.UseSsl, config.Category, config.AllowSelfSignedCert);
                     }
 
                     if (client != null)
@@ -418,7 +432,7 @@ namespace RetroArr.Api.V3.DownloadClients
             if (config.Implementation.Equals("NZBGet", StringComparison.OrdinalIgnoreCase))
                 return new NzbgetClient(config.Host, config.Port, config.Username ?? "", config.Password ?? "", config.UrlBase);
             if (config.Implementation.Equals("Deluge", StringComparison.OrdinalIgnoreCase))
-                return new DelugeClient(config.Host, config.Port, config.Password ?? "", config.UseSsl, category);
+                return new DelugeClient(config.Host, config.Port, config.Password ?? "", config.UseSsl, category, config.AllowSelfSignedCert);
             return null;
         }
 
@@ -470,6 +484,10 @@ namespace RetroArr.Api.V3.DownloadClients
 
                 // Testing a saved client from its edit form sends the placeholders back
                 var stored = request.Id.HasValue ? _clients.FirstOrDefault(c => c.Id == request.Id.Value) : null;
+                if (stored != null && SendsStoredSecretElsewhere(stored, request.Password, request.ApiKey, request.Host, request.Port, request.UrlBase, request.UseSsl))
+                {
+                    return BadRequest(new { message = AddressChangedMessage });
+                }
                 request.Password = KeepSecret(request.Password, stored?.Password);
                 request.ApiKey = KeepSecret(request.ApiKey, stored?.ApiKey);
 
@@ -541,7 +559,8 @@ namespace RetroArr.Api.V3.DownloadClients
                         request.Host,
                         request.Port,
                         request.Password ?? string.Empty,
-                        request.UseSsl
+                        request.UseSsl,
+                        allowSelfSignedCert: stored?.AllowSelfSignedCert == true
                     );
 
                     isConnected = await delugeClient.TestConnectionAsync();
@@ -757,7 +776,8 @@ namespace RetroArr.Api.V3.DownloadClients
                         client.Host,
                         client.Port,
                         client.Password ?? string.Empty,
-                        client.UseSsl
+                        client.UseSsl,
+                        allowSelfSignedCert: client.AllowSelfSignedCert
                     );
                     
                     bool success = await delugeClient.AddTorrentAsync(request.Url, client.Category ?? string.Empty);

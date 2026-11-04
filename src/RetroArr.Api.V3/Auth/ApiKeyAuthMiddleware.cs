@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Net;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
@@ -15,6 +16,7 @@ namespace RetroArr.Api.V3.Auth
         // anonymous routes, so those can decide how much to show.
         public const string AuthenticatedItem = "RetroArr.Authenticated";
         public const string StatusPath = "/api/v3/system/status";
+        public static readonly TimeSpan HubTicketLifetime = TimeSpan.FromMinutes(5);
 
         private readonly RequestDelegate _next;
         private readonly ApiKeyService _apiKeyService;
@@ -37,10 +39,11 @@ namespace RetroArr.Api.V3.Auth
             }
 
             var configured = _apiKeyService.GetApiKey();
-            var presented = ResolvePresentedKey(context);
+            var presented = ResolvePresentedKey(context, isHub);
             var keyValid = !string.IsNullOrEmpty(presented) && FixedTimeEquals(presented, configured);
 
-            if (keyValid || LocalRequest.IsLocal(context) || HasValidSignature(context, configured))
+            if (keyValid || LocalRequest.IsLocal(context) || HasValidSignature(context, configured)
+                || (isHub && HasValidHubTicket(context, presented, configured)))
             {
                 context.Items[AuthenticatedItem] = true;
                 await _next(context);
@@ -82,16 +85,40 @@ namespace RetroArr.Api.V3.Auth
             return SignedUrl.IsValid(context.Request, apiKey, DateTimeOffset.UtcNow);
         }
 
-        private static string? ResolvePresentedKey(HttpContext context)
+        // SignalR's websocket can only carry its token in the query, where proxy access logs keep it,
+        // so the hubs take a short-lived ticket there (long polling sends the same one as Bearer).
+        private static bool HasValidHubTicket(HttpContext context, string? presented, string apiKey)
+        {
+            var now = DateTimeOffset.UtcNow;
+            return IsValidHubTicket(context.Request.Query[AccessTokenQueryName].ToString(), apiKey, now)
+                || IsValidHubTicket(presented, apiKey, now);
+        }
+
+        // "<exp>.<sig>", keyed like SignedUrl, so rotating the key revokes it too
+        public static string HubTicket(string apiKey, DateTimeOffset now)
+        {
+            var exp = (now.ToUnixTimeSeconds() + (long)HubTicketLifetime.TotalSeconds).ToString(CultureInfo.InvariantCulture);
+            return exp + "." + SignedUrl.Compute("hub:" + exp, apiKey);
+        }
+
+        public static bool IsValidHubTicket(string? ticket, string apiKey, DateTimeOffset now)
+        {
+            if (string.IsNullOrEmpty(ticket) || string.IsNullOrEmpty(apiKey)) return false;
+            var dot = ticket.IndexOf('.');
+            if (dot < 0
+                || !long.TryParse(ticket.AsSpan(0, dot), NumberStyles.None, CultureInfo.InvariantCulture, out var exp)
+                || exp < now.ToUnixTimeSeconds())
+                return false;
+            return FixedTimeEquals(ticket[(dot + 1)..], SignedUrl.Compute("hub:" + ticket[..dot], apiKey));
+        }
+
+        private static string? ResolvePresentedKey(HttpContext context, bool isHub)
         {
             if (context.Request.Headers.TryGetValue(HeaderName, out var header) && !string.IsNullOrEmpty(header))
                 return header.ToString();
-            if (context.Request.Query.TryGetValue(QueryName, out var query) && !string.IsNullOrEmpty(query))
+            // On the hubs the query only carries a ticket (HasValidHubTicket)
+            if (!isHub && context.Request.Query.TryGetValue(QueryName, out var query) && !string.IsNullOrEmpty(query))
                 return query.ToString();
-            // SignalR's websocket can only carry the key in the query; nothing else needs that name
-            if (context.Request.Path.StartsWithSegments("/hubs", StringComparison.OrdinalIgnoreCase)
-                && context.Request.Query.TryGetValue(AccessTokenQueryName, out var accessToken) && !string.IsNullOrEmpty(accessToken))
-                return accessToken.ToString();
             if (context.Request.Headers.TryGetValue("Authorization", out var auth) && !string.IsNullOrEmpty(auth))
             {
                 var value = auth.ToString();

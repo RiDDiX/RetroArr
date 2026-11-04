@@ -28,7 +28,7 @@ namespace RetroArr.Core.Download
         private string? _cookie;
         private readonly string? _category;
 
-        public DelugeClient(string host, int port, string password, bool useSsl = false, string? category = null)
+        public DelugeClient(string host, int port, string password, bool useSsl = false, string? category = null, bool allowSelfSignedCert = false)
         {
             _category = category;
             var scheme = useSsl ? "https" : "http";
@@ -38,9 +38,10 @@ namespace RetroArr.Core.Download
             var handler = new HttpClientHandler 
             { 
                 UseCookies = true,
-                AutomaticDecompression = System.Net.DecompressionMethods.All,
-                ServerCertificateCustomValidationCallback = (sender, cert, chain, sslPolicyErrors) => true // Accept self-signed
+                AutomaticDecompression = System.Net.DecompressionMethods.All
             };
+            if (allowSelfSignedCert)
+                handler.ServerCertificateCustomValidationCallback = (sender, cert, chain, sslPolicyErrors) => true;
 
             _httpClient = new HttpClient(handler);
             _httpClient.Timeout = TimeSpan.FromSeconds(5); // Fail fast to avoid 504 Gateway Timeout
@@ -302,8 +303,7 @@ namespace RetroArr.Core.Download
             {
                 var handler = new HttpClientHandler() 
                 { 
-                    AllowAutoRedirect = false, // WE HANDLE REDIRECTS MANUALLY
-                    ServerCertificateCustomValidationCallback = (sender, cert, chain, sslPolicyErrors) => true
+                    AllowAutoRedirect = false // WE HANDLE REDIRECTS MANUALLY
                 };
                 
                 using var tempClient = new HttpClient(handler);
@@ -390,57 +390,11 @@ namespace RetroArr.Core.Download
                  return await ExecuteDelugeAddAsync("core.add_torrent_file", new object[] { "upload.torrent", base64, options });
             }
             
-            // 3.3 Try Curl (as last ditch for FILES, not magnets, as curl fails on magnets too)
-            // But if the URL *redirects* to a magnet, curl will fail. 
-            // We could parse curl output for "Location: magnet:..." but HttpClient logic above is better.
-            
             // Fallback: Let Deluge try URL
             _logger.Error($"[Deluge] All internal resolutions failed. Falling back to native add_torrent_url.");
             if (!url.StartsWith("http", StringComparison.OrdinalIgnoreCase)) url = "https://" + url;
             
             return await ExecuteDelugeAddAsync("core.add_torrent_url", new object[] { url, options });
-        }
-
-        private async Task<byte[]?> DownloadWithCurlAsync(string url)
-        {
-            var tempFile = Path.GetTempFileName();
-            try
-            {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = "curl",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                psi.ArgumentList.Add("-L"); 
-                psi.ArgumentList.Add("-k"); 
-                psi.ArgumentList.Add("--max-time"); psi.ArgumentList.Add("30");
-                psi.ArgumentList.Add("-o"); psi.ArgumentList.Add(tempFile);
-                psi.ArgumentList.Add(url); 
-
-                using var p = Process.Start(psi);
-                if (p != null)
-                {
-                    await p.WaitForExitAsync();
-                    if (p.ExitCode == 0 && File.Exists(tempFile))
-                    {
-                        var bytes = await File.ReadAllBytesAsync(tempFile);
-                        if (bytes.Length > 0) return bytes;
-                    }
-                }
-                return null;
-            }
-            catch (Exception ex)
-            {
-                 _logger.Error($"[Deluge] Curl failed: {ex.Message}");
-                 return null;
-            }
-            finally
-            {
-                if (File.Exists(tempFile)) File.Delete(tempFile);
-            }
         }
 
         private async Task<string?> AddMagnetAsync(string magnet, Dictionary<string, object> options)

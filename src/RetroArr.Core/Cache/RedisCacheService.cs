@@ -32,7 +32,7 @@ namespace RetroArr.Core.Cache
             _settings = settings;
             _redis = ConnectionMultiplexer.Connect(settings.ConnectionString);
             _db = _redis.GetDatabase();
-            _logger.Info($"[Cache] Redis connected: {settings.ConnectionString}");
+            _logger.Info($"[Cache] Redis connected: {ConfigurationOptions.Parse(settings.ConnectionString).ToString(includePassword: false)}");
         }
 
         public async Task<T?> GetAsync<T>(string key) where T : class

@@ -19,6 +19,8 @@ namespace RetroArr.Core.Download
         public string? ApiKey { get; set; }
         public bool Enable { get; set; } = true;
         public bool UseSsl { get; set; }
+        // Not in the UI: set in downloadclients.json for a Deluge Web UI with a self-signed certificate
+        public bool AllowSelfSignedCert { get; set; }
         public int Priority { get; set; }
         
         // Remote Path Mapping

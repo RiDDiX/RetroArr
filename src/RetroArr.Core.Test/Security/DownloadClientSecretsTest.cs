@@ -91,6 +91,41 @@ namespace RetroArr.Core.Test.Security
         }
 
         [Test]
+        public async Task PlaceholderWithChangedHost_IsRefused_OnUpdateAndTest()
+        {
+            var form = Value(Controller().GetById(1));
+            form.Host = "evil.example";
+            Assert.That(Controller().Update(1, form).Result, Is.InstanceOf<BadRequestObjectResult>());
+            Assert.That(_config.LoadDownloadClients().Single(c => c.Id == 1).Host, Is.EqualTo("qbit"));
+
+            var request = new TestDownloadClientRequest { Id = 1, Implementation = "qBittorrent", Host = "evil.example", Port = 8080, Password = Placeholder };
+            Assert.That(await Controller().TestConnection(request), Is.InstanceOf<BadRequestObjectResult>());
+        }
+
+        [Test]
+        public async Task PlaceholderWithSameHost_PassesAndKeepsTheSecret()
+        {
+            var form = Value(Controller().GetById(1));
+            form.Host = "QBIT";
+            Assert.That(Controller().Update(1, form).Result, Is.InstanceOf<ObjectResult>().And.Not.InstanceOf<BadRequestObjectResult>());
+            Assert.That(_config.LoadDownloadClients().Single(c => c.Id == 1).Password, Is.EqualTo("s3cret-pass"));
+
+            var request = new TestDownloadClientRequest { Id = 1, Implementation = "qBittorrent", Host = "qbit", Port = 8080, Password = Placeholder };
+            var result = await Controller().TestConnection(request);
+            // the connection itself may fail here; what matters is that the address guard didn't refuse
+            Assert.That(result is BadRequestObjectResult bad && bad.Value!.ToString()!.Contains("address changed"), Is.False);
+        }
+
+        [Test]
+        public void Update_SavesUseSsl()
+        {
+            var form = Value(Controller().GetById(3));
+            form.UseSsl = true;
+            Controller().Update(3, form);
+            Assert.That(_config.LoadDownloadClients().Single(c => c.Id == 3).UseSsl, Is.True);
+        }
+
+        [Test]
         public async Task Create_ReturnsTheClientWithoutItsSecret()
         {
             // Creating looks at tracked downloads and history for the ids in use

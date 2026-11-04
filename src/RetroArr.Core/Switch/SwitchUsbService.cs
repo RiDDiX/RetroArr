@@ -191,12 +191,12 @@ namespace RetroArr.Core.Switch
                 var psi = new ProcessStartInfo
                 {
                     FileName = "python3",
-                    Arguments = $"\"{scriptPath}\" --install \"{filePath}\"",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };
+                foreach (var a in new[] { scriptPath, "--install", filePath }) psi.ArgumentList.Add(a);
 
                 _installProcess = new Process
                 {

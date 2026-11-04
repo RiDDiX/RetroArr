@@ -52,6 +52,7 @@ namespace RetroArr.Core.Configuration
                     if (record != null && !string.IsNullOrWhiteSpace(record.Key))
                     {
                         _cachedKey = record.Key;
+                        RestrictToOwner(); // files written before this was set are still world-readable
                         return;
                     }
                 }
@@ -70,11 +71,19 @@ namespace RetroArr.Core.Configuration
             {
                 var record = new ApiKeyRecord { Key = key, CreatedAt = DateTime.UtcNow };
                 File.WriteAllText(_keyFilePath, JsonSerializer.Serialize(record, new JsonSerializerOptions { WriteIndented = true }));
+                RestrictToOwner();
             }
             catch (Exception ex)
             {
                 _logger.Error($"[ApiKey] failed to persist {_keyFilePath}: {ex.Message}. Key will only live in memory until the next restart.");
             }
+        }
+
+        private void RestrictToOwner()
+        {
+            if (OperatingSystem.IsWindows()) return;
+            try { File.SetUnixFileMode(_keyFilePath, UnixFileMode.UserRead | UnixFileMode.UserWrite); }
+            catch (Exception ex) { _logger.Warn($"[ApiKey] could not restrict {_keyFilePath} to its owner: {ex.Message}"); }
         }
 
         private static string Generate()

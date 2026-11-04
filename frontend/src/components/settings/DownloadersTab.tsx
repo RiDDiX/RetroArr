@@ -95,7 +95,8 @@ const DownloadersTab: React.FC<DownloadersTabProps> = ({ language, t }) => {
       const response = await apiClient.post('/downloadclient/test', {
         id: editingClient?.id,
         implementation: clientForm.implementation, host: clientForm.host, port: clientForm.port,
-        username: clientForm.username, password: clientForm.password, urlBase: clientForm.urlBase, apiKey: clientForm.apiKey
+        username: clientForm.username, password: clientForm.password, urlBase: clientForm.urlBase, apiKey: clientForm.apiKey,
+        useSsl: clientForm.useSsl
       });
       setClientTestResult({ success: response.data.connected, message: response.data.message, version: response.data.version });
     } catch (error: unknown) {

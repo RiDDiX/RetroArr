@@ -37,6 +37,13 @@ namespace RetroArr.Api.V3.SystemInfo
             return Ok(new { apiKey = newKey });
         }
 
+        // For the SignalR websocket, which can only authenticate through its URL
+        [HttpGet("hub-ticket")]
+        public ActionResult GetHubTicket()
+        {
+            return Ok(new { ticket = ApiKeyAuthMiddleware.HubTicket(_apiKeyService.GetApiKey(), DateTimeOffset.UtcNow) });
+        }
+
         [HttpGet("status")]
         public ActionResult GetStatus()
         {

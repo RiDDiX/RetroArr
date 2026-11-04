@@ -138,7 +138,7 @@ namespace RetroArr.Core.Test.Security
         {
             Assert.That((await Send(Request("/api/v3/settings/monitor", "192.168.1.50", headers: ("X-Api-Key", Key)))).Status, Is.EqualTo(200));
             Assert.That((await Send(Request("/api/v3/settings/monitor", "192.168.1.50", "?apiKey=" + Key))).Status, Is.EqualTo(200));
-            Assert.That((await Send(Request("/hubs/progress", "192.168.1.50", "?access_token=" + Key))).Status, Is.EqualTo(200));
+            Assert.That((await Send(Request("/hubs/progress", "192.168.1.50", "?access_token=" + Key))).Status, Is.EqualTo(401));
             // the query name SignalR needs is not a second way in for the rest of the API
             Assert.That((await Send(Request("/api/v3/settings/monitor", "192.168.1.50", "?access_token=" + Key))).Status, Is.EqualTo(401));
             Assert.That((await Send(Request("/api/v3/settings/monitor", "192.168.1.50", headers: ("Authorization", "Bearer " + Key)))).Status, Is.EqualTo(200));
@@ -314,6 +314,73 @@ namespace RetroArr.Core.Test.Security
             LocalRequest.CaptureSocketPeer(local);
             var ok = (OkObjectResult)Controller(local).BootstrapApiKey();
             Assert.That(System.Text.Json.JsonSerializer.Serialize(ok.Value), Does.Contain(Key));
+        }
+
+        // ---- hub tickets ----
+
+        private Task<(int Status, bool Reached)> Hub(string query = "", params (string, string)[] headers) =>
+            Send(Request("/hubs/progress", "192.168.1.50", query, "GET", headers));
+
+        private string Ticket(DateTimeOffset? at = null) => ApiKeyAuthMiddleware.HubTicket(Key, at ?? DateTimeOffset.UtcNow);
+
+        [Test]
+        public async Task Hub_WithTicket_Passes()
+        {
+            Assert.That((await Hub("?access_token=" + Ticket())).Status, Is.EqualTo(200));
+            Assert.That((await Hub(headers: ("Authorization", "Bearer " + Ticket()))).Status, Is.EqualTo(200));
+            Assert.That((await Hub(headers: ("X-Api-Key", Key))).Status, Is.EqualTo(200));
+        }
+
+        [Test]
+        public async Task Hub_WithRawKeyInQuery_IsRefused()
+        {
+            Assert.That((await Hub("?access_token=" + Key)).Status, Is.EqualTo(401));
+            Assert.That((await Hub("?apiKey=" + Key)).Status, Is.EqualTo(401));
+        }
+
+        [Test]
+        public async Task Hub_WithExpiredOrTamperedTicket_IsRefused()
+        {
+            Assert.That((await Hub("?access_token=" + Ticket(DateTimeOffset.UtcNow.AddMinutes(-6)))).Status, Is.EqualTo(401));
+            var ticket = Ticket();
+            var dot = ticket.IndexOf('.');
+            var exp = long.Parse(ticket[..dot]) + 100;
+            Assert.That((await Hub("?access_token=" + exp + ticket[dot..])).Status, Is.EqualTo(401));
+        }
+
+        [Test]
+        public async Task Hub_TicketIsRevoked_WhenTheKeyRotates()
+        {
+            var ticket = Ticket();
+            _keys.Regenerate();
+            Assert.That((await Hub("?access_token=" + ticket)).Status, Is.EqualTo(401));
+        }
+
+        [Test]
+        public async Task Api_DoesNotAcceptAHubTicket()
+        {
+            var ticket = Ticket();
+            Assert.That((await Send(Request("/api/v3/settings/monitor", "192.168.1.50", "?access_token=" + ticket))).Status, Is.EqualTo(401));
+            Assert.That((await Send(Request("/api/v3/settings/monitor", "192.168.1.50", headers: ("Authorization", "Bearer " + ticket)))).Status, Is.EqualTo(401));
+        }
+
+        [TestCase("")]
+        [TestCase("abc")]
+        [TestCase("x.y")]
+        [TestCase("-1.sig")]
+        [TestCase(" 123.sig")]
+        [TestCase("+123.sig")]
+        public void IsValidHubTicket_RejectsMalformed(string ticket)
+        {
+            Assert.That(ApiKeyAuthMiddleware.IsValidHubTicket(ticket, Key, DateTimeOffset.UtcNow), Is.False);
+        }
+
+        [Test]
+        public void GetHubTicket_ReturnsAValidTicket()
+        {
+            var ok = (OkObjectResult)Controller(Request("/api/v3/system/hub-ticket", "127.0.0.1")).GetHubTicket();
+            var ticket = (string)ok.Value!.GetType().GetProperty("ticket")!.GetValue(ok.Value)!;
+            Assert.That(ApiKeyAuthMiddleware.IsValidHubTicket(ticket, Key, DateTimeOffset.UtcNow), Is.True);
         }
 
         // ---- trusted proxies ----

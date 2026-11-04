@@ -4,7 +4,7 @@ import {
   HubConnectionState,
   LogLevel,
 } from '@microsoft/signalr';
-import { getApiKey } from './client';
+import apiClient, { getApiKey } from './client';
 
 type EventMap = {
   scanStarted: () => void;
@@ -31,6 +31,7 @@ class ProgressHubClient {
   private connState: ConnState = 'disconnected';
   private readonly connListeners = new Set<ConnListener>();
   private restarting = false;
+  private ticket: { value: string; exp: number } | null = null;
 
   constructor() {
     // Hot-swap the connection when the API key changes (e.g. user pastes a
@@ -59,12 +60,22 @@ class ProgressHubClient {
     this.connListeners.forEach((fn) => fn(next));
   }
 
+  // The websocket sends its token in the URL, where proxy logs keep it, so it gets a
+  // short-lived ticket ("<exp>.<sig>") instead of the API key.
+  private async hubTicket(): Promise<string> {
+    if (!this.ticket || Date.now() / 1000 > this.ticket.exp - 60) {
+      const { data } = await apiClient.get<{ ticket: string }>('/system/hub-ticket');
+      this.ticket = { value: data.ticket, exp: Number(data.ticket.split('.')[0]) };
+    }
+    return this.ticket.value;
+  }
+
   private ensureConnection(): HubConnection {
     if (this.connection) return this.connection;
 
     this.connection = new HubConnectionBuilder()
       .withUrl(HUB_URL, {
-        accessTokenFactory: () => getApiKey() ?? '',
+        accessTokenFactory: () => this.hubTicket(),
         // Send the API key as header too - loopback requests bypass auth; LAN needs this.
         headers: getApiKey() ? { 'X-Api-Key': getApiKey()! } : undefined,
       })
@@ -113,6 +124,7 @@ class ProgressHubClient {
     this.restarting = true;
     try {
       this.setConnState('reconnecting');
+      this.ticket = null; // signed with the old key
       if (this.connection) {
         try { await this.connection.stop(); } catch { /* ignore - we're rebuilding */ }
         this.connection = null;

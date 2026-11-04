@@ -43,7 +43,7 @@ namespace RetroArr.Api.V3.Auth
             return CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(presented), Encoding.ASCII.GetBytes(expected));
         }
 
-        private static string Compute(string pathAndQuery, string apiKey)
+        internal static string Compute(string pathAndQuery, string apiKey)
         {
             var mac = HMACSHA256.HashData(Encoding.UTF8.GetBytes("RetroArr.SignedUrl.v1:" + apiKey), Encoding.UTF8.GetBytes(pathAndQuery));
             return Convert.ToBase64String(mac).TrimEnd('=').Replace('+', '-').Replace('/', '_');
