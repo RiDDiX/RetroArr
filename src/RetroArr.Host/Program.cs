@@ -198,6 +198,7 @@ namespace RetroArr.Host
             try { File.WriteAllText(_logPath, $"--- RetroArr Startup {DateTime.Now} ---" + Environment.NewLine); } catch { }
             Log($"[Startup] EXE Path: {exePath}");
             Log($"[Startup] Config Path: {configService.GetConfigDirectory()}");
+            Console.WriteLine($"[Startup] API key file: {Path.Combine(configService.GetConfigDirectory(), "apikey.json")}");
 
             // Initialize structured logging via NLog
             var appLoggerService = new AppLoggerService(configService);
@@ -263,7 +264,6 @@ namespace RetroArr.Host
             builder.Services.AddSingleton<RetroArr.Core.Download.DownloadMonitorService>();
             builder.Services.AddHostedService(sp => sp.GetRequiredService<RetroArr.Core.Download.DownloadMonitorService>());
             builder.Services.AddSingleton<RetroArr.Core.Download.ImportStatusService>();
-            builder.Services.AddSingleton<RetroArr.Core.Download.RenameQueueService>();
             builder.Services.AddSingleton<RetroArr.Core.Download.History.DownloadHistoryRepository>();
             builder.Services.AddSingleton<RetroArr.Core.Download.History.DownloadBlacklistRepository>();
             builder.Services.AddSingleton<RetroArr.Core.Games.DiscoveredGameRepository>();
@@ -360,7 +360,8 @@ namespace RetroArr.Host
             var isHeadless = args.Contains("--headless") || 
                              envVar == "true" || 
                              builder.Configuration.GetValue<bool>("HeadlessMode");
-            
+            RetroArr.Api.V3.Auth.LocalRequest.Enabled = !isHeadless;
+
             Console.WriteLine($"[Startup] Checking Headless Mode: Args={string.Join(",", args)}, Config={builder.Configuration.GetValue<bool>("HeadlessMode")}, EnvVar={envVar}, Result={isHeadless}");
 
             if (!isHeadless)

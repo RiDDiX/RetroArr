@@ -586,6 +586,9 @@ namespace RetroArr.Api.V3.Emulator
             new(@"^/api/v3/emulator/[0-9]+/rom(\?[A-Za-z0-9._~%&=-]*)?\z");
         private static readonly System.Text.RegularExpressions.Regex PlayerCore =
             new(@"^[A-Za-z0-9_-]{1,32}\z");
+        // Anonymous and cached under the requested name: no '#', '?' or '%' variants of one CDN file
+        private static readonly System.Text.RegularExpressions.Regex AssetPath =
+            new(@"^[A-Za-z0-9_][A-Za-z0-9._/-]*\z", System.Text.RegularExpressions.RegexOptions.Compiled);
 
         // COOP/COEP headers so SharedArrayBuffer works for threaded cores (PSP, NDS, etc.)
         [HttpGet("player")]
@@ -739,6 +742,10 @@ a {{ color:#89b4fa; }}
             if (string.IsNullOrEmpty(path))
             {
                 return BadRequest(new { error = "Path is required" });
+            }
+            if (!AssetPath.IsMatch(path))
+            {
+                return BadRequest(new { error = "Invalid path" });
             }
 
             var filePath = Path.Combine(EmulatorJsPath, path);

@@ -27,6 +27,7 @@ namespace RetroArr.Core.Test.Security
         [SetUp]
         public void SetUp()
         {
+            LocalRequest.Enabled = true;
             _root = Path.Combine(Path.GetTempPath(), "retroarr_auth_" + Path.GetRandomFileName());
             Directory.CreateDirectory(Path.Combine(_root, "config"));
             _keys = new ApiKeyService(new ConfigurationService(_root));
@@ -35,6 +36,7 @@ namespace RetroArr.Core.Test.Security
         [TearDown]
         public void TearDown()
         {
+            LocalRequest.Enabled = false;
             if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
         }
 
@@ -252,6 +254,28 @@ namespace RetroArr.Core.Test.Security
         {
             // a page elsewhere firing requests at http://localhost:5002 (CSRF)
             var context = Request("/api/v3/system/apikey/rotate", "127.0.0.1", method: "POST", headers: ("Sec-Fetch-Site", site));
+            LocalRequest.CaptureSocketPeer(context);
+            Assert.That(LocalRequest.IsLocal(context), Is.EqualTo(local));
+        }
+
+        [Test]
+        public async Task LocalRequest_Disabled_LoopbackNeedsTheKey()
+        {
+            LocalRequest.Enabled = false;
+            var context = Request("/api/v3/settings/monitor", "127.0.0.1");
+            LocalRequest.CaptureSocketPeer(context);
+            Assert.That(LocalRequest.IsLocal(context), Is.False);
+
+            var (status, reached) = await Send(Request("/api/v3/settings/monitor", "127.0.0.1"));
+            Assert.That(status, Is.EqualTo(401));
+            Assert.That(reached, Is.False);
+        }
+
+        [TestCase("https://evil.example", false)]
+        [TestCase("http://localhost:2727", true)]
+        public void LocalRequest_OriginHeader(string origin, bool local)
+        {
+            var context = Request("/api/v3/system/apikey/rotate", "127.0.0.1", method: "POST", headers: ("Origin", origin));
             LocalRequest.CaptureSocketPeer(context);
             Assert.That(LocalRequest.IsLocal(context), Is.EqualTo(local));
         }

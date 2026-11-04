@@ -2113,7 +2113,7 @@ namespace RetroArr.Api.V3.Games
                 };
                 fileName += ext;
             }
-            return fileName;
+            return RetroArr.Core.IO.FileNameSanitizer.Sanitize(Path.GetFileName(fileName), "gog_setup");
         }
 
         private static string SanitizeForPath(string input)

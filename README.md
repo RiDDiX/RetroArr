@@ -66,7 +66,7 @@ If you only plan to proxy through SWAG with a real cert, drop the `2728` line fr
 - Rescan heals wrong platforms by re-reading the path, deduplicates after folder moves
 
 **Downloads & indexers**
-- Indexer backends: **Prowlarr**, **Jackett**, **Hydra Launcher**, plus raw **Newznab**/**Torznab**
+- Indexer backends: **Prowlarr**, **Jackett**, **Hydra Launcher**
 - Download clients: **qBittorrent**, **Transmission**, **Deluge**, **SABnzbd**, **NZBGet**
 - Post-download handler picks the right platform folder, renames, attaches patches/DLC to the right game
 - Monitoring (Sonarr/Radarr-style): flag a game — or a whole platform — as monitored, and a background sweep searches your indexers on a schedule and can auto-grab the best-scoring release. Clickable monitor markers sit on the library cards and the game detail page; the platform toggle bulk-applies to every game and sets the default for newly scanned ones
@@ -102,7 +102,7 @@ If you only plan to proxy through SWAG with a real cert, drop the `2728` line fr
 
 **Security**
 - Every stored credential (IGDB, ScreenScraper, download clients, Steam, Prowlarr, Jackett, GOG) encrypted with ASP.NET Data Protection. Plaintext values from older installs get migrated on first save
-- API key gate: requests that really come from the same machine (loopback socket peer, a `localhost`/loopback `Host`, no proxy headers, not a cross-site browser request) are unauthenticated, LAN and remote clients need `X-Api-Key`. `X-Forwarded-For` never counts as "local". A proxy on the same host must send `X-Forwarded-For` (nginx `proxy_set_header`, SWAG and Traefik do by default), otherwise its clients count as local. Key is shown and rotatable in Settings → API access
+- API key gate: everything needs `X-Api-Key`, except in the desktop app, where requests that really come from the same machine (loopback socket peer, a `localhost`/loopback `Host` and `Origin`, no proxy headers, not a cross-site browser request) are unauthenticated. Headless and Docker installs never treat a request as local, so a reverse proxy on the same host can't open the API; the UI asks for the key, which is in `apikey.json` in the config folder (path printed at startup). Key is shown and rotatable in Settings → API access
 - EmulatorJS static assets and the `/emulator/player` page are exempt from auth, since browsers can't attach API keys to `<script src>` or iframe loads. ROMs, local media and file downloads use short-lived signed links instead of the API key, and rotating the key revokes them
 - Without a key, `/api/v3/system/status` (the Docker healthcheck) only answers `{"status":"ok"}`
 

@@ -1032,6 +1032,7 @@ namespace RetroArr.Api.V3.Settings
                     _logger.Info($"[GOG] Platform fallback extension: {platformExt} -> {fileName}");
                 }
 
+                fileName = RetroArr.Core.IO.FileNameSanitizer.Sanitize(System.IO.Path.GetFileName(fileName), "gog_setup");
                 var filePath = System.IO.Path.Combine(downloadPath, fileName);
 
                 _logger.Info($"[GOG] Starting download: {fileName} -> {filePath}");

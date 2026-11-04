@@ -120,15 +120,18 @@ interface GogDownloadResult extends Partial<TorrentResult> {
 }
 
 function sanitizeHtml(html: string): string {
+  const allowed = ['p', 'br', 'b', 'i', 'em', 'strong', 'ul', 'ol', 'li'];
+  const dropped = ['script', 'style', 'iframe', 'object', 'embed'];
   const doc = new DOMParser().parseFromString(html, 'text/html');
-  // Remove dangerous elements
-  doc.querySelectorAll('script,iframe,object,embed,form,input,textarea,button,meta,link,style').forEach(el => el.remove());
-  // Remove event handler attributes from all elements
-  doc.querySelectorAll('*').forEach(el => {
-    for (const attr of Array.from(el.attributes)) {
-      if (attr.name.startsWith('on') || (attr.name === 'href' && attr.value.trimStart().startsWith('javascript'))) {
-        el.removeAttribute(attr.name);
-      }
+  // Allowlist: simple formatting without attributes stays, other tags are unwrapped to their content
+  doc.body.querySelectorAll('*').forEach(el => {
+    const tag = el.tagName.toLowerCase();
+    if (allowed.includes(tag)) {
+      for (const attr of Array.from(el.attributes)) el.removeAttribute(attr.name);
+    } else if (dropped.includes(tag)) {
+      el.remove();
+    } else {
+      el.replaceWith(...Array.from(el.childNodes));
     }
   });
   return doc.body.innerHTML;

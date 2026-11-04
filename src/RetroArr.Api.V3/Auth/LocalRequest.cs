@@ -10,6 +10,9 @@ namespace RetroArr.Api.V3.Auth
     {
         public const string SocketPeerItem = "RetroArr.SocketPeer";
 
+        // Only the desktop app binds to loopback itself; headless may sit behind a same-host proxy
+        public static bool Enabled { get; set; }
+
         // X-Original-* are set by ForwardedHeadersMiddleware when it rewrites the request.
         private static readonly string[] ProxyHeaders =
         {
@@ -24,6 +27,8 @@ namespace RetroArr.Api.V3.Auth
 
         public static bool IsLocal(HttpContext context)
         {
+            if (!Enabled) return false;
+
             // Without the recorded peer there is nothing trustworthy to decide on
             if (!context.Items.TryGetValue(SocketPeerItem, out var value) || value is not IPAddress peer)
                 return false;
@@ -38,13 +43,21 @@ namespace RetroArr.Api.V3.Auth
 
             // A browser can be steered at the loopback port by another site: DNS rebinding
             // leaves the attacker's name in Host, a cross-site request says so in Sec-Fetch-Site.
-            var host = (context.Request.Host.Host ?? string.Empty).Trim('[', ']');
-            var hostIsLoopback = host.Equals("localhost", System.StringComparison.OrdinalIgnoreCase)
-                                 || (IPAddress.TryParse(host, out var hostAddress) && IPAddress.IsLoopback(hostAddress));
-            if (!hostIsLoopback) return false;
+            if (!IsLoopbackHost(context.Request.Host.Host)) return false;
+
+            var origin = context.Request.Headers["Origin"].ToString();
+            if (origin.Length > 0 && !IsLoopbackHost(System.Uri.TryCreate(origin, System.UriKind.Absolute, out var originUri) ? originUri.Host : string.Empty))
+                return false;
 
             var fetchSite = context.Request.Headers["Sec-Fetch-Site"].ToString();
             return fetchSite.Length == 0 || fetchSite == "same-origin" || fetchSite == "none";
+        }
+
+        private static bool IsLoopbackHost(string? host)
+        {
+            host = (host ?? string.Empty).Trim('[', ']');
+            return host.Equals("localhost", System.StringComparison.OrdinalIgnoreCase)
+                   || (IPAddress.TryParse(host, out var address) && IPAddress.IsLoopback(address));
         }
     }
 }

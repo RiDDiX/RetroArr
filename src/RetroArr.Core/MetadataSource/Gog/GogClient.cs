@@ -277,7 +277,17 @@ namespace RetroArr.Core.MetadataSource.Gog
                 return null;
             }
 
-            var fullUrl = manualUrl.StartsWith("http") ? manualUrl : $"{GogEmbedUrl}{manualUrl}";
+            // The bearer token goes with this request, so only ever to GOG over https
+            if (!Uri.TryCreate(new Uri(GogEmbedUrl.TrimEnd('/') + "/"), manualUrl, out var uri)
+                || uri.Scheme != Uri.UriSchemeHttps
+                || !(uri.Host.Equals("embed.gog.com", StringComparison.OrdinalIgnoreCase)
+                     || uri.Host.Equals("www.gog.com", StringComparison.OrdinalIgnoreCase)
+                     || uri.Host.Equals("gog.com", StringComparison.OrdinalIgnoreCase)))
+            {
+                _logger.Error($"[GOG] GetDownloadUrl: refusing non-GOG download URL {manualUrl}");
+                return null;
+            }
+            var fullUrl = uri.ToString();
             _logger.Info($"[GOG] Resolving download URL: {fullUrl}");
 
             // Use a separate handler that does NOT follow redirects so we can capture CDN URLs
