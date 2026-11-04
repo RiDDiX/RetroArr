@@ -1,3 +1,8 @@
+## v1.0.235 (2026-11-04)
+
+### Changes
+- fix platform folder names: align with Batocera, RetroBat and ES-DE (4a6cef3)
+
 ## v1.0.234 (2026-11-04)
 
 ### Changes
