@@ -1,3 +1,14 @@
+## v1.0.236 (2026-11-04)
+
+### Changes
+- fix metadata review collisions and ignored scan items (0a5bae1)
+- fix frontend: api client, polling, translations, build and tests (4162d5e)
+- fix local-media paths, Steam prices, GOG tokens, path guard (9556003)
+- security: tighten auth, TLS, perms, logging; update tests (025f2c7)
+- fix frontend: remove react-query, stale pages and unused code (4e5d30f)
+- fix imports, downloads, IGDB, indexer, resort and state files (aca8282)
+- security: headless requires api key, sanitize GOG and emulator paths (c81928c)
+
 ## v1.0.235 (2026-11-04)
 
 ### Changes
