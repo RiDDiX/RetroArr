@@ -19,6 +19,7 @@ namespace RetroArr.Core.Download
         public static async Task<(byte[] Content, string Filename)> FetchAsync(string nzbUrl)
         {
             using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("User-Agent", "RetroArr/1.0");
             using var response = await http.GetAsync(nzbUrl);
             response.EnsureSuccessStatusCode();
             var content = await response.Content.ReadAsByteArrayAsync();
