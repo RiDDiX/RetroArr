@@ -1,3 +1,8 @@
+## v1.0.238 (2026-11-06)
+
+### Changes
+- Send a User-Agent header when fetching NZB files (#14) (3a8d225)
+
 ## v1.0.237 (2026-11-04)
 
 ### Changes
