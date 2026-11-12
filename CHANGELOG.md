@@ -1,3 +1,9 @@
+## v1.0.239 (2026-11-12)
+
+### Changes
+- Mark downloads failed for 7 days to prevent re-sending dead grabs (#15) (8e7ebe4)
+- Mark downloads the client reports as failed as DownloadFailed (#15) (f61120e)
+
 ## v1.0.238 (2026-11-06)
 
 ### Changes
