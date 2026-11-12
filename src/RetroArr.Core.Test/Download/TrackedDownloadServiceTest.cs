@@ -283,6 +283,8 @@ namespace RetroArr.Core.Test.Download
         // Retried or resumed in the client
         [TestCase(DownloadState.Downloading, TrackedDownloadState.Downloading)]
         [TestCase(DownloadState.Queued, TrackedDownloadState.Downloading)]
+        [TestCase(DownloadState.Paused, TrackedDownloadState.Downloading)]
+        [TestCase(DownloadState.Checking, TrackedDownloadState.Downloading)]
         [TestCase(DownloadState.Completed, TrackedDownloadState.ImportPending)]
         public void FailedDownload_ClientWorksOnItAgain_PicksUp(DownloadState clientState, TrackedDownloadState expected)
         {
@@ -308,6 +310,34 @@ namespace RetroArr.Core.Test.Download
             Assert.That(service.Find(1, "nzo_2")?.State, Is.EqualTo(TrackedDownloadState.DownloadFailed));
         }
 
+        // NZBGet's DELETED history entries and statuses no client mapping knows are no retry
+        [TestCase(DownloadState.Deleted)]
+        [TestCase(DownloadState.Unknown)]
+        public void FailedDownload_DeletedOrUnknown_StaysFailed(DownloadState clientState)
+        {
+            var service = new TrackedDownloadService(_root);
+            var tracked = service.TrackDownload(Failed("7", "Game A", "Unpack failed"), 1, "NZBGet");
+
+            service.TrackDownload(Status("7", "Game A", clientState), 1, "NZBGet");
+
+            Assert.That((tracked.State, tracked.Status), Is.EqualTo((TrackedDownloadState.DownloadFailed, TrackedDownloadStatus.Error)));
+            Assert.That(tracked.StatusMessages, Is.EqualTo(new[] { "Unpack failed" }));
+        }
+
+        [Test]
+        public void FailedDownload_ClientGivesANewReason_KeepsTheNewOne()
+        {
+            var service = new TrackedDownloadService(_root);
+            var tracked = service.TrackDownload(Failed("nzo_1", "Game A", "Aborted, cannot be completed"), 1, "SABnzbd");
+
+            service.TrackDownload(Failed("nzo_1", "Game A", "Repair failed, not enough repair blocks"), 1, "SABnzbd");
+            service.TrackDownload(Failed("nzo_1", "Game A"), 1, "SABnzbd");
+
+            Assert.That(tracked.State, Is.EqualTo(TrackedDownloadState.DownloadFailed));
+            Assert.That(tracked.StatusMessages, Is.EqualTo(new[] { "Repair failed, not enough repair blocks" }));
+            Assert.That(new TrackedDownloadService(_root).Find(1, "nzo_1")?.StatusMessages, Is.EqualTo(new[] { "Repair failed, not enough repair blocks" }));
+        }
+
         // Otherwise the monitored search skips the game until the grab expires
         [Test]
         public void ClientReportsFailure_ReleasesTheGrabForTheGame()
@@ -322,7 +352,290 @@ namespace RetroArr.Core.Test.Download
             service.TrackDownload(Failed("nzo_1", "Game A"), 1, "SABnzbd", grabs);
 
             Assert.That(grabs.HasPendingGrab(7), Is.False);
+            Assert.That(grabs.IsFailedGrab("Game A", null, 7), Is.True, "the monitor would send the failed release again");
             Assert.That((tracked.PlatformFolder, tracked.GameId), Is.EqualTo(("switch", (int?)7)), "a retry still knows its game");
+        }
+
+        // Retried in the client: the grab holds back the next search again, so the game is not grabbed twice
+        [Test]
+        public void FailedDownload_RetriedInTheClient_IsAPendingGrabAgain()
+        {
+            var grabs = new DownloadPlatformTracker(_root);
+            grabs.Track("Game A", "switch", 7);
+            var service = new TrackedDownloadService(_root);
+            service.TrackDownload(Failed("nzo_1", "Game A"), 1, "SABnzbd", grabs);
+
+            var tracked = service.TrackDownload(Status("nzo_1", "Game A", DownloadState.Downloading), 1, "SABnzbd", grabs);
+
+            Assert.That(tracked.State, Is.EqualTo(TrackedDownloadState.Downloading));
+            Assert.That(grabs.HasPendingGrab(7), Is.True);
+            Assert.That(grabs.IsFailedGrab("Game A", null, 7), Is.False);
+        }
+
+        // SABnzbd's retry is a new job under the same name; the failed one left the client's list
+        [TestCase(DownloadState.Downloading, true)]
+        [TestCase(DownloadState.Queued, true)]
+        [TestCase(DownloadState.Deleted, false)]
+        [TestCase(DownloadState.Unknown, false)]
+        public void FailedDownload_RetriedAsANewJob_IsAPendingGrabAgain(DownloadState clientState, bool pending)
+        {
+            var grabs = new DownloadPlatformTracker(_root);
+            grabs.Track("Game A", "switch", 7);
+            var service = new TrackedDownloadService(_root);
+            service.TrackDownload(Failed("nzo_1", "Game A"), 1, "SABnzbd", grabs);
+            service.ReconcileWithClientIds(new HashSet<(int, string)>());
+
+            service.TrackDownload(Status("nzo_2", "Game A", clientState), 1, "SABnzbd", grabs);
+
+            Assert.That(grabs.HasPendingGrab(7), Is.EqualTo(pending));
+            Assert.That(grabs.IsFailedGrab("Game A", null, 7), Is.EqualTo(!pending));
+        }
+
+        // An NZBGet that lost its queue gives the number of a job it knew to a new one that fails at once
+        [Test]
+        public void SameNumberUnderAnotherName_FailedAtOnce_FailsItsGrab()
+        {
+            var grabs = new DownloadPlatformTracker(_root);
+            grabs.Track("Game B", "switch", 8);
+            var service = new TrackedDownloadService(_root);
+            service.TrackDownload(Failed("1", "Game A"), 1, "NZBGet", grabs);
+
+            service.TrackDownload(Failed("1", "Game B"), 1, "NZBGet", grabs);
+
+            Assert.That(grabs.HasPendingGrab(8), Is.False);
+            Assert.That(grabs.IsFailedGrab("Game B", null, 8), Is.True);
+        }
+
+        // A retry under a new id, or a second grab of the release, still depends on the grab
+        [Test]
+        public void FailedDownload_SameNameStillDownloading_KeepsTheGrabPending()
+        {
+            var grabs = new DownloadPlatformTracker(_root);
+            grabs.Track("Game A", "switch", 7);
+            var service = new TrackedDownloadService(_root);
+            service.TrackDownload(Status("nzo_1", "Game A", DownloadState.Downloading), 1, "SABnzbd", grabs);
+            service.TrackDownload(Status("hash_b", "game a", DownloadState.Downloading), 2, "qBittorrent", grabs);
+
+            service.TrackDownload(Failed("nzo_1", "Game A"), 1, "SABnzbd", grabs);
+
+            Assert.That(grabs.HasPendingGrab(7), Is.True);
+            Assert.That(grabs.IsFailedGrab("Game A", null, 7), Is.False);
+
+            service.TrackDownload(Failed("hash_b", "game a"), 2, "qBittorrent", grabs);
+
+            Assert.That(grabs.HasPendingGrab(7), Is.False, "no job of the name is left");
+            Assert.That(grabs.IsFailedGrab("Game A", null, 7), Is.True);
+        }
+
+        [Test]
+        public void FailedDownload_ThenSameNameAsANewJob_KeepsTheGrabPending()
+        {
+            var grabs = new DownloadPlatformTracker(_root);
+            grabs.Track("Game A", "switch", 7);
+            var service = new TrackedDownloadService(_root);
+            service.TrackDownload(Failed("nzo_1", "Game A"), 1, "SABnzbd", grabs);
+
+            service.TrackDownload(Status("nzo_2", "Game A", DownloadState.Downloading), 1, "SABnzbd", grabs);
+            service.TrackDownload(Failed("nzo_1", "Game A"), 1, "SABnzbd", grabs);
+
+            Assert.That(grabs.HasPendingGrab(7), Is.True);
+            Assert.That(grabs.IsFailedGrab("Game A", null, 7), Is.False);
+        }
+
+        // The other job was deleted in the client after the failure: nothing holds the grab any more
+        [Test]
+        public void FailedDownload_SameNameGoneLater_FailsTheGrabOnTheNextPoll()
+        {
+            var grabs = new DownloadPlatformTracker(_root);
+            grabs.Track("Game A", "switch", 7);
+            var service = new TrackedDownloadService(_root);
+            service.TrackDownload(Status("nzo_1", "Game A", DownloadState.Downloading), 1, "SABnzbd", grabs);
+            service.TrackDownload(Status("hash_b", "Game A", DownloadState.Downloading), 2, "qBittorrent", grabs);
+            service.TrackDownload(Failed("nzo_1", "Game A"), 1, "SABnzbd", grabs);
+            Assert.That(grabs.HasPendingGrab(7), Is.True);
+
+            service.ReconcileWithClientIds(new HashSet<(int, string)> { (1, "nzo_1") });
+            service.TrackDownload(Failed("nzo_1", "Game A"), 1, "SABnzbd", grabs);
+
+            Assert.That(grabs.HasPendingGrab(7), Is.False);
+            Assert.That(grabs.IsFailedGrab("Game A", null, 7), Is.True);
+        }
+
+        // The client reported it Completed, so it waits for its import
+        [Test]
+        public void FailedDownload_SameNameWaitingForImport_KeepsTheGrabPending()
+        {
+            var grabs = new DownloadPlatformTracker(_root);
+            grabs.Track("Game A", "switch", 7);
+            var service = new TrackedDownloadService(_root);
+            service.TrackDownload(Status("nzo_1", "Game A", DownloadState.Downloading), 1, "SABnzbd", grabs);
+            var other = service.TrackDownload(Status("hash_b", "Game A", DownloadState.Completed), 2, "qBittorrent", grabs);
+
+            service.TrackDownload(Failed("nzo_1", "Game A"), 1, "SABnzbd", grabs);
+
+            Assert.That(other.State, Is.EqualTo(TrackedDownloadState.ImportPending));
+            Assert.That(grabs.HasPendingGrab(7), Is.True);
+        }
+
+        // 'Tetris (USA)' for two systems is two games: the other one's download does not hold this grab
+        [Test]
+        public void FailedDownload_SameNameOfAnotherGame_FailsTheGrab()
+        {
+            var grabs = new DownloadPlatformTracker(_root);
+            grabs.Track("http://prowlarr:9696/1/download?apikey=x&file=Tetris+(USA)", "gb", 1, null, "Tetris (USA)");
+            grabs.Track("http://prowlarr:9696/2/download?apikey=x&file=Tetris+(USA)", "nes", 2, null, "Tetris (USA)");
+            var service = new TrackedDownloadService(_root);
+            var gameBoy = service.TrackDownload(Status("nzo_1", "Tetris (USA)", DownloadState.Downloading), 1, "SABnzbd", grabs);
+            var nes = service.TrackDownload(Status("nzo_2", "Tetris (USA)", DownloadState.Downloading), 1, "SABnzbd", grabs);
+            (gameBoy.GameId, gameBoy.GameSetByHand) = (1, true);
+            (nes.GameId, nes.GameSetByHand) = (2, true);
+
+            service.TrackDownload(Failed("nzo_2", "Tetris (USA)"), 1, "SABnzbd", grabs);
+
+            Assert.That(grabs.HasPendingGrab(2), Is.False);
+            Assert.That(grabs.HasPendingGrab(1), Is.True);
+        }
+
+        // With no grab stored since its mark, polling a failed download again leaves the grabs file alone
+        [Test]
+        public void FailedDownload_PolledAgain_LeavesTheFile()
+        {
+            var file = Path.Combine(_root, "download_platform_map.json");
+            var grabs = new DownloadPlatformTracker(_root);
+            grabs.Track("Game A", "switch", 7);
+            var service = new TrackedDownloadService(_root);
+            service.TrackDownload(Failed("nzo_1", "Game A"), 1, "SABnzbd", grabs);
+            Assert.That(grabs.IsFailedGrab("Game A", null, 7), Is.True);
+            File.WriteAllText(file, "[]");
+
+            service.TrackDownload(Failed("nzo_1", "Game A"), 1, "SABnzbd", grabs);
+            service.TrackDownload(Failed("nzo_1", "Game A"), 1, "SABnzbd", grabs);
+
+            Assert.That(File.ReadAllText(file), Is.EqualTo("[]"));
+        }
+
+        // The client's history outlives the failure: the old job must not fail a later grab whose own job is live
+        [Test]
+        public void FailedDownload_StillListed_LeavesALaterGrabPending()
+        {
+            const string later = "http://prowlarr:9696/2/download?apikey=x&file=Game+A";
+            var grabs = new DownloadPlatformTracker(_root);
+            grabs.Track("Game A", "switch", 7);
+            var service = new TrackedDownloadService(_root);
+            service.TrackDownload(Failed("nzo_1", "Game A"), 1, "SABnzbd", grabs);
+            Assert.That(grabs.HasPendingGrab(7), Is.False);
+
+            grabs.Track(later, "switch", 7);
+            service.TrackDownload(Status("nzo_2", "Game A", DownloadState.Downloading), 1, "SABnzbd", grabs);
+            service.TrackDownload(Failed("nzo_1", "Game A"), 1, "SABnzbd", grabs);
+            service.TrackDownload(Failed("nzo_1", "Game A"), 1, "SABnzbd", grabs);
+
+            Assert.That(grabs.HasPendingGrab(7), Is.True);
+            Assert.That(grabs.IsFailedGrab(later, null, 7), Is.False);
+        }
+
+        [Test]
+        public void FailedDownload_RetriedInTheClientAndFailedAgain_FailsTheGrabAgain()
+        {
+            var grabs = new DownloadPlatformTracker(_root);
+            grabs.Track("Game A", "switch", 7);
+            var service = new TrackedDownloadService(_root);
+            service.TrackDownload(Failed("nzo_1", "Game A"), 1, "SABnzbd", grabs);
+            service.TrackDownload(Status("nzo_1", "Game A", DownloadState.Downloading), 1, "SABnzbd", grabs);
+            Assert.That(grabs.HasPendingGrab(7), Is.True);
+
+            service.TrackDownload(Failed("nzo_1", "Game A"), 1, "SABnzbd", grabs);
+
+            Assert.That(grabs.HasPendingGrab(7), Is.False);
+            Assert.That(grabs.IsFailedGrab("Game A", null, 7), Is.True);
+        }
+
+        // With a known game, a live job of the game holds the mark back whatever its name
+        [Test]
+        public void FailedDownload_SameGameStillDownloading_FailsTheGrabOnceItIsGone()
+        {
+            var grabs = new DownloadPlatformTracker(_root);
+            grabs.Track("Sonic (USA)", "genesis", 7);
+            grabs.Track("Sonic (USA) [!]", "genesis", 7);
+            var service = new TrackedDownloadService(_root);
+            service.TrackDownload(Status("nzo_1", "Sonic (USA)", DownloadState.Downloading), 1, "SABnzbd", grabs);
+            service.TrackDownload(Status("hash_b", "Sonic (USA) [!]", DownloadState.Downloading), 2, "qBittorrent", grabs);
+
+            service.TrackDownload(Failed("nzo_1", "Sonic (USA)"), 1, "SABnzbd", grabs);
+
+            Assert.That(grabs.IsFailedGrab("Sonic (USA)", null, 7), Is.False);
+
+            service.ReconcileWithClientIds(new HashSet<(int, string)> { (1, "nzo_1") });
+            service.TrackDownload(Failed("nzo_1", "Sonic (USA)"), 1, "SABnzbd", grabs);
+
+            Assert.That(grabs.IsFailedGrab("Sonic (USA)", null, 7), Is.True);
+        }
+
+        // A torrent client keeps the failed torrent under its hash and answers the same release sent again after the
+        // 7 days as a duplicate: the new grab is that failed job's
+        [Test]
+        public void FailedTorrent_SameReleaseSentAgain_FailsTheNewGrab()
+        {
+            var grabs = new DownloadPlatformTracker(_root);
+            grabs.Track("Game A", "switch", 7);
+            var service = new TrackedDownloadService(_root);
+            service.TrackDownload(Failed(Hash, "Game A"), 2, "qBittorrent", grabs);
+
+            grabs.Track("Game A", "switch", 7);
+            Assert.That(grabs.HasPendingGrab(7), Is.True);
+            service.TrackDownload(Failed(Hash, "Game A"), 2, "qBittorrent", grabs);
+
+            Assert.That(grabs.HasPendingGrab(7), Is.False);
+            Assert.That(grabs.IsFailedGrab("Game A", null, 7), Is.True);
+        }
+
+        // The queue's map-platform stores a new mapping for the game the failed download is mapped to
+        [Test]
+        public void FailedDownload_MappedToAnotherGame_FailsTheNewMapping()
+        {
+            var grabs = new DownloadPlatformTracker(_root);
+            grabs.Track("http://prowlarr:9696/1/download?apikey=x&file=Game+A", "switch", 7);
+            var service = new TrackedDownloadService(_root);
+            var tracked = service.TrackDownload(Failed("nzo_1", "Game A"), 1, "SABnzbd", grabs);
+
+            (tracked.GameId, tracked.GameSetByHand) = (8, true);
+            grabs.SetPlatformForDownload("Game A", "switch", 8);
+            Assert.That(grabs.HasPendingGrab(8), Is.True);
+            service.TrackDownload(Failed("nzo_1", "Game A"), 1, "SABnzbd", grabs);
+
+            Assert.That(grabs.HasPendingGrab(8), Is.False);
+        }
+
+        // Mapped by hand to no game: the name decides, and the other job's grab is found by that name
+        [Test]
+        public void FailedDownloadWithoutGame_SameNameStillDownloading_KeepsTheGrabPending()
+        {
+            var grabs = new DownloadPlatformTracker(_root);
+            grabs.Track("Game A", "switch", 7);
+            var service = new TrackedDownloadService(_root);
+            var failed = service.TrackDownload(Status("nzo_1", "Game A", DownloadState.Downloading), 1, "SABnzbd", grabs);
+            (failed.GameId, failed.GameSetByHand) = (null, true);
+            var other = service.TrackDownload(Status("hash_b", "Game A", DownloadState.Downloading), 2, "qBittorrent", grabs);
+
+            service.TrackDownload(Failed("nzo_1", "Game A"), 1, "SABnzbd", grabs);
+
+            Assert.That((failed.State, other.GameId), Is.EqualTo((TrackedDownloadState.DownloadFailed, (int?)7)));
+            Assert.That(grabs.HasPendingGrab(7), Is.True);
+        }
+
+        // NZBGet lost its queue and lists a deleted job under the number of the failed one: no retry of it
+        [TestCase(DownloadState.Deleted)]
+        [TestCase(DownloadState.Unknown)]
+        public void FailedDownload_NumberTakenByAnotherJob_KeepsTheGrabFailed(DownloadState clientState)
+        {
+            var grabs = new DownloadPlatformTracker(_root);
+            grabs.Track("Sonic (USA)", "genesis", 7);
+            var service = new TrackedDownloadService(_root);
+            service.TrackDownload(Failed("1", "Sonic (USA)"), 1, "NZBGet", grabs);
+
+            service.TrackDownload(Status("1", "Sonic (USA) [!]", clientState), 1, "NZBGet", grabs);
+
+            Assert.That(grabs.IsFailedGrab("Sonic (USA)", null, 7), Is.True);
         }
     }
 }

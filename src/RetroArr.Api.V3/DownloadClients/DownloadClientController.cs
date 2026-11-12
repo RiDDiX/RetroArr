@@ -382,6 +382,7 @@ namespace RetroArr.Api.V3.DownloadClients
                     return Conflict(new { error = "Import already running." });
                 try
                 {
+                    var wasFailed = tracked.State == TrackedDownloadState.DownloadFailed;
                     // Force state to ImportPending for manual import
                     tracked.ClearWarnings();
                     tracked.State = TrackedDownloadState.ImportPending;
@@ -395,6 +396,9 @@ namespace RetroArr.Api.V3.DownloadClients
                         var reason = tracked.StatusMessages.Count > 0 ? string.Join("; ", tracked.StatusMessages) : "Import blocked (unknown reason)";
                         return BadRequest(new { message = reason });
                     }
+
+                    // A failed job imported by hand must not leave its grab marked failed
+                    if (wasFailed) _platformTracker.ClearFailed(download.Name, tracked.GameId);
 
                     // Phase 2: Import
                     await _completedDownloadService.ImportAsync(tracked);
@@ -618,7 +622,7 @@ namespace RetroArr.Api.V3.DownloadClients
                 }
                 if (!string.IsNullOrEmpty(platformFolder) || request.GameId.HasValue)
                 {
-                    _platformTracker.Track(request.Url, platformFolder, request.GameId, importSubfolder);
+                    _platformTracker.Track(request.Url, platformFolder, request.GameId, importSubfolder, request.ReleaseTitle);
                 }
                 
                 DownloadClient? client = null;
@@ -1034,7 +1038,8 @@ namespace RetroArr.Api.V3.DownloadClients
                 t.State == TrackedDownloadState.Downloading ||
                 t.State == TrackedDownloadState.ImportPending ||
                 t.State == TrackedDownloadState.ImportBlocked ||
-                t.State == TrackedDownloadState.Importing);
+                t.State == TrackedDownloadState.Importing ||
+                t.State == TrackedDownloadState.DownloadFailed);
 
             var failed = tracked.Count(t => t.State == TrackedDownloadState.ImportFailed);
 

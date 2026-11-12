@@ -14,6 +14,7 @@ using RetroArr.Core.Configuration;
 using RetroArr.Core.Data;
 using RetroArr.Core.Download;
 using RetroArr.Core.Download.History;
+using RetroArr.Core.Download.TrackedDownloads;
 using RetroArr.Core.Games;
 using RetroArr.Core.Indexers;
 using RetroArr.Core.Jackett;
@@ -76,7 +77,7 @@ namespace RetroArr.Core.Test.Search
                     Title = r.Title,
                     Guid = "https://tracker.invalid/t/1",
                     Link = "",
-                    MagnetUri = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
+                    MagnetUri = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=" + Uri.EscapeDataString(r.Title),
                     Tracker = "tracker",
                     Size = 0,
                     PublishDate = DateTime.UtcNow,
@@ -326,6 +327,69 @@ namespace RetroArr.Core.Test.Search
             Assert.That(second.AutoQueued, Is.False);
             Assert.That(second.AutoDispatchSkipped, Is.EqualTo("an earlier grab for this game is not imported yet"));
             Assert.That(MagnetsAdded(deluge), Is.EqualTo(1), "the release was sent again while the first grab was pending");
+        }
+
+        // The client failed the grab: the next search sends the next release, not the dead one again
+        [Test]
+        public async Task AutoGrab_AfterTheReleaseFailedInTheClient_SendsTheNextOne()
+        {
+            using var jackett = FakeJackett(("Halo 3 X360 P2P", 1050), ("Halo 3 X360 iNSOMNi", 1050));
+            using var deluge = FakeDeluge();
+            var config = AutoGrabConfig(deluge.Port);
+
+            var first = await Search(config, jackett.Port, autoDispatch: true);
+            ClientFails(first.AutoQueuedRelease!);
+            var second = await Search(config, jackett.Port, autoDispatch: true);
+
+            Assert.That(first.AutoQueued, Is.True);
+            Assert.That(second.AutoQueued, Is.True);
+            Assert.That(second.AutoQueuedRelease, Is.Not.EqualTo(first.AutoQueuedRelease));
+            Assert.That(MagnetsAdded(deluge), Is.EqualTo(2));
+        }
+
+        [Test]
+        public async Task AutoGrab_OnlyTheFailedReleaseFound_SendsNothing()
+        {
+            using var jackett = FakeJackett(("Halo 3 X360 P2P", 1050));
+            using var deluge = FakeDeluge();
+            var config = AutoGrabConfig(deluge.Port);
+
+            var first = await Search(config, jackett.Port, autoDispatch: true);
+            ClientFails(first.AutoQueuedRelease!);
+            var second = await Search(config, jackett.Port, autoDispatch: true);
+
+            Assert.That(first.AutoQueued, Is.True);
+            Assert.That(second.Scored.Single().Decision, Is.EqualTo(ReleaseDecision.AutoDownload));
+            Assert.That(second.AutoQueued, Is.False);
+            Assert.That(MagnetsAdded(deluge), Is.EqualTo(1), "the failed release was sent again");
+        }
+
+        // Another indexer lists the same release under another link
+        [Test]
+        public async Task AutoGrab_TheFailedReleaseUnderAnotherLink_SendsNothing()
+        {
+            using var jackett = FakeJackett(("Halo 3 X360 P2P", 1050));
+            using var otherJackett = new FakeServer(JackettResults(("Halo 3 X360 P2P", 1050))
+                .Replace("0123456789abcdef0123456789abcdef01234567", "fedcba9876543210fedcba9876543210fedcba98", StringComparison.Ordinal));
+            using var deluge = FakeDeluge();
+            var config = AutoGrabConfig(deluge.Port);
+
+            var first = await Search(config, jackett.Port, autoDispatch: true);
+            ClientFails(first.AutoQueuedRelease!);
+            var second = await Search(config, otherJackett.Port, autoDispatch: true);
+
+            Assert.That(first.AutoQueued, Is.True);
+            Assert.That(second.AutoQueued, Is.False);
+            Assert.That(MagnetsAdded(deluge), Is.EqualTo(1), "the failed release was sent again");
+        }
+
+        // Deluge reports the job under the magnet's name and the download monitor sees it failed
+        private void ClientFails(string jobName)
+        {
+            var config = Path.Combine(_root, "config");
+            new TrackedDownloadService(config).TrackDownload(
+                new DownloadStatus { Id = "0123456789abcdef0123456789abcdef01234567", Name = jobName, State = DownloadState.Error }, 1, "deluge",
+                new DownloadPlatformTracker(config));
         }
 
         [Test]

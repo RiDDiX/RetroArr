@@ -264,6 +264,28 @@ namespace RetroArr.Core.Test.Download
             Assert.That(downloads.Single().State, Is.EqualTo(expected));
         }
 
+        // Only a local error (3: disk full, no permission, data gone) fails the download; tracker trouble (1, 2) does not
+        [TestCase(3, DownloadState.Error, "No data found! Ensure your drives are connected")]
+        [TestCase(2, DownloadState.Downloading, null)]
+        [TestCase(1, DownloadState.Downloading, null)]
+        // Finished, then its data went away (moved by the import): still finished
+        [TestCase(3, DownloadState.Completed, null, 1.0, 6)]
+        [TestCase(3, DownloadState.Completed, null, 1.0, 0)]
+        public async Task Downloads_LocalErrorIsAFailedDownload(int error, DownloadState expected, string? message, double percentDone = 0.5, int status = 4)
+        {
+            using var tr = new FakeTransmission
+            {
+                Torrents = "[{\"hashString\":\"0123456789abcdef0123456789abcdef01234567\",\"name\":\"Some.Game-GRP\",\"totalSize\":1,\"percentDone\":" +
+                           FormattableString.Invariant($"{percentDone},\"status\":{status},") +
+                           $"\"downloadDir\":\"/downloads\",\"error\":{error},\"errorString\":\"No data found! Ensure your drives are connected\"}}]"
+            };
+
+            var download = (await new TransmissionClient("127.0.0.1", tr.Port, "u", "p").GetDownloadsAsync()).Single();
+
+            Assert.That(download.State, Is.EqualTo(expected));
+            Assert.That(download.StatusMessages, message == null ? Is.Empty : Is.EqualTo(new[] { message }));
+        }
+
         [Test]
         public async Task Actions_SendNumericIdsAsNumbersAndHashesAsStrings()
         {

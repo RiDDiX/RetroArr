@@ -182,7 +182,7 @@ function getStateBadgeClass(state: string | number): string {
   if (lower.includes('ignored')) return 'paused';
   if (lower.includes('complet')) return 'completed';
   if (lower.includes('paus')) return 'paused';
-  if (lower.includes('error') || lower.includes('fail')) return 'error';
+  if (lower.includes('error')) return 'error';
   return 'downloading';
 }
 

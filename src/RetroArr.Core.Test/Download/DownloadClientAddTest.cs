@@ -86,6 +86,7 @@ namespace RetroArr.Core.Test.Download
             var tracked = tracker.GetAll().Single();
             Assert.That(tracked.PlatformFolder, Is.EqualTo("windows"));
             Assert.That(tracked.ImportSubfolder, Is.EqualTo("Patches"));
+            Assert.That(tracked.ReleaseTitle, Is.EqualTo("Halo 3 Update v1.2"), "the monitor would send the release again after it failed");
         }
 
         // The map dialog starts from what the import would do with the game and platform picked there:
@@ -350,6 +351,22 @@ namespace RetroArr.Core.Test.Download
             await controller.BlacklistFromHistory(3);
 
             Assert.That(tracker.HasPendingGrab(1), Is.False);
+        }
+
+        // The Queue tab lists a download the client failed, so its badge counts it; the Failed tab is import failures
+        [Test]
+        public async Task Counts_DownloadFailedIsActive()
+        {
+            var dbOptions = new DbContextOptionsBuilder<RetroArrDbContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .Options;
+            var trackedDownloads = new TrackedDownloadService(Path.Combine(_root, "config"));
+            trackedDownloads.TrackDownload(new DownloadStatus { Id = "1", Name = "Zelda (USA)", State = DownloadState.Error }, 1, "sabnzbd");
+            var controller = new DownloadCountsController(trackedDownloads, null!, new DownloadBlacklistRepository(new DbFactory(dbOptions)));
+
+            var counts = JsonSerializer.Serialize(((OkObjectResult)await controller.GetCounts()).Value);
+
+            Assert.That(counts, Is.EqualTo("{\"active\":1,\"failed\":0,\"unmapped\":0,\"blacklisted\":0}"));
         }
 
         // NZBGet job numbers only count per client: a new NZBGet on a deleted client's id would find its

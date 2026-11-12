@@ -29,7 +29,10 @@ namespace RetroArr.Core.Download
             Load();
         }
 
-        public void Track(string downloadUrl, string? platformFolder, int? gameId = null, string? importSubfolder = null)
+        // Grabs and mappings stored since start
+        public int EntriesAdded { get; private set; }
+
+        public void Track(string downloadUrl, string? platformFolder, int? gameId = null, string? importSubfolder = null, string? releaseTitle = null)
         {
             if (string.IsNullOrEmpty(platformFolder) && !gameId.HasValue) return;
 
@@ -44,8 +47,10 @@ namespace RetroArr.Core.Download
                     PlatformFolder = platformFolder ?? string.Empty,
                     GameId = gameId,
                     ImportSubfolder = importSubfolder,
+                    ReleaseTitle = releaseTitle,
                     AddedAt = DateTime.UtcNow
                 });
+                EntriesAdded++;
                 Save();
             }
         }
@@ -71,10 +76,51 @@ namespace RetroArr.Core.Download
         }
 
         // A grab for this game is still waiting for its import. Entries go away on import, when the grab
-        // is refused, blacklisted or deleted, or after 7 days.
+        // is refused, blacklisted or deleted, or after 7 days. A failed grab is not pending.
         public bool HasPendingGrab(int gameId)
         {
-            lock (_lock) { return _entries.Any(e => e.GameId == gameId && !IsExpired(e)); }
+            lock (_lock) { return _entries.Any(e => e.GameId == gameId && e.FailedAt == null && !IsExpired(e)); }
+        }
+
+        // The client reported the download as failed: the grab stays for 7 days so the monitor does not send it again
+        public void MarkFailed(string downloadName, int? gameId) => SetFailed(downloadName, gameId, DateTime.UtcNow);
+
+        // Retried in the client: pending again
+        public void ClearFailed(string downloadName, int? gameId) => SetFailed(downloadName, gameId, null);
+
+        private void SetFailed(string downloadName, int? gameId, DateTime? failedAt)
+        {
+            lock (_lock)
+            {
+                var changed = false;
+                // A job mapped by hand under its name hides the grab of that name from the lookups. Release names repeat
+                // across platforms, so only the grabs of the download's own game count.
+                var named = gameId > 0 ? _entries.Where(e => e.GameId == gameId && !IsExpired(e) && IsNamed(e, downloadName)) : Enumerable.Empty<TrackedDownload>();
+                // With the download's game known, another game's grab stays however the lookups found it
+                var resolved = Resolve(downloadName).OfType<TrackedDownload>().Where(e => !(gameId > 0 && e.GameId > 0 && e.GameId != gameId));
+                foreach (var entry in resolved.Concat(named))
+                {
+                    // Already in that state: skipped, so a repeated mark keeps the first FailedAt and its 7 days
+                    if ((entry.FailedAt != null) == (failedAt != null)) continue;
+                    // A retry counts as a new grab, so it does not expire with the one that failed
+                    if (failedAt == null) entry.AddedAt = DateTime.UtcNow;
+                    entry.FailedAt = failedAt;
+                    changed = true;
+                }
+                if (changed) Save();
+            }
+        }
+
+        // The same link is the same file for any game; the same title only for this game
+        public bool IsFailedGrab(string? downloadUrl, string? releaseTitle, int gameId)
+        {
+            var url = string.IsNullOrEmpty(downloadUrl) ? null : StripCredentials(downloadUrl);
+            lock (_lock)
+            {
+                return _entries.Any(e => e.FailedAt != null && !IsExpired(e) &&
+                    ((url != null && e.Url.Equals(url, StringComparison.OrdinalIgnoreCase)) ||
+                     (!string.IsNullOrEmpty(releaseTitle) && e.GameId == gameId && string.Equals(e.ReleaseTitle, releaseTitle, StringComparison.OrdinalIgnoreCase))));
+            }
         }
 
         // Drops the entry Track stored for this link, for a grab no client took
@@ -103,16 +149,11 @@ namespace RetroArr.Core.Download
             lock (_lock)
             {
                 // Remove entries older than 7 days and the ones the lookups resolved for this download.
-                // Mappings for other, similar names stay.
+                // Mappings for other, similar names stay, and so does a failed grab until it expires.
                 _entries.RemoveAll(IsExpired);
 
-                var matched = new[]
-                {
-                    Find(downloadName, _ => true),
-                    Find(downloadName, e => e.GameId.HasValue),
-                    Find(downloadName, e => !string.IsNullOrEmpty(e.ImportSubfolder)),
-                };
-                _entries.RemoveAll(e => matched.Contains(e));
+                var matched = Resolve(downloadName);
+                _entries.RemoveAll(e => e.FailedAt == null && matched.Contains(e));
 
                 Save();
             }
@@ -134,6 +175,7 @@ namespace RetroArr.Core.Download
                     ImportSubfolder = string.IsNullOrEmpty(importSubfolder) ? before?.ImportSubfolder : importSubfolder,
                     AddedAt = DateTime.UtcNow
                 });
+                EntriesAdded++;
                 Save();
             }
         }
@@ -192,7 +234,15 @@ namespace RetroArr.Core.Download
             }
         }
 
-        private static bool IsExpired(TrackedDownload entry) => entry.AddedAt < DateTime.UtcNow.AddDays(-7);
+        private static bool IsExpired(TrackedDownload entry) => (entry.FailedAt ?? entry.AddedAt) < DateTime.UtcNow.AddDays(-7);
+
+        // The entries the lookups resolve for this download
+        private TrackedDownload?[] Resolve(string downloadName) => new[]
+        {
+            Find(downloadName, _ => true),
+            Find(downloadName, e => e.GameId.HasValue),
+            Find(downloadName, e => !string.IsNullOrEmpty(e.ImportSubfolder)),
+        };
 
         // The newest live entry mapped under this exact name, else the newest for the same release name, else the
         // newest that is the same once bracketed tags and a file extension are dropped on both sides. Names are
@@ -315,5 +365,7 @@ namespace RetroArr.Core.Download
         public int? GameId { get; set; }
         public string? ImportSubfolder { get; set; }
         public DateTime AddedAt { get; set; }
+        public string? ReleaseTitle { get; set; }
+        public DateTime? FailedAt { get; set; }
     }
 }

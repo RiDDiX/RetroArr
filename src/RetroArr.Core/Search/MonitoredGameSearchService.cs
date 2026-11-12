@@ -140,7 +140,9 @@ namespace RetroArr.Core.Search
             // Auto-dispatch if eligible
             if (allowAutoDispatch && settings.Enabled)
             {
-                var top = scored.FirstOrDefault(s => s.Decision == ReleaseDecision.AutoDownload);
+                // A release the client already failed on is not sent again; the next one is
+                var top = scored.FirstOrDefault(s => s.Decision == ReleaseDecision.AutoDownload
+                                                     && !_platformTracker.IsFailedGrab(DispatchUrl(s.Release), s.Release.Title, gameId));
                 var skipped = top == null ? null : await WhyNotDispatchAsync(gameId, sweep, ct).ConfigureAwait(false);
                 if (skipped != null)
                 {
@@ -450,7 +452,7 @@ namespace RetroArr.Core.Search
                 return false;
             }
 
-            var url = !string.IsNullOrEmpty(release.MagnetUrl) ? release.MagnetUrl : release.DownloadUrl;
+            var url = DispatchUrl(release);
             if (string.IsNullOrEmpty(url))
             {
                 _logger.Warn("[Monitor] dispatch skipped: release has no download URL.");
@@ -458,13 +460,16 @@ namespace RetroArr.Core.Search
             }
 
             var platformFolder = game.Platform?.FolderName;
-            _platformTracker.Track(url, platformFolder, game.Id, null);
+            _platformTracker.Track(url, platformFolder, game.Id, null, release.Title);
 
             var sent = await SendToClientAsync(client, url).ConfigureAwait(false);
             // A grab the client didn't take must not hold back the next search as a pending one
             if (!sent) _platformTracker.Untrack(url);
             return sent;
         }
+
+        private static string? DispatchUrl(SearchResult release) =>
+            !string.IsNullOrEmpty(release.MagnetUrl) ? release.MagnetUrl : release.DownloadUrl;
 
         private static async Task<bool> SendToClientAsync(DownloadClient client, string url)
         {

@@ -56,11 +56,19 @@ namespace RetroArr.Core.Download.TrackedDownloads
                 if (!string.IsNullOrEmpty(downloadItem.ImportSubfolder) && string.IsNullOrEmpty(existing.ImportSubfolder))
                     existing.ImportSubfolder = downloadItem.ImportSubfolder;
 
-                // Retried or resumed in the client after it failed: it is downloading again
-                if (existing.State == TrackedDownloadState.DownloadFailed && downloadItem.State != DownloadState.Error)
+                // Retried or resumed in the client after it failed: it is downloading again. Deleted or an unknown
+                // status is no retry.
+                if (existing.State == TrackedDownloadState.DownloadFailed && IsWorking(downloadItem.State))
                 {
                     existing.State = TrackedDownloadState.Downloading;
                     existing.ClearWarnings();
+                    Save();
+                }
+                // Still failed, with a newer reason from the client
+                else if (existing.State == TrackedDownloadState.DownloadFailed && downloadItem.State == DownloadState.Error
+                         && !string.IsNullOrWhiteSpace(existing.ClientMessage) && existing.ClientMessage != existing.StatusMessages.FirstOrDefault())
+                {
+                    MarkDownloadFailed(existing, downloadItem);
                     Save();
                 }
 
@@ -107,6 +115,10 @@ namespace RetroArr.Core.Download.TrackedDownloads
             return tracked;
         }
 
+        // The client works on the download
+        private static bool IsWorking(DownloadState state) => state is DownloadState.Downloading
+            or DownloadState.Queued or DownloadState.Paused or DownloadState.Checking or DownloadState.Completed;
+
         // With the client's own reason where it gives one, such as SABnzbd's fail_message
         private static void MarkDownloadFailed(TrackedDownload tracked, DownloadStatus downloadItem)
         {
@@ -122,13 +134,38 @@ namespace RetroArr.Core.Download.TrackedDownloads
             download.PlatformFolder = grabs.LookupByName(download.Name);
             download.GameId = grabs.LookupGameId(download.Name);
             download.ImportSubfolder = grabs.LookupImportSubfolder(download.Name);
-            var failedBefore = Find(clientId, download.Id)?.State == TrackedDownloadState.DownloadFailed;
+            var before = Find(clientId, download.Id);
+            var failedBefore = before?.State == TrackedDownloadState.DownloadFailed;
             var tracked = TrackDownload(download, clientId, clientName);
+            // The id may now belong to another job
+            var trackedBefore = ReferenceEquals(before, tracked);
+            failedBefore &= trackedBefore;
             if (!string.IsNullOrEmpty(download.PlatformFolder) && string.IsNullOrEmpty(tracked.PlatformFolder))
                 tracked.PlatformFolder = download.PlatformFolder;
-            // A failed grab no longer holds back the monitor's next search for the game
-            if (tracked.State == TrackedDownloadState.DownloadFailed && !failedBefore)
-                grabs.MarkProcessed(download.Name);
+            // A failed grab no longer holds back the monitor's next search for the game, and is not sent again by it.
+            // A retry the client runs as a new job holds it back again.
+            var failedNow = tracked.State == TrackedDownloadState.DownloadFailed;
+            if (failedNow)
+            {
+                // Marked when it fails and checked again only once a grab was stored since, which may be this very job (a
+                // torrent sent again, a game mapped by hand). A live job of the same game, or of the same name when the
+                // game is unknown (a retry under a new id, a second grab), holds the mark back.
+                var stored = grabs.EntriesAdded;
+                if (tracked.GrabMarkedAt != stored && !_cache.Values.Any(t => !ReferenceEquals(t, tracked)
+                        && (tracked.GameId > 0 ? t.GameId == tracked.GameId : string.Equals(t.Title, tracked.Title, StringComparison.OrdinalIgnoreCase))
+                        && t.State is TrackedDownloadState.Downloading or TrackedDownloadState.ImportPending
+                            or TrackedDownloadState.ImportBlocked or TrackedDownloadState.Importing))
+                {
+                    grabs.MarkFailed(download.Name, tracked.GameId);
+                    tracked.GrabMarkedAt = stored;
+                }
+            }
+            else
+            {
+                tracked.GrabMarkedAt = null;
+                if (failedBefore || (!trackedBefore && IsWorking(download.State)))
+                    grabs.ClearFailed(download.Name, tracked.GameId);
+            }
             return tracked;
         }
 

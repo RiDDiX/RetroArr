@@ -36,6 +36,9 @@ namespace RetroArr.Core.Download.TrackedDownloads
         // Why the client reported no usable path, refreshed on every poll
         [System.Text.Json.Serialization.JsonIgnore]
         public string? ClientMessage { get; set; }
+        // The grabs' EntriesAdded when it last marked its grab failed; not saved, so a restart checks again
+        [System.Text.Json.Serialization.JsonIgnore]
+        public int? GrabMarkedAt { get; set; }
 
         public void Warn(string message)
         {

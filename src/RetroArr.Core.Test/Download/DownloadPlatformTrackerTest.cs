@@ -384,5 +384,212 @@ namespace RetroArr.Core.Test.Download
             Assert.That(tracker.LookupImportSubfolder("Retro.Game.QF-SVF"), Is.EqualTo("DLC"));
             Assert.That(tracker.LookupByName("RetroArr_download"), Is.Null);
         }
+
+        // The monitor neither waits for a failed grab nor sends it again; a retry in the client keeps its mapping
+        [Test]
+        public void MarkFailed_IsNotPendingAndIsKnownAsFailed()
+        {
+            _tracker.Track(ProwlarrGrab, "snes", 42, null, "Chrono Trigger (USA) [!]");
+
+            _tracker.MarkFailed("Chrono Trigger (USA)", 42);
+
+            Assert.That(_tracker.HasPendingGrab(42), Is.False);
+            Assert.That(_tracker.IsFailedGrab(ProwlarrGrab, null, 42), Is.True, "by its link");
+            Assert.That(_tracker.IsFailedGrab("http://other/download?file=x", "chrono trigger (usa) [!]", 42), Is.True, "by its release title");
+            Assert.That(_tracker.IsFailedGrab("http://prowlarr:9696/4/download?apikey=x&file=Chrono+Trigger+(USA)", "Chrono Trigger (USA)", 42), Is.False);
+            Assert.That((_tracker.LookupByName("Chrono Trigger (USA)"), _tracker.LookupGameId("Chrono Trigger (USA)")), Is.EqualTo(("snes", (int?)42)));
+            Assert.That(new DownloadPlatformTracker(_tempDir).IsFailedGrab(ProwlarrGrab, null, 42), Is.True, "the failure was not saved");
+        }
+
+        [Test]
+        public void ClearFailed_PendingAgain()
+        {
+            _tracker.Track(ProwlarrGrab, "snes", 42, null, "Chrono Trigger (USA)");
+            _tracker.MarkFailed("Chrono Trigger (USA)", 42);
+
+            _tracker.ClearFailed("Chrono Trigger (USA)", 42);
+
+            Assert.That(_tracker.HasPendingGrab(42), Is.True);
+            Assert.That(_tracker.IsFailedGrab(ProwlarrGrab, "Chrono Trigger (USA)", 42), Is.False);
+        }
+
+        // Deleting the failed job from the queue or the client must not let the monitor send it again
+        [Test]
+        public void MarkProcessed_KeepsAFailedGrab()
+        {
+            _tracker.Track(ProwlarrGrab, "snes", 42);
+            _tracker.Track("http://prowlarr:9696/4/download?apikey=x&file=Secret+of+Mana+(USA)", "snes", 43);
+            _tracker.MarkFailed("Chrono Trigger (USA)", 42);
+
+            _tracker.MarkProcessed("Chrono Trigger (USA)");
+            _tracker.MarkProcessed("Secret of Mana (USA)");
+
+            Assert.That(_tracker.IsFailedGrab(ProwlarrGrab, null, 42), Is.True);
+            Assert.That(_tracker.LookupGameId("Secret of Mana (USA)"), Is.Null);
+        }
+
+        [Test]
+        public void FailedGrab_ExpiresSevenDaysAfterTheFailure()
+        {
+            File.WriteAllText(Path.Combine(_tempDir, "download_platform_map.json"), $$"""
+                [
+                  { "Url": "Old.Game", "PlatformFolder": "psx", "GameId": 1, "AddedAt": "{{DateTime.UtcNow.AddDays(-10):O}}", "FailedAt": "{{DateTime.UtcNow.AddDays(-1):O}}" },
+                  { "Url": "Older.Game", "PlatformFolder": "psx", "GameId": 2, "AddedAt": "{{DateTime.UtcNow.AddDays(-10):O}}", "FailedAt": "{{DateTime.UtcNow.AddDays(-8):O}}" }
+                ]
+                """);
+            var tracker = new DownloadPlatformTracker(_tempDir);
+
+            Assert.That(tracker.IsFailedGrab("Old.Game", null, 1), Is.True);
+            Assert.That(tracker.IsFailedGrab("Older.Game", null, 2), Is.False);
+        }
+
+        [Test]
+        public void Track_TheSameLinkAgain_StartsUnfailed()
+        {
+            _tracker.Track(ProwlarrGrab, "snes", 42);
+            _tracker.MarkFailed("Chrono Trigger (USA)", 42);
+
+            _tracker.Track(ProwlarrGrab, "snes", 42);
+
+            Assert.That(_tracker.IsFailedGrab(ProwlarrGrab, null, 42), Is.False);
+            Assert.That(_tracker.HasPendingGrab(42), Is.True);
+        }
+
+        // The queue's mapping is stored under the job's name, next to the grab
+        [Test]
+        public void MarkFailed_JobMappedByHand_FailsItsGrabToo()
+        {
+            _tracker.Track(ProwlarrGrab, "snes", 42);
+            _tracker.SetPlatformForDownload("Chrono Trigger (USA)", "snes", 42);
+
+            _tracker.MarkFailed("Chrono Trigger (USA)", 42);
+
+            Assert.That(_tracker.HasPendingGrab(42), Is.False);
+            Assert.That(_tracker.IsFailedGrab(ProwlarrGrab, null, 42), Is.True);
+
+            _tracker.ClearFailed("Chrono Trigger (USA)", 42);
+
+            Assert.That(_tracker.HasPendingGrab(42), Is.True);
+            Assert.That(_tracker.IsFailedGrab(ProwlarrGrab, null, 42), Is.False);
+        }
+
+        // Every new download clears the mark of its name
+        [Test]
+        public void ClearFailed_NothingFailed_LeavesTheFile()
+        {
+            var file = Path.Combine(_tempDir, "download_platform_map.json");
+            _tracker.Track(ProwlarrGrab, "snes", 42);
+            File.WriteAllText(file, "[]");
+
+            _tracker.ClearFailed("Chrono Trigger (USA)", 42);
+            _tracker.ClearFailed("Secret of Mana (USA)", 43);
+
+            Assert.That(File.ReadAllText(file), Is.EqualTo("[]"));
+        }
+
+        // A restart marks a failed download the client still lists again
+        [Test]
+        public void MarkFailed_Again_KeepsTheFirstFailureAndLeavesTheFile()
+        {
+            var file = Path.Combine(_tempDir, "download_platform_map.json");
+            _tracker.Track(ProwlarrGrab, "snes", 42);
+            _tracker.MarkFailed("Chrono Trigger (USA)", 42);
+            var failedAt = _tracker.GetAll()[0].FailedAt;
+            File.WriteAllText(file, "[]");
+
+            _tracker.MarkFailed("Chrono Trigger (USA)", 42);
+
+            Assert.That(_tracker.GetAll()[0].FailedAt, Is.EqualTo(failedAt));
+            Assert.That(File.ReadAllText(file), Is.EqualTo("[]"));
+        }
+
+        [Test]
+        public void MarkFailed_AgainAfterSixDays_StillExpiresSevenDaysAfterTheFirst()
+        {
+            var failedAt = DateTime.UtcNow.AddDays(-6);
+            File.WriteAllText(Path.Combine(_tempDir, "download_platform_map.json"), $$"""
+                [
+                  { "Url": "Old.Game", "PlatformFolder": "psx", "GameId": 1, "AddedAt": "{{DateTime.UtcNow.AddDays(-10):O}}", "FailedAt": "{{failedAt:O}}" }
+                ]
+                """);
+            var tracker = new DownloadPlatformTracker(_tempDir);
+
+            tracker.MarkFailed("Old.Game", 1);
+
+            Assert.That(tracker.IsFailedGrab("Old.Game", null, 1), Is.True);
+            Assert.That(tracker.GetAll()[0].FailedAt, Is.EqualTo(failedAt));
+            Assert.That(new DownloadPlatformTracker(_tempDir).GetAll()[0].FailedAt, Is.EqualTo(failedAt));
+        }
+
+        // Failed after its grab's first 7 days: the retry runs as a new grab
+        [Test]
+        public void ClearFailed_GrabOlderThanSevenDays_PendingAgain()
+        {
+            File.WriteAllText(Path.Combine(_tempDir, "download_platform_map.json"), $$"""
+                [
+                  { "Url": "Old.Game", "PlatformFolder": "psx", "GameId": 1, "AddedAt": "{{DateTime.UtcNow.AddDays(-10):O}}", "FailedAt": "{{DateTime.UtcNow.AddDays(-1):O}}" }
+                ]
+                """);
+            var tracker = new DownloadPlatformTracker(_tempDir);
+
+            tracker.ClearFailed("Old.Game", 1);
+
+            Assert.That(tracker.HasPendingGrab(1), Is.True);
+            Assert.That(tracker.LookupByName("Old.Game"), Is.EqualTo("psx"));
+        }
+
+        // 'Tetris (USA)' for two systems is two games
+        [Test]
+        public void MarkFailed_SameReleaseNameOfAnotherGame_StaysPending()
+        {
+            const string gameBoy = "http://prowlarr:9696/1/download?apikey=x&file=Tetris+(USA)";
+            _tracker.Track(gameBoy, "gb", 1, null, "Tetris (USA)");
+            _tracker.Track("http://prowlarr:9696/2/download?apikey=x&file=Tetris+(USA)", "nes", 2, null, "Tetris (USA)");
+
+            _tracker.MarkFailed("Tetris (USA)", null);
+            Assert.That((_tracker.HasPendingGrab(1), _tracker.HasPendingGrab(2)), Is.EqualTo((true, true)), "the lookups know no game for the name");
+
+            _tracker.MarkFailed("Tetris (USA)", 1);
+
+            Assert.That(_tracker.HasPendingGrab(1), Is.False);
+            Assert.That(_tracker.HasPendingGrab(2), Is.True);
+            Assert.That(_tracker.IsFailedGrab("http://other/download?file=x", "Tetris (USA)", 1), Is.True);
+            Assert.That(_tracker.IsFailedGrab("http://other/download?file=x", "Tetris (USA)", 2), Is.False);
+            Assert.That(_tracker.IsFailedGrab(gameBoy, null, 2), Is.True, "the same link is the same file");
+        }
+
+        // The lookups find the other game's grab by the name alone
+        [Test]
+        public void MarkAndClearFailed_GrabOfAnotherGame_StaysAsItIs()
+        {
+            const string nes = "http://prowlarr:9696/2/download?apikey=x&file=Tetris+(USA)";
+            _tracker.Track(nes, "nes", 2, null, "Tetris (USA)");
+
+            _tracker.MarkFailed("Tetris (USA)", 1);
+
+            Assert.That(_tracker.HasPendingGrab(2), Is.True);
+            Assert.That(_tracker.IsFailedGrab(nes, null, 2), Is.False);
+
+            _tracker.MarkFailed("Tetris (USA)", 2);
+            _tracker.ClearFailed("Tetris (USA)", 1);
+
+            Assert.That(_tracker.HasPendingGrab(2), Is.False);
+            Assert.That(_tracker.IsFailedGrab(nes, null, 2), Is.True);
+        }
+
+        // A grab sent with a platform but no game is no other game's
+        [Test]
+        public void MarkAndClearFailed_GrabWithoutGame_FollowsTheDownload()
+        {
+            _tracker.Track(ProwlarrGrab, "snes");
+
+            _tracker.MarkFailed("Chrono Trigger (USA)", 42);
+
+            Assert.That(_tracker.IsFailedGrab(ProwlarrGrab, null, 42), Is.True);
+
+            _tracker.ClearFailed("Chrono Trigger (USA)", 42);
+
+            Assert.That(_tracker.IsFailedGrab(ProwlarrGrab, null, 42), Is.False);
+        }
     }
 }

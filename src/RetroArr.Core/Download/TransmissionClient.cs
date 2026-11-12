@@ -326,7 +326,7 @@ namespace RetroArr.Core.Download
                 foreach (var torrent in torrents.EnumerateArray())
                 {
                     var labels = ReadLabels(torrent).ToList();
-                    statusList.Add(new DownloadStatus
+                    var status = new DownloadStatus
                     {
                         // the numeric id changes with every daemon restart, the hash never does
                         Id = torrent.GetProperty("hashString").GetString() ?? string.Empty,
@@ -336,7 +336,16 @@ namespace RetroArr.Core.Download
                         State = MapState(torrent.GetProperty("status").GetInt32(), torrent.GetProperty("percentDone").GetDouble()),
                         DownloadPath = CombinePath(torrent.GetProperty("downloadDir").GetString(), torrent.GetProperty("name").GetString()),
                         Category = labels.FirstOrDefault(l => l.Equals(_category, StringComparison.OrdinalIgnoreCase)) ?? labels.FirstOrDefault()
-                    });
+                    };
+                    // 3 is TR_STAT_LOCAL_ERROR (disk full, no permission, data gone); 1 and 2 are tracker trouble only.
+                    // A finished torrent whose data went away, such as moved by the import, stays finished.
+                    if (status.State != DownloadState.Completed && torrent.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.Number && error.GetInt32() == 3)
+                    {
+                        status.State = DownloadState.Error;
+                        var errorString = torrent.TryGetProperty("errorString", out var text) && text.ValueKind == JsonValueKind.String ? text.GetString() : null;
+                        if (!string.IsNullOrWhiteSpace(errorString)) status.StatusMessages.Add(errorString);
+                    }
+                    statusList.Add(status);
                 }
             }
 
