@@ -232,5 +232,97 @@ namespace RetroArr.Core.Test.Download
             service.TrackDownload(Status("hash", "Game A"), 1, "qBittorrent");
             Assert.That(tracked.ClientMessage, Is.Null);
         }
+
+        private static DownloadStatus Failed(string id, string name, string? reason = null)
+        {
+            var status = Status(id, name, DownloadState.Error);
+            if (reason != null) status.StatusMessages.Add(reason);
+            return status;
+        }
+
+        // SABnzbd and NZBGet keep a failed job in their history, so the client keeps reporting it
+        [Test]
+        public void ClientReportsFailure_DownloadFailedWithTheClientsReason()
+        {
+            var service = new TrackedDownloadService(_root);
+            var tracked = service.TrackDownload(Status("nzo_1", "Game A", DownloadState.Downloading), 1, "SABnzbd");
+
+            service.TrackDownload(Failed("nzo_1", "Game A", "Aborted, cannot be completed"), 1, "SABnzbd");
+
+            Assert.That((tracked.State, tracked.Status), Is.EqualTo((TrackedDownloadState.DownloadFailed, TrackedDownloadStatus.Error)));
+            Assert.That(tracked.StatusMessages, Is.EqualTo(new[] { "Aborted, cannot be completed" }));
+            Assert.That(new TrackedDownloadService(_root).Find(1, "nzo_1")?.State, Is.EqualTo(TrackedDownloadState.DownloadFailed));
+        }
+
+        [Test]
+        public void FirstSeenFailed_WithoutReason_DownloadFailed()
+        {
+            var tracked = new TrackedDownloadService(_root).TrackDownload(Failed("7", "Game A"), 1, "NZBGet");
+
+            Assert.That(tracked.State, Is.EqualTo(TrackedDownloadState.DownloadFailed));
+            Assert.That(tracked.StatusMessages, Is.EqualTo(new[] { "The download client reports this download as failed." }));
+        }
+
+        // A client error later on, such as qBittorrent's missingfiles once the import moved the files, changes nothing
+        [TestCase(TrackedDownloadState.ImportPending)]
+        [TestCase(TrackedDownloadState.ImportBlocked)]
+        [TestCase(TrackedDownloadState.ImportFailed)]
+        [TestCase(TrackedDownloadState.Imported)]
+        [TestCase(TrackedDownloadState.Ignored)]
+        public void ClientReportsFailure_AfterTheDownload_KeepsTheState(TrackedDownloadState state)
+        {
+            var service = new TrackedDownloadService(_root);
+            var tracked = service.TrackDownload(Status("hash", "Game A"), 1, "qBittorrent");
+            tracked.State = state;
+
+            service.TrackDownload(Failed("hash", "Game A", "missing files"), 1, "qBittorrent");
+
+            Assert.That(tracked.State, Is.EqualTo(state));
+        }
+
+        // Retried or resumed in the client
+        [TestCase(DownloadState.Downloading, TrackedDownloadState.Downloading)]
+        [TestCase(DownloadState.Queued, TrackedDownloadState.Downloading)]
+        [TestCase(DownloadState.Completed, TrackedDownloadState.ImportPending)]
+        public void FailedDownload_ClientWorksOnItAgain_PicksUp(DownloadState clientState, TrackedDownloadState expected)
+        {
+            var service = new TrackedDownloadService(_root);
+            var tracked = service.TrackDownload(Failed("nzo_1", "Game A", "Aborted, cannot be completed"), 1, "SABnzbd");
+
+            service.TrackDownload(Status("nzo_1", "Game A", clientState), 1, "SABnzbd");
+
+            Assert.That((tracked.State, tracked.Status), Is.EqualTo((expected, TrackedDownloadStatus.Ok)));
+            Assert.That(tracked.StatusMessages, Is.Empty);
+        }
+
+        [Test]
+        public void Reconcile_DropsAFailedDownloadTheClientNoLongerReports()
+        {
+            var service = new TrackedDownloadService(_root);
+            service.TrackDownload(Failed("nzo_1", "Game A"), 1, "SABnzbd");
+            service.TrackDownload(Failed("nzo_2", "Game B"), 1, "SABnzbd");
+
+            service.ReconcileWithClientIds(new HashSet<(int, string)> { (1, "nzo_2") });
+
+            Assert.That(service.Find(1, "nzo_1"), Is.Null);
+            Assert.That(service.Find(1, "nzo_2")?.State, Is.EqualTo(TrackedDownloadState.DownloadFailed));
+        }
+
+        // Otherwise the monitored search skips the game until the grab expires
+        [Test]
+        public void ClientReportsFailure_ReleasesTheGrabForTheGame()
+        {
+            var grabs = new DownloadPlatformTracker(_root);
+            grabs.Track("Game A", "switch", 7);
+            var service = new TrackedDownloadService(_root);
+
+            var tracked = service.TrackDownload(Status("nzo_1", "Game A", DownloadState.Downloading), 1, "SABnzbd", grabs);
+            Assert.That(grabs.HasPendingGrab(7), Is.True);
+
+            service.TrackDownload(Failed("nzo_1", "Game A"), 1, "SABnzbd", grabs);
+
+            Assert.That(grabs.HasPendingGrab(7), Is.False);
+            Assert.That((tracked.PlatformFolder, tracked.GameId), Is.EqualTo(("switch", (int?)7)), "a retry still knows its game");
+        }
     }
 }
