@@ -34,6 +34,8 @@ namespace RetroArr.Core.Test.Download
             };
             // Newest first, cut to history_limit after the category filter like SAB does
             public int HistoryLimit { get; set; } = int.MaxValue;
+            // History jobs that failed, with SAB's reason
+            public Dictionary<string, string> FailMessages { get; } = new();
             public List<string> Categories { get; } = new() { "*", "tv-sonarr" };
             public string? CreateCategoryError { get; set; }
             public List<string> Requests { get; } = new();
@@ -103,7 +105,8 @@ namespace RetroArr.Core.Test.Download
                     else
                     {
                         var slots = History.Where(j => wanted == null || wanted.Contains(j.Category)).Take(HistoryLimit).Select(j =>
-                            $"{{\"nzo_id\":\"{j.Id}\",\"name\":\"{j.Id}\",\"size\":\"1 MB\",\"status\":\"Completed\",\"category\":\"{j.Category}\",\"storage\":\"/d/{j.Id}\"}}");
+                            $"{{\"nzo_id\":\"{j.Id}\",\"name\":\"{j.Id}\",\"size\":\"1 MB\",\"status\":\"{(FailMessages.ContainsKey(j.Id) ? "Failed" : "Completed")}\"," +
+                            $"\"fail_message\":{System.Text.Json.JsonSerializer.Serialize(FailMessages.GetValueOrDefault(j.Id, ""))},\"category\":\"{j.Category}\",\"storage\":\"/d/{j.Id}\"}}");
                         body = $"{{\"history\":{{\"slots\":[{string.Join(",", slots)}]}}}}";
                     }
 
@@ -175,6 +178,21 @@ namespace RetroArr.Core.Test.Download
                 .Where(d => string.Equals(d.Category, "RetroArr", StringComparison.OrdinalIgnoreCase))
                 .Select(d => d.Id);
             Assert.That(seen, Does.Contain("ours"));
+        }
+
+        [Test]
+        public async Task History_FailedJob_IsAnErrorWithSabsReason()
+        {
+            using var sab = new FakeSabnzbd { History = new[] { ("ok", "retroarr"), ("bad", "retroarr") } };
+            sab.FailMessages["bad"] = "Aborted, cannot be completed - https://sabnzbd.org/not-complete";
+            var client = new SabnzbdClient("127.0.0.1", sab.Port, "key");
+
+            var jobs = (await client.GetDownloadsAsync()).ToDictionary(d => d.Id);
+
+            Assert.That(jobs["bad"].State, Is.EqualTo(DownloadState.Error));
+            Assert.That(jobs["bad"].StatusMessages, Is.EqualTo(new[] { "Aborted, cannot be completed - https://sabnzbd.org/not-complete" }));
+            Assert.That(jobs["ok"].State, Is.EqualTo(DownloadState.Completed));
+            Assert.That(jobs["ok"].StatusMessages, Is.Empty);
         }
 
         [Test]

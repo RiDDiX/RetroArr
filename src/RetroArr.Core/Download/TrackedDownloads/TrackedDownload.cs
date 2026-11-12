@@ -5,7 +5,8 @@ namespace RetroArr.Core.Download.TrackedDownloads
 {
     /// <summary>
     /// Tracks a download through its lifecycle.
-    /// State machine: Downloading → ImportPending → Importing → Imported | ImportFailed | Ignored
+    /// State machine: Downloading → ImportPending → Importing → Imported | ImportFailed | Ignored,
+    /// or Downloading → DownloadFailed when the download client reports the download as failed
     /// </summary>
     public class TrackedDownload
     {
@@ -81,8 +82,17 @@ namespace RetroArr.Core.Download.TrackedDownloads
             State = TrackedDownloadState.Ignored;
             Status = TrackedDownloadStatus.Ok;
         }
+
+        public void MarkDownloadFailed(string reason)
+        {
+            State = TrackedDownloadState.DownloadFailed;
+            Status = TrackedDownloadStatus.Error;
+            StatusMessages.Clear();
+            StatusMessages.Add(reason);
+        }
     }
 
+    // tracked_downloads.json stores these as numbers: add new states at the end
     public enum TrackedDownloadState
     {
         Downloading,
@@ -91,7 +101,8 @@ namespace RetroArr.Core.Download.TrackedDownloads
         Importing,
         Imported,
         ImportFailed,
-        Ignored
+        Ignored,
+        DownloadFailed
     }
 
     public enum TrackedDownloadStatus

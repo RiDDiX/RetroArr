@@ -276,7 +276,7 @@ namespace RetroArr.Core.Download
                     {
                         foreach (var slot in slots.EnumerateArray())
                         {
-                            statusList.Add(new DownloadStatus
+                            var job = new DownloadStatus
                             {
                                 Id = slot.TryGetProperty("nzo_id", out var nzoId) ? nzoId.GetString() ?? string.Empty : string.Empty,
                                 Name = slot.TryGetProperty("name", out var name) ? name.GetString() ?? string.Empty : string.Empty,
@@ -285,7 +285,12 @@ namespace RetroArr.Core.Download
                                 State = slot.TryGetProperty("status", out var status) ? MapHistoryStatus(status.GetString()) : DownloadState.Unknown,
                                 Category = slot.TryGetProperty("category", out var cat) ? cat.GetString() : null,
                                 DownloadPath = slot.TryGetProperty("storage", out var storage) ? storage.GetString() : null
-                            });
+                            };
+                            // Why SAB gave up on the job, such as missing articles
+                            if (job.State == DownloadState.Error && slot.TryGetProperty("fail_message", out var failMessage)
+                                && failMessage.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(failMessage.GetString()))
+                                job.StatusMessages.Add(failMessage.GetString()!);
+                            statusList.Add(job);
                         }
                     }
                 }

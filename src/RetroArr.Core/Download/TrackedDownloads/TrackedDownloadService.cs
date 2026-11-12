@@ -56,10 +56,25 @@ namespace RetroArr.Core.Download.TrackedDownloads
                 if (!string.IsNullOrEmpty(downloadItem.ImportSubfolder) && string.IsNullOrEmpty(existing.ImportSubfolder))
                     existing.ImportSubfolder = downloadItem.ImportSubfolder;
 
+                // Retried or resumed in the client after it failed: it is downloading again
+                if (existing.State == TrackedDownloadState.DownloadFailed && downloadItem.State != DownloadState.Error)
+                {
+                    existing.State = TrackedDownloadState.Downloading;
+                    existing.ClearWarnings();
+                    Save();
+                }
+
                 // If download client reports completed and we're still in Downloading, advance to ImportPending
                 if (downloadItem.State == DownloadState.Completed && existing.State == TrackedDownloadState.Downloading)
                 {
                     existing.State = TrackedDownloadState.ImportPending;
+                }
+
+                // A failed job stays in the client's history (SABnzbd, NZBGet), so it would read Downloading for good
+                if (downloadItem.State == DownloadState.Error && existing.State == TrackedDownloadState.Downloading)
+                {
+                    MarkDownloadFailed(existing, downloadItem);
+                    Save();
                 }
 
                 return existing;
@@ -84,10 +99,20 @@ namespace RetroArr.Core.Download.TrackedDownloads
                     : TrackedDownloadState.Downloading,
                 Added = DateTime.UtcNow
             };
+            if (downloadItem.State == DownloadState.Error)
+                MarkDownloadFailed(tracked, downloadItem);
 
             _cache.TryAdd((clientId, downloadItem.Id), tracked);
             Save();
             return tracked;
+        }
+
+        // With the client's own reason where it gives one, such as SABnzbd's fail_message
+        private static void MarkDownloadFailed(TrackedDownload tracked, DownloadStatus downloadItem)
+        {
+            var reason = downloadItem.StatusMessages.FirstOrDefault() ?? "The download client reports this download as failed.";
+            tracked.MarkDownloadFailed(reason);
+            _logger.Info($"[TrackedDownload] '{tracked.Title}' failed in {tracked.DownloadClientName}: {reason}");
         }
 
         // Tracks a download with what the grabs know of it by its name: platform, game and import subfolder, each where
@@ -97,9 +122,13 @@ namespace RetroArr.Core.Download.TrackedDownloads
             download.PlatformFolder = grabs.LookupByName(download.Name);
             download.GameId = grabs.LookupGameId(download.Name);
             download.ImportSubfolder = grabs.LookupImportSubfolder(download.Name);
+            var failedBefore = Find(clientId, download.Id)?.State == TrackedDownloadState.DownloadFailed;
             var tracked = TrackDownload(download, clientId, clientName);
             if (!string.IsNullOrEmpty(download.PlatformFolder) && string.IsNullOrEmpty(tracked.PlatformFolder))
                 tracked.PlatformFolder = download.PlatformFolder;
+            // A failed grab no longer holds back the monitor's next search for the game
+            if (tracked.State == TrackedDownloadState.DownloadFailed && !failedBefore)
+                grabs.MarkProcessed(download.Name);
             return tracked;
         }
 
@@ -138,8 +167,8 @@ namespace RetroArr.Core.Download.TrackedDownloads
                     continue;
                 }
 
-                // Downloading but client no longer reports it: gone (deleted or auto-cleaned)
-                if (tracked.State == TrackedDownloadState.Downloading)
+                // Downloading or failed but client no longer reports it: gone (deleted or auto-cleaned)
+                if (tracked.State == TrackedDownloadState.Downloading || tracked.State == TrackedDownloadState.DownloadFailed)
                 {
                     _logger.Info($"[TrackedDownload] Removing stale entry '{tracked.Title}' - no longer in client queue.");
                     _cache.TryRemove(Key(tracked), out _);

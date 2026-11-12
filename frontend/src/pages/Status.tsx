@@ -173,7 +173,7 @@ function formatBytes(bytes: number): string {
 
 function getStateBadgeClass(state: string | number): string {
   const lower = String(state ?? '').toLowerCase();
-  if (lower.includes('import') && lower.includes('fail')) return 'error';
+  if (lower.includes('fail')) return 'error';
   if (lower.includes('imported')) return 'completed';
   if (lower.includes('importing')) return 'copying';
   if (lower.includes('download')) return 'downloading';
