@@ -59,6 +59,12 @@ assert(dockerfile.includes('/home/retroarr') && !dockerfile.includes('ENV HOME='
   'HOME must not be an image ENV (a root docker exec would read the app user\'s dotfiles)');
 assert(entry.includes('export HOME=/home/retroarr'), 'entrypoint gives the app user a writable HOME');
 
+// Issue #16: a volume on /app or a changed working_dir made dotnet report a missing dll
+assert(entry.includes('exec dotnet /app/RetroArr.Host.dll "$@"'), 'app starts by absolute path, whatever the working dir');
+assert(entry.indexOf('[ ! -f /app/RetroArr.Host.dll ]') > -1 &&
+  entry.indexOf('[ ! -f /app/RetroArr.Host.dll ]') < entry.indexOf('chown'),
+  'entrypoint stops before any chown when a volume hides /app');
+
 // Frontend
 const client = read('frontend', 'src', 'api', 'client.ts');
 assert(client.includes("apiClient.get<PrefillProviderStatus[]>('/lancache/prefill/status')"), 'getPrefillStatus wrapper (array)');

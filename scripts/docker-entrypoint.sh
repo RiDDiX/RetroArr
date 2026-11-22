@@ -1,6 +1,12 @@
 #!/bin/sh
 set -e
 
+# A volume mounted on /app itself hides the app; stop before touching anything in it
+if [ ! -f /app/RetroArr.Host.dll ]; then
+    echo "[entrypoint] error: /app/RetroArr.Host.dll is missing. A volume is mounted on /app and hides the app; mount the config folder on /app/config instead."
+    exit 1
+fi
+
 # Started as root (the default): hand the app's own folders to PUID/PGID, then run
 # this script again as that user, so the cert, the prefill links and the app itself
 # are all created and run as PUID/PGID. That keeps a config folder docker created as
@@ -144,4 +150,4 @@ for tool in steamprefill:SteamPrefill battlenetprefill:BattleNetPrefill epicpref
     touch "$dir/app.log" 2>/dev/null || true
 done
 
-exec dotnet RetroArr.Host.dll "$@"
+exec dotnet /app/RetroArr.Host.dll "$@"
