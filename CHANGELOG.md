@@ -1,3 +1,8 @@
+## v1.0.240 (2026-11-22)
+
+### Changes
+- use absolute path for dotnet and guard /app volume (#16) (f94ca6a)
+
 ## v1.0.239 (2026-11-12)
 
 ### Changes
