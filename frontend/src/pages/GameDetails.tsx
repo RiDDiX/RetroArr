@@ -13,6 +13,7 @@ import ScoreCircle from '../components/ScoreCircle';
 import RegionFlag from '../components/RegionFlag';
 import ProtonDbBadge from '../components/ProtonDbBadge';
 import MonitorPanel from '../components/MonitorPanel';
+import { getReleaseSearchCategories } from '../utils/releaseSearchCategories';
 import './GameDetails.css';
 
 interface Game {
@@ -32,6 +33,7 @@ interface Game {
     id?: number;
     name: string;
     slug?: string;
+    category?: string;
   };
   platformId?: number;
   status: string | number;
@@ -633,24 +635,6 @@ const GameDetails: React.FC = () => {
     return 'warning';
   };
 
-  // Platform configurations for release search
-  // Steam, GOG Galaxy, and generic PC games all use PC categories
-  const PC_CONFIG = { categories: [4000, 4010, 4050] };
-
-  const PLATFORM_CONFIG: Record<string, { categories: number[] }> = {
-    // All PC-based platforms share the same config
-    'PC': PC_CONFIG,
-    'Steam': PC_CONFIG,
-    'GOG': PC_CONFIG,
-    'GOG Galaxy': PC_CONFIG,
-    'Windows': PC_CONFIG,
-    'Nintendo Switch': { categories: [1000, 1030] },
-    'PlayStation 4': { categories: [1000, 1080] },
-    'PlayStation 5': { categories: [1000] },
-    'Xbox One': { categories: [1000] },
-    'Xbox Series': { categories: [1000] }
-  };
-
   // Platform column and row color follow the backend detector, checked against the game's own platform folder.
   // A folder the download dialog cannot offer stays neutral, the dialog then preselects the game's folder
   const getResultPlatform = (result: TorrentResult) => {
@@ -696,17 +680,6 @@ const GameDetails: React.FC = () => {
     const searchQuery = overrideQuery || customSearchQuery || game.title;
     if (!customSearchQuery) setCustomSearchQuery(game.title);
 
-    const platformSlug = game.platform?.slug?.toLowerCase();
-
-    // Determine if this is a PC-based platform (Steam, GOG, Windows, etc.)
-    const isPCPlatform = platformSlug === 'pc' || platformSlug === 'steam' || platformSlug === 'steamos' || 
-                         platformSlug === 'gog' || platformSlug === 'windows' ||
-                         game.platform?.name?.toLowerCase().includes('pc') ||
-                         game.platform?.name?.toLowerCase().includes('steam') ||
-                         game.platform?.name?.toLowerCase().includes('gog') ||
-                         game.platform?.name?.toLowerCase().includes('windows');
-
-    console.log('[Release Search] Platform:', game.platform?.name, 'Slug:', platformSlug, 'Is PC:', isPCPlatform);
     console.log('[Release Search] Game IDs - Steam:', game.steamId || 'none', 'GOG:', game.gogId || 'none');
 
     // For GOG games with a GOG ID, fetch GOG downloads AND search for releases
@@ -741,38 +714,7 @@ const GameDetails: React.FC = () => {
       }
     }
 
-    // Get categories based on platform - PC platforms all use PC categories
-    let cats = '';
-    let config = null;
-    
-    if (isPCPlatform) {
-      // All PC-based platforms (Steam, GOG, Windows, etc.) use PC categories
-      config = PC_CONFIG;
-    } else if (game.platform) {
-      const platformName = game.platform.name;
-      
-      // Try exact match first, then partial match for console platforms
-      config = PLATFORM_CONFIG[platformName];
-      if (!config) {
-        if (platformSlug === 'switch' || platformSlug === 'switch2' || platformName.includes('Switch')) {
-          config = PLATFORM_CONFIG['Nintendo Switch'];
-        } else if (platformSlug === 'ps4' || platformName.includes('PlayStation 4')) {
-          config = PLATFORM_CONFIG['PlayStation 4'];
-        } else if (platformSlug === 'ps5' || platformName.includes('PlayStation 5')) {
-          config = PLATFORM_CONFIG['PlayStation 5'];
-        } else if (platformSlug === 'xboxone' || platformName.includes('Xbox One')) {
-          config = PLATFORM_CONFIG['Xbox One'];
-        } else if (platformSlug === 'xboxseriesx' || platformName.includes('Xbox Series')) {
-          config = PLATFORM_CONFIG['Xbox Series'];
-        }
-      }
-    }
-    
-    if (config) {
-      cats = config.categories.join(',');
-    }
-
-    console.log('[Release Search] Categories:', cats);
+    const cats = getReleaseSearchCategories(game.platform);
 
     try {
       console.log('[Release Search] Making API request to /api/v3/search with query:', searchQuery, 'categories:', cats);
